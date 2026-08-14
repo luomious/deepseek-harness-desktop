@@ -17,7 +17,21 @@ const isDev = process.argv.includes('--dev');
 let mainWindow = null;
 let dshProcess = null;
 let isQuitting = false;
-let updateAvailableInfo = null;
+
+// ── 单实例锁：防止双击两次导致多个窗口共享一个 DSH 服务 ──
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  // 已有实例在运行，退出本实例
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 第二个实例被唤起时，聚焦已有窗口
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 // ── 工具函数 ──────────────────────────────────────────
 
@@ -43,37 +57,77 @@ async function waitForDSH(maxRetries = 60, interval = 500) {
 }
 
 /** 执行命令并获取输出 */
-/** 执行命令行（stdout 正常返回，失败时抛 Error 而非静默返回空串） */
-function runCmd(cmd, args, cwd) {
-  try {
-    // 参数含空格/引号时加双引号包裹，避免命令拼接错误
-    const quotedArgs = args.map(a => {
-      const s = String(a);
-      return /[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
-    }).join(' ');
-    // cmd 本身含空格时也加引号
-    const cmdQuoted = /[\s"]/.test(cmd) ? `"${cmd}"` : cmd;
-    const result = execSync(`${cmdQuoted} ${quotedArgs}`, {
+/**
+ * 执行 dsh 命令（安全版本）
+ * - 直接 spawn(node.exe, [bin.js, ...args], {shell:false})：不经过任何 shell，
+ *   参数数组由 CreateProcess 原样传递 → 命令注入在结构上不可能发生
+ * - 参数先过白名单校验（纵深防御）
+ * - 同步等待结果，失败时抛 Error 而非静默返回空串
+ */
+function runCmd(args, cwd, argType) {
+  return new Promise((resolve, reject) => {
+    const dsh = findDshBin();
+    if (!dsh) {
+      reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
+      return;
+    }
+
+    // 参数白名单校验（args 之外的所有位置参数）
+    if (argType) {
+      for (const a of args) {
+        const err = validateArg(a, argType);
+        if (err) { reject(new Error(err)); return; }
+      }
+    }
+
+    const child = spawn(dsh.node, [dsh.bin, ...args], {
       cwd: cwd || os.homedir(),
-      encoding: 'utf-8',
-      timeout: 30000,
       windowsHide: true,
+      shell: false,  // 关键：不经过 shell/cmd，杜绝命令注入
     });
-    return result.trim();
-  } catch (e) {
-    // 命令失败时：若 stdout 有内容（部分输出）也返回，以便上层判断
-    // 若无输出则抛错误，让调用方 catch 块能感知失败
-    const msg = e.stdout?.trim() || e.message;
-    if (!msg) throw new Error(`命令执行失败: ${cmd} ${args.join(' ')}`);
-    throw new Error(msg);
-  }
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        try { child.kill(); } catch (e) {}
+        reject(new Error(`命令超时: ${args.join(' ')}`));
+      }
+    }, 30000);
+
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(new Error(`命令执行失败: ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const out = stdout.trim();
+      if (code === 0) {
+        resolve(out);
+      } else {
+        const msg = out || stderr.trim() || `exit code ${code}`;
+        reject(new Error(msg));
+      }
+    });
+  });
 }
 
 /** 获取已安装的 DSH 版本（完全动态，不含硬编码路径） */
-function getInstalledVersion() {
+async function getInstalledVersion() {
   try {
     // 优先用 npm list -g（动态获取，与安装位置无关）
-    const out = runCmd('npm', ['list', '-g', DSH_PKG, '--json', '--depth=0']);
+    const out = await runCmd(['list', '-g', DSH_PKG, '--json', '--depth=0'], null, null);
     if (out) {
       const data = JSON.parse(out);
       const ver = data.dependencies?.[DSH_PKG]?.version;
@@ -91,12 +145,14 @@ function getInstalledVersion() {
   return null;
 }
 
-/** 获取 npm 上最新版本（处理 301 重定向） */
+/** 获取 npm 上最新版本（处理 301 重定向，带超时） */
 function getLatestVersion() {
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (val) => { if (!settled) { settled = true; resolve(val); } };
     const request = (url) => {
       const mod = url.startsWith('https') ? require('https') : require('http');
-      mod.get(url, (res) => {
+      const req = mod.get(url, (res) => {
         // 处理重定向（301/302/307/308）
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
@@ -108,10 +164,13 @@ function getLatestVersion() {
         res.on('end', () => {
           try {
             const pkg = JSON.parse(data);
-            resolve(pkg.version || null);
-          } catch { resolve(null); }
+            done(pkg.version || null);
+          } catch { done(null); }
         });
-      }).on('error', () => resolve(null));
+      });
+      req.on('error', () => done(null));
+      // 超时保护：npm 仓库挂起不卡死启动/更新检查
+      req.setTimeout(15000, () => { req.destroy(); done(null); });
     };
     request(`https://registry.npmjs.org/${DSH_PKG}/latest`);
   });
@@ -132,6 +191,10 @@ function isNewer(local, remote) {
   if (!local || !remote) return false;
 
   const parseSemver = (v) => {
+    // 防御：npm 可能返回数字类型版本号（如 1.2.3 被 JSON 解析为数字）
+    if (typeof v !== 'string') {
+      try { v = String(v); } catch (e) { return { parts: [0, 0, 0], pre: '' }; }
+    }
     // 分离 major.minor.patch 和 pre-release 标签
     const main = v.replace(/-.*$/, '').split('.').map(n => parseInt(n, 10) || 0);
     const pre = v.includes('-') ? v.split('-')[1] : '';
@@ -150,44 +213,166 @@ function isNewer(local, remote) {
   }
 
   // 主版本相同，按 semver 规范比较 pre-release：
-  // 正式版 > 任何 pre-release；rc.10 > rc.6（字典序比较）
+  // 正式版 > 任何 pre-release；pre-release 按数字标识符数值比较
   if (!lp.pre && !rp.pre) return false;      // 完全相同
   if (!lp.pre && rp.pre) return false;       // local 正式版 > remote rc → 无更新
   if (lp.pre && !rp.pre) return true;        // local rc → remote 正式版 → 有更新
-  return rp.pre > lp.pre;                    // 都是 rc，比较标签
+
+  // 都是 pre-release：按 . 分隔的标识符逐段比较（数字按数值，字母按字符串）
+  const lpParts = lp.pre.split('.');
+  const rpParts = rp.pre.split('.');
+  const maxLen = Math.max(lpParts.length, rpParts.length);
+  for (let i = 0; i < maxLen; i++) {
+    const l = lpParts[i];
+    const r = rpParts[i];
+    if (l === undefined) return true;   // local 更短 → local 更旧 → 有更新
+    if (r === undefined) return false;  // remote 更短 → remote 更旧 → 无更新
+    if (l === r) continue;
+    // 数字段按数值比较
+    const ln = /^\d+$/.test(l) ? parseInt(l, 10) : NaN;
+    const rn = /^\d+$/.test(r) ? parseInt(r, 10) : NaN;
+    if (!isNaN(ln) && !isNaN(rn)) return rn > ln;
+    // 字母段按字符串比较
+    return r > l;
+  }
+  return false;  // 完全相同
 }
 
-/** 定位 dsh 可执行文件（不依赖 PATH，因为双击快捷方式时 PATH 不含 npm-global） */
-function findDshCommand() {
-  const candidates = [];
+/**
+ * 定位 dsh 的 node 解释器 + bin.js 绝对路径（安全执行方案）
+ * 不依赖 PATH（双击快捷方式时 PATH 不含 npm-global），也完全绕开 .cmd/shell
+ * 返回 { node, bin }，分别是要执行的 node.exe 与 dsh 的 lib/bin.js
+ */
+function findDshBin() {
+  // 1. 定位 node.exe（系统 PATH 含 nodejs 目录，用 where 动态解析）
+  let nodeExe = null;
 
-  // 1. 通过 npm prefix -g 获取全局 bin 目录
+  // 优先：当前进程的 node.exe（最可靠，spawn 一定能执行）
+  if (process.execPath && process.execPath.endsWith('node.exe') && fs.existsSync(process.execPath)) {
+    nodeExe = process.execPath;
+  }
+
+  // 备用：where node（过滤 .cmd/.bat shim，只要真正的 node.exe）
+  if (!nodeExe) {
+    try {
+      const lines = execSync('where node', { encoding: 'utf-8', windowsHide: true }).trim().split(/\r?\n/);
+      for (const line of lines) {
+        const p = line.trim();
+        if (p && !p.toLowerCase().endsWith('.cmd') && !p.toLowerCase().endsWith('.bat') && fs.existsSync(p)) {
+          nodeExe = p;
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 兜底：常见安装位置
+  if (!nodeExe) {
+    for (const c of [
+      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+    ]) {
+      try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
+    }
+  }
+
+  // 2. 定位 dsh 的 lib/bin.js（npm 全局安装目录）
+  const binCandidates = [];
+  try {
+    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (prefix) binCandidates.push(path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
+  } catch (e) {}
+  try {
+    const root = execSync('npm root -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (root) binCandidates.push(path.join(root, '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
+  } catch (e) {}
+  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
+  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
+
+  let binJs = null;
+  for (const c of binCandidates) {
+    try { if (c && fs.existsSync(c)) { binJs = c; break; } } catch (e) {}
+  }
+
+  if (!nodeExe || !binJs) return null;
+  return { node: nodeExe, bin: binJs };
+}
+
+/**
+ * 参数白名单校验（纵深防御，防止未来回归）
+ * - 远程插件名：npm 包名规范（小写字母/数字/-/_/.），拒绝一切 shell 元字符
+ * - 本地插件路径：绝对路径，拒绝 " & | < > ; ( ) * ? 等 shell 元字符
+ * 返回 null 表示合法，否则返回错误描述
+ */
+/**
+ * 定位 pnpm.cjs（node 可直接执行的 pnpm 入口，无需 cmd shim）
+ * 绕过 dsh plugin 命令（上游在 Windows 用 shell:true 执行 pnpm，存在命令注入漏洞）
+ */
+function findPnpmBin() {
   try {
     const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
     if (prefix) {
-      candidates.push(path.join(prefix, 'dsh.cmd'));
-      candidates.push(path.join(prefix, 'dsh'));
+      const candidates = [
+        path.join(prefix, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
+        path.join(prefix, 'pnpm.cjs'),
+      ];
+      for (const c of candidates) {
+        try { if (fs.existsSync(c)) return c; } catch (e) {}
+      }
     }
   } catch (e) {}
+  // 兜底：常见位置
+  for (const base of [
+    path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
+    path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
+  ]) {
+    const c = path.join(base, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs');
+    try { if (fs.existsSync(c)) return c; } catch (e) {}
+  }
+  return null;
+}
 
-  // 2. 通过 npm root -g 推断（bin 在 root 的上一级）
+/** 定位 npm-cli.js（node 可直接执行，替代 npm.cmd） */
+function findNpmCli() {
   try {
-    const root = execSync('npm root -g', { encoding: 'utf-8', windowsHide: true }).trim();
-    if (root) {
-      candidates.push(path.join(path.dirname(root), 'dsh.cmd'));
-      candidates.push(path.join(path.dirname(root), 'dsh'));
+    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (prefix) {
+      const c = path.join(prefix, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      try { if (fs.existsSync(c)) return c; } catch (e) {}
     }
   } catch (e) {}
+  // 兜底：常见位置
+  for (const base of [
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
+    path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
+    path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+  ]) {
+    const c = path.join(base, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    try { if (fs.existsSync(c)) return c; } catch (e) {}
+  }
+  return null;
+}
 
-  // 3. 常见全局安装位置
-  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'dsh.cmd'));
-  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'dsh.cmd'));
-  candidates.push('C:\\Program Files\\nodejs\\dsh.cmd');
+/** 安全关闭窗口（防重复 close 报错） */
+function safeClose(win) {
+  try { if (win && !win.isDestroyed()) win.close(); } catch (e) {}
+}
 
-  for (const c of candidates) {
-    try {
-      if (c && fs.existsSync(c)) return c;
-    } catch (e) {}
+function validateArg(input, type) {
+  if (!input || typeof input !== 'string') return '参数为空';
+  if (input.length > 512) return '参数过长';
+  if (input.includes('\0')) return '参数含非法字符';
+  if (type === 'pkg') {
+    // npm 包名：@scope/name 或 name
+    if (!/^(@[a-z0-9](?:[a-z0-9-._~]*[a-z0-9])?\/)?[a-z0-9](?:[a-z0-9-._~]*[a-z0-9])?$/i.test(input)) {
+      return '插件名不合法（仅允许 npm 包名字符）';
+    }
+  } else if (type === 'path') {
+    // 本地路径：必须是绝对路径，且不含 shell 元字符
+    if (!path.isAbsolute(input)) return '必须是绝对路径';
+    if (/["&|<>;()*?\r\n]/.test(input)) return '路径含非法字符';
   }
   return null;
 }
@@ -198,19 +383,19 @@ function startDSH() {
     const isWindows = process.platform === 'win32';
     const dshArgs = ['web'];
 
-    // 使用绝对路径启动，避免双击快捷方式时 PATH 找不到 dsh
-    const dshBin = findDshCommand();
-    if (!dshBin) {
+    // 使用 node + bin.js 绝对路径启动（无 shell，不依赖 PATH）
+    const dsh = findDshBin();
+    if (!dsh) {
       reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
       return;
     }
 
-    console.log(`[DSH Desktop] Starting: ${dshBin} ${dshArgs.join(' ')}`);
+    console.log(`[DSH Desktop] Starting: ${dsh.node} ${dsh.bin} ${dshArgs.join(' ')}`);
 
-    dshProcess = spawn(dshBin, dshArgs, {
+    dshProcess = spawn(dsh.node, [dsh.bin, ...dshArgs], {
       cwd: app.getPath('home'),
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWindows,
+      shell: false,
       windowsHide: true,
     });
 
@@ -287,7 +472,7 @@ function stopDSH() {
 
 /** 检查 DSH 是否有新版本 */
 async function checkForUpdates(silent = true) {
-  const local = getInstalledVersion();
+  const local = await getInstalledVersion();
   if (!local) {
     if (!silent) {
       dialog.showMessageBox(mainWindow, {
@@ -318,7 +503,6 @@ async function checkForUpdates(silent = true) {
   const hasUpdate = isNewer(local, remote);
 
   if (hasUpdate) {
-    updateAvailableInfo = { local, remote };
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'info',
       title: '发现新版本',
@@ -333,7 +517,6 @@ async function checkForUpdates(silent = true) {
       return await performUpdate(local, remote);
     }
   } else {
-    updateAvailableInfo = null;
     if (!silent) {
       dialog.showMessageBox(mainWindow, {
         type: 'info',
@@ -368,6 +551,11 @@ async function performUpdate(localVer, remoteVer) {
     webPreferences: { contextIsolation: true },
   });
 
+  // 主窗口关闭时同步关闭进度窗口，避免泄漏
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.once('closed', () => { if (!progressWin.isDestroyed()) progressWin.close(); });
+  }
+
   progressWin.loadURL(`data:text/html,${encodeURIComponent(`
     <html><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
       <div style="font-size:18px;font-weight:600;margin-bottom:16px;">正在更新 DSH...</div>
@@ -380,13 +568,28 @@ async function performUpdate(localVer, remoteVer) {
   `)}`);
 
   try {
-    // 使用 npm install -g 更新
-    const output = runCmd('npm', ['install', '-g', `${DSH_PKG}@latest`]);
+    // 使用 node + npm-cli.js 直接执行（shell:false，与全局安全策略一致）
+    // npm 参数全为常量/内部生成，无用户输入，但仍不用 shell 规避 cmd 解析风险
+    const npmCli = findNpmCli();
+    if (!npmCli) throw new Error('未找到 npm-cli.js，请确认 npm 安装正常');
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [npmCli, 'install', '-g', `${DSH_PKG}@latest`], {
+        windowsHide: true, shell: false,
+      });
+      let so = ''; let se = '';
+      child.stdout.on('data', d => so += d.toString());
+      child.stderr.on('data', d => se += d.toString());
+      child.on('error', (e) => reject(new Error(e.message)));
+      child.on('close', (code) => {
+        const msg = so.trim() || se.trim() || `exit code ${code}`;
+        if (code === 0) resolve(msg); else reject(new Error(msg));
+      });
+    });
     console.log('[DSH Desktop] Update output:', output);
 
-    progressWin.close();
+    safeClose(progressWin);
 
-    dialog.showMessageBox(mainWindow, {
+    const choice = await dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: '更新完成',
       message: 'DSH 已更新到最新版本！',
@@ -395,14 +598,19 @@ async function performUpdate(localVer, remoteVer) {
       defaultId: 0,
     });
 
-    // 重启应用
-    if (dshProcess) stopDSH();
-    app.relaunch();
-    app.exit(0);
+    if (choice.response === 0) {
+      // 立即重启
+      if (dshProcess) stopDSH();
+      app.relaunch();
+      app.exit(0);
+    } else {
+      // 稍后重启：保持当前状态，用户手动重启即可
+      console.log('[DSH Desktop] User chose to restart later');
+    }
 
     return { hasUpdate: false, updated: true, local: remoteVer, remote: remoteVer };
   } catch (e) {
-    progressWin.close();
+    safeClose(progressWin);
     dialog.showErrorBox(
       '更新失败',
       `更新过程中出错：\n${e.message || e}\n\n请稍后手动执行：\nnpm install -g @deepseek-ai/dsh@latest`
@@ -427,6 +635,55 @@ function getInstalledPlugins() {
 }
 
 /** 安装插件 */
+/**
+ * 用 pnpm 原生命令管理插件（绕过 dsh plugin 上游命令注入漏洞）。
+ * @deepseek-ai/dsh@0.1.0-rc.6 的 plugin-9h8shc4d.js 在 Windows 用
+ * spawnSync("pnpm", args, { shell: true }) 执行，参数被拼进 cmd /c 字符串，
+ * 存在命令注入（| whoami、& calc 可执行）。改用 spawn(node, [pnpm.cjs, ...args])
+ * 参数数组直达 pnpm，无 shell 解析，注入面为零。
+ */
+async function pnpmCmd(action, target, cwd) {
+  // 只接受固定操作：add / remove；target 为包名或 file: 路径
+  if (action !== 'add' && action !== 'remove') throw new Error('不支持的插件操作: ' + action);
+  if (!target || typeof target !== 'string') throw new Error('插件名不能为空');
+
+  // 校验用户输入的包名/路径（防上游 shell 注入）
+  const isLocal = target.startsWith('file:');
+  const verr = validateArg(isLocal ? target.slice(5) : target, isLocal ? 'path' : 'pkg');
+  if (verr) throw new Error(verr);
+
+  const pnpmBin = findPnpmBin();
+  if (!pnpmBin) throw new Error('未找到 pnpm.cjs，请先安装 pnpm（npm install -g pnpm）');
+
+  // 固定参数由代码内部生成（无注入面）；用户参数只透传一个 target
+  const args = [action, target, '--dir', PROFILE_DIR];
+  const nodeExe = findDshBin().node;
+  return new Promise((resolve, reject) => {
+    const child = spawn(nodeExe, [pnpmBin, ...args], {
+      cwd: cwd || os.homedir(),
+      windowsHide: true,
+      shell: false,
+    });
+    let stdout = '', stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; try { child.kill(); } catch (e) {} reject(new Error(`命令超时: ${action} ${target}`)); }
+    }, 60000);
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', (err) => {
+      if (settled) return; settled = true; clearTimeout(timer);
+      reject(new Error(`命令执行失败: ${err.message}`));
+    });
+    child.on('close', (code) => {
+      if (settled) return; settled = true; clearTimeout(timer);
+      const out = stdout.trim();
+      if (code === 0) resolve(out);
+      else reject(new Error(out || stderr.trim() || `exit code ${code}`));
+    });
+  });
+}
+
 async function installPlugin(pluginName) {
   if (!pluginName) return { success: false, error: '插件名不能为空' };
 
@@ -436,9 +693,12 @@ async function installPlugin(pluginName) {
   }
 
   try {
-    const dshCmd = findDshCommand();
-    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
-    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'add', pluginName], PROFILE_DIR);
+    // 包名白名单校验（npm 包名字符，防上游 shell 注入）
+    const verr = validateArg(pluginName, 'pkg');
+    if (verr) return { success: false, error: verr, name: pluginName };
+
+    // pnpm add <pkg> --dir <profile>（node 直接执行 pnpm.cjs，无 shell）
+    const output = await pnpmCmd('add', pluginName, PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginName };
@@ -448,9 +708,10 @@ async function installPlugin(pluginName) {
 /** 卸载插件 */
 async function uninstallPlugin(pluginName) {
   try {
-    const dshCmd = findDshCommand();
-    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
-    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'remove', pluginName], PROFILE_DIR);
+    const verr = validateArg(pluginName, 'pkg');
+    if (verr) return { success: false, error: verr, name: pluginName };
+
+    const output = await pnpmCmd('remove', pluginName, PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginName };
@@ -464,8 +725,9 @@ async function installLocalPlugin(pluginPath) {
   }
 
   try {
-    const dshCmd = findDshCommand();
-    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
+    // 路径白名单校验（shell 元字符拒绝）
+    const verr = validateArg(pluginPath, 'path');
+    if (verr) return { success: false, error: verr, name: pluginPath };
 
     // 读取本地插件的 package.json 获取名称
     const localPkgPath = path.join(pluginPath, 'package.json');
@@ -475,8 +737,8 @@ async function installLocalPlugin(pluginPath) {
       pluginName = localPkg.name || pluginName;
     }
 
-    // 使用 file: 协议安装
-    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'add', `file:${pluginPath}`], PROFILE_DIR);
+    // 使用 file: 协议安装（pnpm 原生，无 shell）
+    const output = await pnpmCmd('add', `file:${pluginPath}`, PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginPath };
@@ -509,8 +771,19 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // 仅允许 http/https 外部链接用系统浏览器打开，其余拒绝
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // 拦截主窗口导航：只允许停留在 DSH 本地服务，禁止跳到外部站点
+  // （否则外部页面会继承 preload 的 electronAPI 权限，成为攻击面）
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(DSH_URL)) {
+      event.preventDefault();
+      // 外部链接交给系统浏览器
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    }
   });
 
   if (isDev) mainWindow.webContents.openDevTools();
@@ -523,7 +796,13 @@ function createWindow() {
 // ── 插件管理窗口 ──────────────────────────────────────
 
 function openPluginManager() {
-  const pluginWin = new BrowserWindow({
+  // 若已有插件管理窗口则聚焦，不重复打开
+  if (pluginWin && !pluginWin.isDestroyed()) {
+    pluginWin.focus();
+    return;
+  }
+
+  pluginWin = new BrowserWindow({
     width: 680,
     height: 560,
     title: '插件管理',
@@ -539,6 +818,11 @@ function openPluginManager() {
   });
 
   const installed = getInstalledPlugins();
+
+  // XSS 防御：插件名可能来自恶意本地插件的 package.json，必须转义后再嵌入 HTML
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   const html = `data:text/html,${encodeURIComponent(`
 <!DOCTYPE html>
@@ -595,8 +879,8 @@ function openPluginManager() {
       ${installed.length > 0
         ? `<ul class="plugin-list">${installed.map(p => `
             <li class="plugin-item">
-              <div><span class="plugin-name">${p.name}</span><span class="plugin-ver">${p.version}</span></div>
-              <button class="btn-danger" onclick="uninstall('${p.name}')">卸载</button>
+              <div><span class="plugin-name">${esc(p.name)}</span><span class="plugin-ver">${esc(p.version)}</span></div>
+              <button class="btn-danger" data-name="${esc(p.name)}">卸载</button>
             </li>`).join('')}</ul>`
         : '<div class="empty">暂无已安装的第三方插件</div>'}
       <div class="hint" style="margin-top:12px">
@@ -684,6 +968,14 @@ function openPluginManager() {
     });
   }
 
+  // 事件委托：已安装列表的卸载按钮（防 XSS，插件名不拼进内联 onclick）
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-name]');
+    if (!btn) return;
+    const name = btn.getAttribute('data-name');
+    if (name != null) uninstall(name);
+  });
+
   function selectFolder() {
     window.electronAPI.selectFolder().then(p => {
       if (p) document.getElementById('local-path').value = p;
@@ -695,6 +987,7 @@ function openPluginManager() {
   `)}`;
 
   pluginWin.loadURL(html);
+  pluginWin.on('closed', () => { pluginWin = null; });
 }
 
 // ── 菜单 ──────────────────────────────────────────────
@@ -757,16 +1050,42 @@ function createMenu() {
 // ipcMain 和 dialog 已在文件开头从 electron 解构，此处用别名
 const electronDialog = dialog;
 
+// 插件管理窗口引用（isTrustedSender 精确校验用）
+let pluginWin = null;
+
+/** 校验 IPC 调用来源：只允许本应用的受信任窗口（主窗口/插件管理窗口）调用 */
+function isTrustedSender(event) {
+  const wc = event.sender;
+  if (!wc) return false;
+  // 主窗口
+  if (mainWindow && !mainWindow.isDestroyed() && wc === mainWindow.webContents) return true;
+  // 插件管理窗口（精确引用，不用 getAllWindows 全放行）
+  if (pluginWin && !pluginWin.isDestroyed() && wc === pluginWin.webContents) return true;
+  return false;
+}
+
+/** 校验调用来源是否为插件管理窗口（插件安装/卸载等高危操作只允许它） */
+function isPluginManagerSender(event) {
+  const wc = event.sender;
+  if (!wc) return false;
+  if (pluginWin && !pluginWin.isDestroyed() && wc === pluginWin.webContents) return true;
+  return false;
+}
+
 ipcMain.handle('plugin:install', async (event, name) => {
+  if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
   return await installPlugin(name);
 });
 ipcMain.handle('plugin:uninstall', async (event, name) => {
+  if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
   return await uninstallPlugin(name);
 });
 ipcMain.handle('plugin:installLocal', async (event, pluginPath) => {
+  if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
   return await installLocalPlugin(pluginPath);
 });
-ipcMain.handle('dialog:selectFolder', async () => {
+ipcMain.handle('dialog:selectFolder', async (event) => {
+  if (!isPluginManagerSender(event)) return null;
   const result = await electronDialog.showOpenDialog({
     properties: ['openDirectory'],
     title: '选择插件目录',
@@ -774,10 +1093,12 @@ ipcMain.handle('dialog:selectFolder', async () => {
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];
 });
-ipcMain.handle('app:checkUpdate', async () => {
+ipcMain.handle('app:checkUpdate', async (event) => {
+  if (!isTrustedSender(event)) return { hasUpdate: false, local: null, remote: null };
   return await checkForUpdates(false);
 });
-ipcMain.handle('app:getVersion', () => {
+ipcMain.handle('app:getVersion', (event) => {
+  if (!isTrustedSender(event)) return null;
   return getInstalledVersion();
 });
 
@@ -830,6 +1151,8 @@ app.whenReady().then(async () => {
       if (result.hasUpdate) {
         console.log(`[DSH Desktop] Update available: ${result.local} → ${result.remote}`);
       }
+    }).catch(err => {
+      console.error('[DSH Desktop] Update check failed:', err);
     });
   }, 5000);
 });
