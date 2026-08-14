@@ -43,9 +43,17 @@ async function waitForDSH(maxRetries = 60, interval = 500) {
 }
 
 /** 执行命令并获取输出 */
+/** 执行命令行（stdout 正常返回，失败时抛 Error 而非静默返回空串） */
 function runCmd(cmd, args, cwd) {
   try {
-    const result = execSync(`${cmd} ${args.join(' ')}`, {
+    // 参数含空格/引号时加双引号包裹，避免命令拼接错误
+    const quotedArgs = args.map(a => {
+      const s = String(a);
+      return /[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
+    }).join(' ');
+    // cmd 本身含空格时也加引号
+    const cmdQuoted = /[\s"]/.test(cmd) ? `"${cmd}"` : cmd;
+    const result = execSync(`${cmdQuoted} ${quotedArgs}`, {
       cwd: cwd || os.homedir(),
       encoding: 'utf-8',
       timeout: 30000,
@@ -53,25 +61,31 @@ function runCmd(cmd, args, cwd) {
     });
     return result.trim();
   } catch (e) {
-    return e.stdout ? e.stdout.trim() : '';
+    // 命令失败时：若 stdout 有内容（部分输出）也返回，以便上层判断
+    // 若无输出则抛错误，让调用方 catch 块能感知失败
+    const msg = e.stdout?.trim() || e.message;
+    if (!msg) throw new Error(`命令执行失败: ${cmd} ${args.join(' ')}`);
+    throw new Error(msg);
   }
 }
 
-/** 获取已安装的 DSH 版本 */
+/** 获取已安装的 DSH 版本（完全动态，不含硬编码路径） */
 function getInstalledVersion() {
   try {
-    const pkgPath = path.join(
-      'C:\\Users\\机械革命\\AppData\\Roaming\\QClaw\\npm-global\\node_modules',
-      DSH_PKG,
-      'package.json'
-    );
-    // 也尝试动态获取
+    // 优先用 npm list -g（动态获取，与安装位置无关）
     const out = runCmd('npm', ['list', '-g', DSH_PKG, '--json', '--depth=0']);
-    const data = JSON.parse(out);
-    const ver = data.dependencies?.[DSH_PKG]?.version;
-    if (ver) return ver;
-    if (fs.existsSync(pkgPath)) {
-      return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+    if (out) {
+      const data = JSON.parse(out);
+      const ver = data.dependencies?.[DSH_PKG]?.version;
+      if (ver) return ver;
+    }
+    // 兜底：从 npm prefix -g 动态推断全局 node_modules 路径
+    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (prefix) {
+      const pkgPath = path.join(prefix, 'node_modules', DSH_PKG, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+      }
     }
   } catch (e) {}
   return null;
@@ -103,17 +117,44 @@ function getLatestVersion() {
   });
 }
 
-/** 比较语义化版本号，返回 true 表示 remote 比 local 新 */
+/** 获取桌面应用自身版本号（从 package.json 动态读取） */
+function getAppVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    return pkg.version || '未知';
+  } catch (e) {
+    return '未知';
+  }
+}
+
+/** 比较语义化版本号（支持 semver pre-release），返回 true 表示 remote 比 local 新 */
 function isNewer(local, remote) {
   if (!local || !remote) return false;
-  const parse = (v) => v.split('.').map(n => parseInt(n.replace(/\D/g, ''), 10));
-  const [la, lb, lc] = parse(local);
-  const [ra, rb, rc] = parse(remote);
-  if (ra > la) return true;
-  if (ra < la) return false;
-  if (rb > lb) return true;
-  if (rb < lb) return false;
-  return rc > lc;
+
+  const parseSemver = (v) => {
+    // 分离 major.minor.patch 和 pre-release 标签
+    const main = v.replace(/-.*$/, '').split('.').map(n => parseInt(n, 10) || 0);
+    const pre = v.includes('-') ? v.split('-')[1] : '';
+    return { parts: main, pre };
+  };
+
+  const lp = parseSemver(local);
+  const rp = parseSemver(remote);
+
+  // 比较主版本号
+  for (let i = 0; i < 3; i++) {
+    const l = lp.parts[i] || 0;
+    const r = rp.parts[i] || 0;
+    if (r > l) return true;
+    if (r < l) return false;
+  }
+
+  // 主版本相同，按 semver 规范比较 pre-release：
+  // 正式版 > 任何 pre-release；rc.10 > rc.6（字典序比较）
+  if (!lp.pre && !rp.pre) return false;      // 完全相同
+  if (!lp.pre && rp.pre) return false;       // local 正式版 > remote rc → 无更新
+  if (lp.pre && !rp.pre) return true;        // local rc → remote 正式版 → 有更新
+  return rp.pre > lp.pre;                    // 都是 rc，比较标签
 }
 
 /** 定位 dsh 可执行文件（不依赖 PATH，因为双击快捷方式时 PATH 不含 npm-global） */
@@ -395,7 +436,9 @@ async function installPlugin(pluginName) {
   }
 
   try {
-    const output = runCmd('dsh', ['plugin', '--profile', 'web', 'add', pluginName], PROFILE_DIR);
+    const dshCmd = findDshCommand();
+    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
+    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'add', pluginName], PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginName };
@@ -405,7 +448,9 @@ async function installPlugin(pluginName) {
 /** 卸载插件 */
 async function uninstallPlugin(pluginName) {
   try {
-    const output = runCmd('dsh', ['plugin', '--profile', 'web', 'remove', pluginName], PROFILE_DIR);
+    const dshCmd = findDshCommand();
+    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
+    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'remove', pluginName], PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginName };
@@ -419,6 +464,9 @@ async function installLocalPlugin(pluginPath) {
   }
 
   try {
+    const dshCmd = findDshCommand();
+    if (!dshCmd) throw new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh');
+
     // 读取本地插件的 package.json 获取名称
     const localPkgPath = path.join(pluginPath, 'package.json');
     let pluginName = path.basename(pluginPath);
@@ -428,7 +476,7 @@ async function installLocalPlugin(pluginPath) {
     }
 
     // 使用 file: 协议安装
-    const output = runCmd('dsh', ['plugin', '--profile', 'web', 'add', `file:${pluginPath}`], PROFILE_DIR);
+    const output = runCmd(dshCmd, ['plugin', '--profile', 'web', 'add', `file:${pluginPath}`], PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginPath };
@@ -693,7 +741,7 @@ function createMenu() {
           dialog.showMessageBox(mainWindow, {
             type: 'info', title: '关于 DeepSeek Harness',
             message: 'DeepSeek Harness Desktop',
-            detail: `版本: 1.1.0\nDSH: ${ver}\n\n基于 DeepSeek Harness 的桌面封装应用\nMIT License`,
+            detail: `版本: ${getAppVersion()}\nDSH: ${ver}\n\n基于 DeepSeek Harness 的桌面封装应用\nMIT License`,
             buttons: ['确定'],
           });
         }},
@@ -792,26 +840,35 @@ app.on('before-quit', (e) => {
 });
 
 app.on('window-all-closed', () => {
-  // 等待端口释放后再退出（防止孤儿进程）
+  // 停止 DSH 并等待端口释放（防止孤儿进程）
+  stopDSH();
   const deadline = Date.now() + 5000;
   const checkPort = () => {
     const conn = net.connect(DSH_PORT, '127.0.0.1');
     conn.on('connect', () => {
+      // 端口仍在监听 → dsh 还没停，继续等待
       conn.destroy();
-      if (Date.now() < deadline) setTimeout(checkPort, 300);
+      if (Date.now() < deadline) {
+        setTimeout(checkPort, 300);
+      } else {
+        // 超时：强制再次清理，然后退出
+        console.log('[DSH Desktop] Port timeout, force killing...');
+        stopDSH();
+        app.quit();
+      }
     });
     conn.on('error', () => {
+      // 端口已空闲 → 干净退出
       conn.destroy();
       app.quit();
     });
-    conn.setTimeout(500);
+    conn.setTimeout(800);
     conn.on('timeout', () => {
       conn.destroy();
       if (Date.now() < deadline) setTimeout(checkPort, 300);
       else app.quit();
     });
   };
-  stopDSH();
   checkPort();
 });
 
