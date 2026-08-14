@@ -174,7 +174,10 @@ function getLatestVersion() {
           res.resume();
           redirects++;
           try {
-            request(new URL(res.headers.location, url).href);
+            const next = new URL(res.headers.location, url);
+            // 安全：只跟随 HTTPS 重定向，拒绝降级到 http://（防 MITM 篡改版本信息）
+            if (next.protocol !== 'https:') { done(null); return; }
+            request(next.href);
           } catch (e) {
             done(null);
           }
@@ -641,6 +644,10 @@ async function performUpdate(localVer, remoteVer) {
     webPreferences: { contextIsolation: true },
   });
 
+  // 进度窗口只显示静态 data: URL，禁止任何导航（客户端跳转与服务端重定向一律拦截）
+  progressWin.webContents.on('will-navigate', (event) => event.preventDefault());
+  progressWin.webContents.on('will-redirect', (event) => event.preventDefault());
+
   // 主窗口关闭时同步关闭进度窗口，避免泄漏
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.once('closed', () => { if (!progressWin.isDestroyed()) progressWin.close(); });
@@ -652,7 +659,7 @@ async function performUpdate(localVer, remoteVer) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   progressWin.loadURL(`data:text/html,${encodeURIComponent(`
-    <html><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
+    <html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"></head><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
       <div style="font-size:18px;font-weight:600;margin-bottom:16px;">正在更新 DSH...</div>
       <div style="font-size:13px;color:#888;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
       <div style="margin-top:20px;width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden;">
@@ -934,6 +941,14 @@ function createWindow() {
     }
   });
 
+  // 拦截服务端重定向：will-navigate 只覆盖客户端导航，302/307 等服务端跳转会走 will-redirect，
+  // 若不拦截，恶意插件页面可把主窗口重定向到外部站点（虽无 Electron 权限，仍杜绝钓鱼/误导面）
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    if (!isDSHOrigin(url)) {
+      event.preventDefault();
+    }
+  });
+
   if (isDev) mainWindow.webContents.openDevTools();
 
   mainWindow.on('closed', () => { mainWindow = null; });
@@ -965,6 +980,15 @@ function openPluginManager() {
     },
   });
 
+  // 安全：插件管理窗口只应显示本地生成的 data: URL，禁止任何后续导航。
+  // 否则窗口被引导到外部页面后，该页面会继承 preload 注入的 electronAPI（可操作插件/弹窗）。
+  // 仅放行原始 data: URL 的重载（卸载插件后 location.reload()），其余一律拦截
+  // （pmURL 在下方 html 定义后赋值，闭包在导航发生时读取，无 TDZ 问题）
+  pluginWin.webContents.on('will-navigate', (event, url) => {
+    if (url !== pmURL) event.preventDefault();
+  });
+  pluginWin.webContents.on('will-redirect', (event) => event.preventDefault());
+
   const installed = getInstalledPlugins();
 
   // XSS 防御：插件名可能来自恶意本地插件的 package.json，必须转义后再嵌入 HTML
@@ -977,6 +1001,7 @@ function openPluginManager() {
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
@@ -1134,7 +1159,8 @@ function openPluginManager() {
 </html>
   `)}`;
 
-  pluginWin.loadURL(html);
+  const pmURL = html;
+  pluginWin.loadURL(pmURL);
   pluginWin.on('closed', () => { pluginWin = null; });
 }
 
