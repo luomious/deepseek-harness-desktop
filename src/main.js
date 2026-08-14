@@ -4,7 +4,7 @@ const path = require('path');
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
-const os = require('os');
+const zlib = require('zlib');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -117,9 +117,10 @@ function execNode(scriptPath, args, cwd, timeoutMs = 30000) {
 
 /** 获取已安装的 DSH 版本（完全动态，不含硬编码路径） */
 async function getInstalledVersion() {
+  // 优先用 npm list -g（动态获取，与安装位置无关）。
+  // 注意：必须用 node 执行 npm-cli.js，而不是把 npm 参数传给 dsh bin。
+  // 独立 try：npm list 失败（如包未安装 exit 1）不能中断后续 fallback 兜底
   try {
-    // 优先用 npm list -g（动态获取，与安装位置无关）
-    // 注意：必须用 node 执行 npm-cli.js，而不是把 npm 参数传给 dsh bin
     const npmCli = findNpmCli();
     if (npmCli) {
       const out = await execNode(npmCli, ['list', '-g', DSH_PKG, '--json', '--depth=0']);
@@ -129,7 +130,22 @@ async function getInstalledVersion() {
         if (ver) return ver;
       }
     }
-    // 兜底：从 npm prefix -g 动态推断全局 node_modules 路径
+  } catch (e) {}
+
+  // 兜底 1：从 findDshBin() 已确认的 dsh 位置反推版本（最可靠 —— 能启动说明 bin.js 一定存在）
+  // bin.js: <prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js → package.json 在其上级 dsh/ 目录
+  try {
+    const dsh = findDshBin();
+    if (dsh && dsh.bin) {
+      const pkgPath = path.join(path.dirname(dsh.bin), '..', 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        return JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version;
+      }
+    }
+  } catch (e) {}
+
+  // 兜底 2：从 npm prefix -g 动态推断全局 node_modules 路径
+  try {
     const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
     if (prefix) {
       const pkgPath = path.join(prefix, 'node_modules', DSH_PKG, 'package.json');
@@ -257,10 +273,11 @@ function findDshBin() {
     nodeExe = process.execPath;
   }
 
-  // 备用：where node（过滤 .cmd/.bat shim，只要真正的 node.exe）
+  // 备用：where node（Windows）/ which node（macOS/Linux），过滤 shim 只要真正的 node
   if (!nodeExe) {
     try {
-      const lines = execSync('where node', { encoding: 'utf-8', windowsHide: true }).trim().split(/\r?\n/);
+      const whichCmd = process.platform === 'win32' ? 'where node' : 'which node';
+      const lines = execSync(whichCmd, { encoding: 'utf-8', windowsHide: true }).trim().split(/\r?\n/);
       for (const line of lines) {
         const p = line.trim();
         if (p && !p.toLowerCase().endsWith('.cmd') && !p.toLowerCase().endsWith('.bat') && fs.existsSync(p)) {
@@ -271,13 +288,25 @@ function findDshBin() {
     } catch (e) {}
   }
 
-  // 兜底：常见安装位置
+  // 兜底：常见安装位置（分平台）
   if (!nodeExe) {
-    for (const c of [
-      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
-    ]) {
-      try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
+    if (process.platform === 'win32') {
+      for (const c of [
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+      ]) {
+        try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
+      }
+    } else {
+      // macOS/Linux：Homebrew、/usr/local、/usr、/opt 等常见安装位置
+      for (const c of [
+        '/usr/local/bin/node',
+        '/opt/homebrew/bin/node',
+        '/usr/bin/node',
+        '/bin/node',
+      ]) {
+        try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
+      }
     }
   }
 
@@ -326,12 +355,20 @@ function findPnpmBin() {
       }
     }
   } catch (e) {}
-  // 兜底：常见位置
-  for (const base of [
-    path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
-    path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
-    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
-  ]) {
+  // 兜底：常见位置（分平台）
+  const isWin = process.platform === 'win32';
+  const fallbackBases = isWin
+    ? [
+        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
+      ]
+    : [
+        '/usr/local/lib/node_modules',
+        '/opt/homebrew/lib/node_modules',
+        '/usr/lib/node_modules',
+      ];
+  for (const base of fallbackBases) {
     const c = path.join(base, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs');
     try { if (fs.existsSync(c)) return c; } catch (e) {}
   }
@@ -347,13 +384,21 @@ function findNpmCli() {
       try { if (fs.existsSync(c)) return c; } catch (e) {}
     }
   } catch (e) {}
-  // 兜底：常见位置
-  for (const base of [
-    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
-    path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
-    path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
-  ]) {
+  // 兜底：常见位置（分平台）
+  const isWin = process.platform === 'win32';
+  const fallbackBases = isWin
+    ? [
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
+        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+      ]
+    : [
+        '/usr/local/lib/node_modules',
+        '/opt/homebrew/lib/node_modules',
+        '/usr/lib/node_modules',
+      ];
+  for (const base of fallbackBases) {
     const c = path.join(base, 'node_modules', 'npm', 'bin', 'npm-cli.js');
     try { if (fs.existsSync(c)) return c; } catch (e) {}
   }
@@ -375,9 +420,10 @@ function validateArg(input, type) {
       return '插件名不合法（仅允许 npm 包名字符）';
     }
   } else if (type === 'path') {
-    // 本地路径：必须是绝对路径，且不含 shell 元字符（含反引号/美元符，防 PowerShell/cmd 解析）
+    // 本地路径：必须是绝对路径，且不含 shell 元字符
+    // （含反引号/美元符/%/!/^，防 PowerShell/cmd 解析）
     if (!path.isAbsolute(input)) return '必须是绝对路径';
-    if (/["&|<>;()*?\r\n`$]/.test(input)) return '路径含非法字符';
+    if (/["&|<>;()*?\r\n`$%!^]/.test(input)) return '路径含非法字符';
   }
   return null;
 }
@@ -396,7 +442,6 @@ function isDSHOrigin(url) {
 /** 启动 DSH Web 服务 */
 function startDSH() {
   return new Promise((resolve, reject) => {
-    const isWindows = process.platform === 'win32';
     const dshArgs = ['web'];
 
     // 使用 node + bin.js 绝对路径启动（无 shell，不依赖 PATH）
@@ -643,7 +688,9 @@ async function performUpdate(localVer, remoteVer) {
         await startDSH();
         const ready = await waitForDSH();
         if (ready && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.loadURL(DSH_URL);
+          mainWindow.loadURL(DSH_URL).catch((err) => {
+            console.error('[DSH Desktop] Failed to reload UI after update:', err);
+          });
         } else {
           console.error('[DSH Desktop] DSH service failed to restart after update');
         }
@@ -1140,7 +1187,7 @@ ipcMain.handle('plugin:installLocal', async (event, pluginPath) => {
 });
 ipcMain.handle('dialog:selectFolder', async (event) => {
   if (!isPluginManagerSender(event)) return null;
-  const result = await electronDialog.showOpenDialog({
+  const result = await electronDialog.showOpenDialog(pluginWin, {
     properties: ['openDirectory'],
     title: '选择插件目录',
   });
@@ -1167,9 +1214,13 @@ app.whenReady().then(async () => {
     // 端口被占用：验证是否真的是 DSH 服务（避免加载其他程序的页面并暴露 preload 权限）
     const isDSH = await new Promise((resolve) => {
       const req = http.get(DSH_URL, (res) => {
-        let body = '';
-        res.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
+        const chunks = [];
+        res.on('data', (d) => { chunks.push(d); if (Buffer.concat(chunks).length > 65536) req.destroy(); });
         res.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          const body = (res.headers['content-encoding'] || '').toLowerCase() === 'gzip'
+            ? zlib.gunzipSync(buf).toString()
+            : buf.toString();
           // DSH Web UI 根路径必然包含 __DSH_BOOT__ boot manifest（React SPA 入口）
           resolve(body.includes('__DSH_BOOT__'));
         });
