@@ -58,29 +58,21 @@ async function waitForDSH(maxRetries = 60, interval = 500) {
 
 /** 执行命令并获取输出 */
 /**
- * 执行 dsh 命令（安全版本）
- * - 直接 spawn(node.exe, [bin.js, ...args], {shell:false})：不经过任何 shell，
+ * 用 node.exe 直接执行任意 JS 入口（安全版本）
+ * - 直接 spawn(node.exe, [scriptPath, ...args], {shell:false})：不经过任何 shell，
  *   参数数组由 CreateProcess 原样传递 → 命令注入在结构上不可能发生
- * - 参数先过白名单校验（纵深防御）
- * - 同步等待结果，失败时抛 Error 而非静默返回空串
+ * - 适用于 npm-cli.js / pnpm.cjs 等所有可被 node 执行的脚本
+ * - 失败时抛 Error 而非静默返回空串
  */
-function runCmd(args, cwd, argType) {
+function execNode(scriptPath, args, cwd, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const dsh = findDshBin();
-    if (!dsh) {
-      reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
+    if (!dsh || !dsh.node) {
+      reject(new Error('未找到 node 运行时，请确认 Node.js 安装正常'));
       return;
     }
 
-    // 参数白名单校验（args 之外的所有位置参数）
-    if (argType) {
-      for (const a of args) {
-        const err = validateArg(a, argType);
-        if (err) { reject(new Error(err)); return; }
-      }
-    }
-
-    const child = spawn(dsh.node, [dsh.bin, ...args], {
+    const child = spawn(dsh.node, [scriptPath, ...args], {
       cwd: cwd || os.homedir(),
       windowsHide: true,
       shell: false,  // 关键：不经过 shell/cmd，杜绝命令注入
@@ -96,7 +88,7 @@ function runCmd(args, cwd, argType) {
         try { child.kill(); } catch (e) {}
         reject(new Error(`命令超时: ${args.join(' ')}`));
       }
-    }, 30000);
+    }, timeoutMs);
 
     child.stdout.on('data', (d) => { stdout += d.toString(); });
     child.stderr.on('data', (d) => { stderr += d.toString(); });
@@ -127,11 +119,15 @@ function runCmd(args, cwd, argType) {
 async function getInstalledVersion() {
   try {
     // 优先用 npm list -g（动态获取，与安装位置无关）
-    const out = await runCmd(['list', '-g', DSH_PKG, '--json', '--depth=0'], null, null);
-    if (out) {
-      const data = JSON.parse(out);
-      const ver = data.dependencies?.[DSH_PKG]?.version;
-      if (ver) return ver;
+    // 注意：必须用 node 执行 npm-cli.js，而不是把 npm 参数传给 dsh bin
+    const npmCli = findNpmCli();
+    if (npmCli) {
+      const out = await execNode(npmCli, ['list', '-g', DSH_PKG, '--json', '--depth=0']);
+      if (out) {
+        const data = JSON.parse(out);
+        const ver = data.dependencies?.[DSH_PKG]?.version;
+        if (ver) return ver;
+      }
     }
     // 兜底：从 npm prefix -g 动态推断全局 node_modules 路径
     const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
@@ -149,14 +145,22 @@ async function getInstalledVersion() {
 function getLatestVersion() {
   return new Promise((resolve) => {
     let settled = false;
+    let redirects = 0;
     const done = (val) => { if (!settled) { settled = true; resolve(val); } };
     const request = (url) => {
+      // 重定向深度限制：最多跟 5 次，防无限重定向链
+      if (redirects > 5) { done(null); return; }
       const mod = url.startsWith('https') ? require('https') : require('http');
       const req = mod.get(url, (res) => {
-        // 处理重定向（301/302/307/308）
+        // 处理重定向（301/302/307/308）；location 可能为相对路径，统一解析为绝对 URL
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
-          request(res.headers.location);
+          redirects++;
+          try {
+            request(new URL(res.headers.location, url).href);
+          } catch (e) {
+            done(null);
+          }
           return;
         }
         let data = '';
@@ -247,8 +251,9 @@ function findDshBin() {
   // 1. 定位 node.exe（系统 PATH 含 nodejs 目录，用 where 动态解析）
   let nodeExe = null;
 
-  // 优先：当前进程的 node.exe（最可靠，spawn 一定能执行）
-  if (process.execPath && process.execPath.endsWith('node.exe') && fs.existsSync(process.execPath)) {
+  // 仅当进程本身是 node.exe 时直接复用（如 ELECTRON_RUN_AS_NODE 模式或纯 node 调试）。
+  // 注意：Electron 主进程的 process.execPath 是 electron.exe / 打包后的 exe，不会命中此分支。
+  if (process.execPath && process.execPath.toLowerCase().endsWith('node.exe') && fs.existsSync(process.execPath)) {
     nodeExe = process.execPath;
   }
 
@@ -377,6 +382,17 @@ function validateArg(input, type) {
   return null;
 }
 
+/** 判断 URL 是否属于本地 DSH 服务（严格匹配 protocol + host + port） */
+function isDSHOrigin(url) {
+  try {
+    const u = new URL(url);
+    const d = new URL(DSH_URL);
+    return u.protocol === d.protocol && u.hostname === d.hostname && u.port === d.port;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** 启动 DSH Web 服务 */
 function startDSH() {
   return new Promise((resolve, reject) => {
@@ -399,12 +415,13 @@ function startDSH() {
       windowsHide: true,
     });
 
-    let started = false;
+    // settled：promise 是否已结算（spawn 成功即 resolve，之后 exit 视为"运行中退出"）
+    // 不依赖 stdout 文本（DSH 输出格式可能变化），避免 started 标志永不置位导致崩溃无提示
+    let settled = false;
 
     dshProcess.stdout.on('data', (data) => {
       const text = data.toString().trim();
       if (text) console.log(`[DSH] ${text}`);
-      if (!started && text.includes('127.0.0.1')) started = true;
     });
 
     dshProcess.stderr.on('data', (data) => {
@@ -414,13 +431,19 @@ function startDSH() {
 
     dshProcess.on('error', (err) => {
       console.error(`[DSH Desktop] Failed to start dsh:`, err);
-      if (!started) reject(err);
+      if (!settled) reject(err);
     });
 
     dshProcess.on('exit', (code, signal) => {
       console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
       dshProcess = null;
-      // 仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
+      // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
+      // 立即 reject 而不是等 30s 超时
+      if (!settled) {
+        reject(new Error(`dsh 进程启动后立即退出 (code=${code}${signal ? ', signal=' + signal : ''})`));
+        return;
+      }
+      // 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
       if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
         dialog.showErrorBox(
           'DSH 服务已停止',
@@ -430,7 +453,12 @@ function startDSH() {
       }
     });
 
-    resolve();
+    // 等待进程成功 spawn（避免 spawn 同步错误被吞）
+    dshProcess.once('spawn', () => {
+      settled = true;
+      // 子进程已成功创建，resolve 表示"已启动"（就绪检测由 waitForDSH 负责）
+      resolve();
+    });
   });
 }
 
@@ -442,8 +470,9 @@ function stopDSH() {
   if (dshProcess) {
     if (process.platform === 'win32') {
       try {
-        spawn('taskkill', ['/pid', dshProcess.pid, '/f', '/t'], {
-          stdio: 'ignore', shell: true,
+        // taskkill 是原生 exe，无需 shell；参数全部为内部生成的 pid，无注入面
+        spawn('taskkill', ['/pid', String(dshProcess.pid), '/f', '/t'], {
+          stdio: 'ignore', shell: false,
         });
       } catch (e) {}
     } else {
@@ -454,15 +483,16 @@ function stopDSH() {
   // 2. 无论是否有子进程引用，直接按端口强制清理（最可靠，避免孤儿进程）
   if (process.platform === 'win32') {
     try {
+      // powershell 为原生 exe，-Command 整串作为单个参数传入，无 shell 拼接
       spawn('powershell', [
-        '-Command',
+        '-NoProfile', '-Command',
         `Get-NetTCPConnection -LocalPort ${DSH_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { ` +
         `try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }`,
-      ], { stdio: 'ignore', shell: true });
+      ], { stdio: 'ignore', shell: false });
     } catch (e) {}
   } else {
     try {
-      spawn('fuser', ['-k', `${DSH_PORT}/tcp`], { stdio: 'ignore', shell: true });
+      spawn('fuser', ['-k', `${DSH_PORT}/tcp`], { stdio: 'ignore', shell: false });
     } catch (e) {}
   }
 
@@ -563,10 +593,15 @@ async function performUpdate(localVer, remoteVer) {
     mainWindow.once('closed', () => { if (!progressWin.isDestroyed()) progressWin.close(); });
   }
 
+  // 版本号来自 npm registry（远程数据），拼进 HTML 前必须转义，防 HTML 注入
+  const escVer = (v) => String(v == null ? '?' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
   progressWin.loadURL(`data:text/html,${encodeURIComponent(`
     <html><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
       <div style="font-size:18px;font-weight:600;margin-bottom:16px;">正在更新 DSH...</div>
-      <div style="font-size:13px;color:#888;">${localVer || '?'} → ${remoteVer}</div>
+      <div style="font-size:13px;color:#888;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
       <div style="margin-top:20px;width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden;">
         <div style="width:100%;height:100%;background:linear-gradient(90deg,#4a9eff,#7b68ee);animation:pulse 1.2s infinite;"></div>
       </div>
@@ -577,21 +612,12 @@ async function performUpdate(localVer, remoteVer) {
   try {
     // 使用 node + npm-cli.js 直接执行（shell:false，与全局安全策略一致）
     // npm 参数全为常量/内部生成，无用户输入，但仍不用 shell 规避 cmd 解析风险
+    // 注意：必须用 findDshBin() 的 node.exe 执行，process.execPath 是 Electron 可执行文件（electron.exe / 打包 exe），
+    // 用它跑 npm-cli.js 会启动 Electron GUI 而非执行 npm，导致更新失败
     const npmCli = findNpmCli();
     if (!npmCli) throw new Error('未找到 npm-cli.js，请确认 npm 安装正常');
-    const output = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [npmCli, 'install', '-g', `${DSH_PKG}@latest`], {
-        windowsHide: true, shell: false,
-      });
-      let so = ''; let se = '';
-      child.stdout.on('data', d => so += d.toString());
-      child.stderr.on('data', d => se += d.toString());
-      child.on('error', (e) => reject(new Error(e.message)));
-      child.on('close', (code) => {
-        const msg = so.trim() || se.trim() || `exit code ${code}`;
-        if (code === 0) resolve(msg); else reject(new Error(msg));
-      });
-    });
+    // npm install -g 可能耗时 1-2 分钟，超时放宽到 3 分钟
+    const output = await execNode(npmCli, ['install', '-g', `${DSH_PKG}@latest`], null, 180000);
     console.log('[DSH Desktop] Update output:', output);
 
     safeClose(progressWin);
@@ -780,7 +806,9 @@ function createWindow() {
     title: 'DeepSeek Harness',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      // 安全：主窗口加载的是远程 DSH Web UI（http://127.0.0.1:3080），
+      // 绝不能注入 preload——否则远程内容（含恶意插件渲染的页面）会获得 electronAPI 访问权。
+      // preload 只注入插件管理窗口（本地 data: URL）。
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -803,7 +831,9 @@ function createWindow() {
   // 拦截主窗口导航：只允许停留在 DSH 本地服务，禁止跳到外部站点
   // （否则外部页面会继承 preload 的 electronAPI 权限，成为攻击面）
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(DSH_URL)) {
+    // 严格校验 origin（protocol + host + port），不能用 startsWith——
+    // 否则 http://127.0.0.1:3080.evil.com 也会被误放行并继承 preload 权限
+    if (!isDSHOrigin(url)) {
       event.preventDefault();
       // 外部链接交给系统浏览器
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -1053,8 +1083,8 @@ function createMenu() {
         { label: 'DSH 文档', click: () => shell.openExternal('https://github.com/deepseek-ai/deepseek-harness') },
         { label: 'DeepSeek 官网', click: () => shell.openExternal('https://deepseek.com') },
         { type: 'separator' },
-        { label: '关于', click: () => {
-          const ver = getInstalledVersion() || '未知';
+        { label: '关于', click: async () => {
+          const ver = (await getInstalledVersion()) || '未知';
           dialog.showMessageBox(mainWindow, {
             type: 'info', title: '关于 DeepSeek Harness',
             message: 'DeepSeek Harness Desktop',
@@ -1133,7 +1163,30 @@ app.whenReady().then(async () => {
 
   const alreadyRunning = await isPortListening(DSH_PORT);
 
-  if (!alreadyRunning) {
+  if (alreadyRunning) {
+    // 端口被占用：验证是否真的是 DSH 服务（避免加载其他程序的页面并暴露 preload 权限）
+    const isDSH = await new Promise((resolve) => {
+      const req = http.get(DSH_URL, (res) => {
+        let body = '';
+        res.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
+        res.on('end', () => {
+          // DSH Web UI 根路径必然包含 __DSH_BOOT__ boot manifest（React SPA 入口）
+          resolve(body.includes('__DSH_BOOT__'));
+        });
+      });
+      req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+      req.on('error', () => resolve(false));
+    });
+    if (!isDSH) {
+      dialog.showErrorBox(
+        '端口被占用',
+        `端口 ${DSH_PORT} 已被其他程序占用，且不是 DSH 服务。\n请关闭占用程序后重启应用，或修改 DSH_PORT 配置。`
+      );
+      app.quit();
+      return;
+    }
+    console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
+  } else {
     try {
       await startDSH();
       console.log('[DSH Desktop] DSH process started, waiting for ready...');
@@ -1155,8 +1208,6 @@ app.whenReady().then(async () => {
       app.quit();
       return;
     }
-  } else {
-    console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
   }
 
   console.log('[DSH Desktop] DSH ready, loading web UI...');
@@ -1222,18 +1273,27 @@ app.on('window-all-closed', () => {
 app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-    // 若 DSH 服务未运行，重启服务再加载 UI（避免白屏）
+    // 若 DSH 服务未运行，先启动服务
     const running = await isPortListening(DSH_PORT);
     if (!running) {
       try {
         await startDSH();
         const ready = await waitForDSH();
-        if (ready && mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.loadURL(DSH_URL);
+        if (!ready) {
+          console.error('[DSH Desktop] DSH failed to start on activate');
+          return;
         }
       } catch (err) {
         console.error('[DSH Desktop] Failed to restart DSH on activate:', err);
+        return;
       }
+    }
+    // 无论服务是刚启动还是已在运行，最终都必须加载 Web UI，
+    // 否则窗口停留在 loading.html 白屏（修复 activate 白屏）
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(DSH_URL).catch((err) => {
+        console.error('[DSH Desktop] Failed to reload UI on activate:', err);
+      });
     }
   }
 });
