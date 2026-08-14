@@ -4,6 +4,7 @@ const path = require('path');
 const http = require('http');
 const net = require('net');
 const fs = require('fs');
+const os = require('os');
 const zlib = require('zlib');
 
 // ── 配置 ──────────────────────────────────────────────
