@@ -56,13 +56,15 @@ $env:DEEPSEEK_API_KEY = "your-api-key"
 - 🛠️ **工具集成** - 文件操作、代码执行、Web 搜索等
 - 📝 **会话管理** - 持久化会话历史
 - 🔄 **模型对比** - 多模型并行对比输出
+- 🧩 **桌面端插件管理** - 图形化安装/卸载插件，列表自动刷新，错误提示友好化
+- 🔒 **安全加固** - 全程无 shell、IPC 来源校验、导航白名单、远程内容零权限
 
 ## 项目结构
 
 ```
 D:\Deepseek-Harness\
 ├── src/                # 桌面应用源码
-│   ├── main.js         # Electron 主进程（服务管理/更新/插件管理）
+│   ├── main.js         # Electron 主进程（服务管理/更新/插件管理/安全防护）
 │   ├── preload.js      # 渲染进程桥（仅插件管理窗口注入）
 │   ├── package.json    # 应用元信息（版本号等）
 │   ├── assets/         # 图标资源
@@ -70,6 +72,7 @@ D:\Deepseek-Harness\
 ├── app/                # 打包产物（electron-builder 输出，不入库）
 │   └── resources/      # app.asar（当前生效的打包代码）
 ├── logs/               # 启动链路验证日志与截图
+├── *.ps1               # 本机辅助脚本（不入库）：插件安装 / 构建批准
 ├── release_notes_v1xx.md  # 各版本发布说明
 └── PROJECT_README.md   # 本文件
 ```
@@ -85,6 +88,8 @@ D:\Deepseek-Harness\
 | `dsh --profile headless "task"` | 无头模式运行任务 |
 | `npm install -g @deepseek-ai/dsh` | 全局安装/更新 DSH 本体 |
 | `cd src && npx electron .` | 源码方式运行桌面应用（开发调试） |
+| `pnpm add <pkg> --dir ~/.dsh/profiles/web` | 安装插件（与桌面应用一致的方式） |
+| `pnpm approve-builds` | 批准依赖构建脚本（node-pty 等原生模块） |
 
 ## 从源码构建桌面版
 
@@ -122,6 +127,15 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3080).OwningProcess -Force
 
 ### 插件加载失败
 检查 `~/.dsh/profiles/web/package.json` 中的依赖是否完整，确保使用 pnpm 管理依赖。
+
+### 插件安装提示"构建脚本被忽略"（IGNORED_BUILDS）
+- **不是失败**：pnpm 10+ 默认阻止依赖的原生构建脚本（如 node-pty），包本身已安装成功
+- 若需要终端等原生功能：进入 profile 目录运行 `pnpm approve-builds` 批准 node-pty / protobufjs 后重启
+- node-pty 编译需要 Visual Studio Build Tools（C++ 工具链）
+
+### 插件安装报"权限不足/文件被占用"
+- 先确认 DSH 桌面应用已关闭（服务占用 pnpm store 数据库时会锁库）
+- 或确认非 AI 助手环境（部分沙箱会拦截 `~/.dsh` 写入，请在系统终端操作）
 
 ### 模型不可用
 确认 API Key 已正确配置，检查 `~/.dsh/settings.yaml` 中的 provider 和 model 设置。
