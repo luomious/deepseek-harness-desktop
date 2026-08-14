@@ -61,14 +61,21 @@ $env:DEEPSEEK_API_KEY = "your-api-key"
 
 ```
 D:\Deepseek-Harness\
-├── packages/          # 核心包源码（core/api/client/boot/bundle...）
-├── apps/              # 应用入口
-├── native/            # 原生模块
-├── docs/              # 官方文档
-├── examples/          # 示例配置
-├── PROJECT_AGENTS.md  # 项目记录与进度
-└── PROJECT_README.md  # 本文件
+├── src/                # 桌面应用源码
+│   ├── main.js         # Electron 主进程（服务管理/更新/插件管理）
+│   ├── preload.js      # 渲染进程桥（仅插件管理窗口注入）
+│   ├── package.json    # 应用元信息（版本号等）
+│   ├── assets/         # 图标资源
+│   └── renderer/       # 本地加载页（loading.html）
+├── app/                # 打包产物（electron-builder 输出，不入库）
+│   └── resources/      # app.asar（当前生效的打包代码）
+├── logs/               # 启动链路验证日志与截图
+├── release_notes_v1xx.md  # 各版本发布说明
+└── PROJECT_README.md   # 本文件
 ```
+
+> 注：本仓库是 DSH 的**桌面封装应用**，不含 DSH 上游源码（packages/apps/native 等）。
+> DSH 本体通过 `npm install -g @deepseek-ai/dsh` 全局安装，应用启动时自动拉起。
 
 ## 常用命令
 
@@ -107,4 +114,4 @@ MIT - 遵循原始项目许可证
 ---
 
 📅 **项目启动**: 2026-08-14  
-📝 **详细记录**: 见 [PROJECT_AGENTS.md](PROJECT_AGENTS.md)
+📝 **版本记录**: 见 [release_notes_v113.md](release_notes_v113.md) / [release_notes_v114.md](release_notes_v114.md) / [release_notes_v115.md](release_notes_v115.md)

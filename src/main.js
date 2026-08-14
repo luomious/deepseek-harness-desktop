@@ -743,15 +743,22 @@ async function pnpmCmd(action, target, cwd) {
   if (!target || typeof target !== 'string') throw new Error('插件名不能为空');
 
   // 校验用户输入的包名/路径（防上游 shell 注入）
-  const isLocal = target.startsWith('file:');
-  const verr = validateArg(isLocal ? target.slice(5) : target, isLocal ? 'path' : 'pkg');
+  // file: 前缀大小写不敏感（File:/FILE: 也识别）；本地路径统一去掉前缀后校验
+  const isLocal = /^file:/i.test(target);
+  const localPath = isLocal ? target.replace(/^file:/i, '') : target;
+  const verr = validateArg(localPath, isLocal ? 'path' : 'pkg');
   if (verr) throw new Error(verr);
+
+  // 本地路径规范化：去尾部反斜杠/斜杠（防 pnpm 解析 file:D:\plugins\ 异常）
+  const finalTarget = isLocal
+    ? 'file:' + localPath.replace(/[\\/]+$/, '')
+    : target;
 
   const pnpmBin = findPnpmBin();
   if (!pnpmBin) throw new Error('未找到 pnpm.cjs，请先安装 pnpm（npm install -g pnpm）');
 
-  // 固定参数由代码内部生成（无注入面）；用户参数只透传一个 target
-  const args = [action, target, '--dir', PROFILE_DIR];
+  // 固定参数由代码内部生成（无注入面）；用户参数只透传一个 finalTarget
+  const args = [action, finalTarget, '--dir', PROFILE_DIR];
   const dsh = findDshBin();
   if (!dsh || !dsh.node) throw new Error('未找到 node 运行时，请确认 Node.js 安装正常');
   const nodeExe = dsh.node;
@@ -802,11 +809,23 @@ async function installPlugin(pluginName) {
   }
 }
 
+// DSH 基础包黑名单：这些是核心依赖，绝对不允许卸载（UI 层有提示，但主进程必须硬性拦截）
+const CORE_DEPS = new Set([
+  '@deepseek-ai/dsh',
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+]);
+
 /** 卸载插件 */
 async function uninstallPlugin(pluginName) {
   try {
     const verr = validateArg(pluginName, 'pkg');
     if (verr) return { success: false, error: verr, name: pluginName };
+
+    // 硬保护：核心依赖禁止卸载（防御 UI 层被绕过/误操作）
+    if (CORE_DEPS.has(pluginName)) {
+      return { success: false, error: `${pluginName} 是 DSH 核心依赖，不允许卸载`, name: pluginName };
+    }
 
     const output = await pnpmCmd('remove', pluginName, PROFILE_DIR);
     return { success: true, output, name: pluginName };
@@ -866,7 +885,10 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'loading.html'));
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'loading.html')).catch((err) => {
+    // 本地文件加载失败几乎不会发生，但避免 unhandled rejection
+    console.error('[DSH Desktop] Failed to load loading page:', err);
+  });
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -1218,9 +1240,15 @@ app.whenReady().then(async () => {
         res.on('data', (d) => { chunks.push(d); if (Buffer.concat(chunks).length > 65536) req.destroy(); });
         res.on('end', () => {
           const buf = Buffer.concat(chunks);
-          const body = (res.headers['content-encoding'] || '').toLowerCase() === 'gzip'
-            ? zlib.gunzipSync(buf).toString()
-            : buf.toString();
+          let body;
+          try {
+            body = (res.headers['content-encoding'] || '').toLowerCase() === 'gzip'
+              ? zlib.gunzipSync(buf).toString()
+              : buf.toString();
+          } catch (e) {
+            // 声称 gzip 但内容损坏：回退原始字节，避免 promise 永不结算导致应用卡死
+            body = buf.toString();
+          }
           // DSH Web UI 根路径必然包含 __DSH_BOOT__ boot manifest（React SPA 入口）
           resolve(body.includes('__DSH_BOOT__'));
         });
