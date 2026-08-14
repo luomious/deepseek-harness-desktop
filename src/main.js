@@ -370,9 +370,9 @@ function validateArg(input, type) {
       return '插件名不合法（仅允许 npm 包名字符）';
     }
   } else if (type === 'path') {
-    // 本地路径：必须是绝对路径，且不含 shell 元字符
+    // 本地路径：必须是绝对路径，且不含 shell 元字符（含反引号/美元符，防 PowerShell/cmd 解析）
     if (!path.isAbsolute(input)) return '必须是绝对路径';
-    if (/["&|<>;()*?\r\n]/.test(input)) return '路径含非法字符';
+    if (/["&|<>;()*?\r\n`$]/.test(input)) return '路径含非法字符';
   }
   return null;
 }
@@ -420,7 +420,8 @@ function startDSH() {
     dshProcess.on('exit', (code, signal) => {
       console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
       dshProcess = null;
-      if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+      // 仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
+      if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
         dialog.showErrorBox(
           'DSH 服务已停止',
           'DeepSeek Harness 后端服务已停止运行。应用将关闭，请重新启动。'
@@ -503,6 +504,12 @@ async function checkForUpdates(silent = true) {
   const hasUpdate = isNewer(local, remote);
 
   if (hasUpdate) {
+    if (silent) {
+      // 静默模式（启动时自动检查）：只记录日志，不弹窗打扰用户
+      console.log(`[DSH Desktop] Update available (silent): ${local} → ${remote}`);
+      return { hasUpdate, local, remote };
+    }
+
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'info',
       title: '发现新版本',
@@ -604,8 +611,23 @@ async function performUpdate(localVer, remoteVer) {
       app.relaunch();
       app.exit(0);
     } else {
-      // 稍后重启：保持当前状态，用户手动重启即可
-      console.log('[DSH Desktop] User chose to restart later');
+      // 稍后重启：重启 DSH 服务，保持应用可用
+      console.log('[DSH Desktop] User chose to restart later, restarting DSH service...');
+      try {
+        await startDSH();
+        const ready = await waitForDSH();
+        if (ready && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL(DSH_URL);
+        } else {
+          console.error('[DSH Desktop] DSH service failed to restart after update');
+        }
+      } catch (e) {
+        console.error('[DSH Desktop] Failed to restart DSH after update:', e);
+        dialog.showErrorBox(
+          '服务重启失败',
+          `DSH 更新成功，但服务重启失败：\n${e.message || e}\n\n请手动重启应用。`
+        );
+      }
     }
 
     return { hasUpdate: false, updated: true, local: remoteVer, remote: remoteVer };
@@ -657,7 +679,9 @@ async function pnpmCmd(action, target, cwd) {
 
   // 固定参数由代码内部生成（无注入面）；用户参数只透传一个 target
   const args = [action, target, '--dir', PROFILE_DIR];
-  const nodeExe = findDshBin().node;
+  const dsh = findDshBin();
+  if (!dsh || !dsh.node) throw new Error('未找到 node 运行时，请确认 Node.js 安装正常');
+  const nodeExe = dsh.node;
   return new Promise((resolve, reject) => {
     const child = spawn(nodeExe, [pnpmBin, ...args], {
       cwd: cwd || os.homedir(),
@@ -1195,6 +1219,21 @@ app.on('window-all-closed', () => {
   checkPort();
 });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+app.on('activate', async () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+    // 若 DSH 服务未运行，重启服务再加载 UI（避免白屏）
+    const running = await isPortListening(DSH_PORT);
+    if (!running) {
+      try {
+        await startDSH();
+        const ready = await waitForDSH();
+        if (ready && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.loadURL(DSH_URL);
+        }
+      } catch (err) {
+        console.error('[DSH Desktop] Failed to restart DSH on activate:', err);
+      }
+    }
+  }
 });
