@@ -1,0 +1,19 @@
+# Electron 运行时二进制（不提交到 git，通过 Release 发布）
+app/
+*.exe
+*.dll
+*.pak
+*.dat
+*.bin
+locales/
+
+# 临时文件
+*.zip
+*.7z
+extracted/
+node_modules/
+dist/
+
+# OS
+Thumbs.db
+.DS_Store
