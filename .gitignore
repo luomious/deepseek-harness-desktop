@@ -22,3 +22,10 @@ test-plugin/
 
 # 工作区记忆（本地辅助数据，不入库）
 .workbuddy/
+
+# pnpm store（本地依赖缓存，不入库）
+.pnpm-store/
+
+# 本机开发辅助脚本（含个人路径，不入库）
+approve-builds.ps1
+install-dsh-plugins.ps1

@@ -140,4 +140,4 @@ MIT - 遵循原始项目许可证
 ---
 
 📅 **项目启动**: 2026-08-14  
-📝 **版本记录**: 见 [release_notes_v113.md](release_notes_v113.md) / [release_notes_v114.md](release_notes_v114.md) / [release_notes_v115.md](release_notes_v115.md)
+📝 **版本记录**: 见 [release_notes_v113.md](release_notes_v113.md) / [release_notes_v114.md](release_notes_v114.md) / [release_notes_v115.md](release_notes_v115.md) / [release_notes_v116.md](release_notes_v116.md)
