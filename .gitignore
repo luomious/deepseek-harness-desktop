@@ -19,3 +19,6 @@ Thumbs.db
 .DS_Store
 
 test-plugin/
+
+# 工作区记忆（本地辅助数据，不入库）
+.workbuddy/
