@@ -463,6 +463,8 @@ function startDSH() {
     // settled：promise 是否已结算（spawn 成功即 resolve，之后 exit 视为"运行中退出"）
     // 不依赖 stdout 文本（DSH 输出格式可能变化），避免 started 标志永不置位导致崩溃无提示
     let settled = false;
+    // 收集 stderr，启动早期退出时带进错误信息，便于用户/开发者排查具体原因
+    let stderrBuf = '';
 
     dshProcess.stdout.on('data', (data) => {
       const text = data.toString().trim();
@@ -471,7 +473,11 @@ function startDSH() {
 
     dshProcess.stderr.on('data', (data) => {
       const text = data.toString().trim();
-      if (text) console.error(`[DSH ERR] ${text}`);
+      if (text) {
+        console.error(`[DSH ERR] ${text}`);
+        // 只保留最近 4KB，防止异常刷屏撑爆内存
+        stderrBuf = (stderrBuf + '\n' + text).slice(-4096);
+      }
     });
 
     dshProcess.on('error', (err) => {
@@ -483,16 +489,17 @@ function startDSH() {
       console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
       dshProcess = null;
       // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
-      // 立即 reject 而不是等 30s 超时
+      // 立即 reject 而不是等 30s 超时；附带 stderr 便于排查
       if (!settled) {
-        reject(new Error(`dsh 进程启动后立即退出 (code=${code}${signal ? ', signal=' + signal : ''})`));
+        const detail = stderrBuf.trim() ? `\n\ndsh 输出:\n${stderrBuf.trim().slice(-1500)}` : '';
+        reject(new Error(`dsh 进程启动后立即退出 (code=${code}${signal ? ', signal=' + signal : ''})${detail}`));
         return;
       }
       // 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
       if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
         dialog.showErrorBox(
           'DSH 服务已停止',
-          'DeepSeek Harness 后端服务已停止运行。应用将关闭，请重新启动。'
+          `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})。\n应用将关闭，请重新启动。`
         );
         app.quit();
       }
@@ -1289,7 +1296,7 @@ app.whenReady().then(async () => {
     } catch (err) {
       dialog.showErrorBox(
         '启动失败',
-        '无法启动 DeepSeek Harness 服务。请确认已通过 npm install -g @deepseek-ai/dsh 安装 DSH。'
+        `无法启动 DeepSeek Harness 服务：\n${err.message || err}\n\n请确认已通过 npm install -g @deepseek-ai/dsh 安装 DSH。`
       );
       app.quit();
       return;

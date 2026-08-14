@@ -81,10 +81,30 @@ D:\Deepseek-Harness\
 
 | 命令 | 说明 |
 |------|------|
-| `dsh web` | 启动 Web UI |
+| `dsh web` | 启动 DSH Web UI（供调试） |
 | `dsh --profile headless "task"` | 无头模式运行任务 |
-| `npm install -g @deepseek-ai/dsh` | 全局安装/更新 |
-| `pnpm install && pnpm run build` | 从源码构建 |
+| `npm install -g @deepseek-ai/dsh` | 全局安装/更新 DSH 本体 |
+| `cd src && npx electron .` | 源码方式运行桌面应用（开发调试） |
+
+## 从源码构建桌面版
+
+```sh
+# 1. 前置：安装 Node.js 22+ 和全局 DSH
+npm install -g @deepseek-ai/dsh
+
+# 2. 安装 Electron 构建依赖
+cd src
+npm install electron electron-builder
+
+# 3. 开发模式运行（自动拉起 DSH 服务）
+npx electron . --dev
+
+# 4. 打包 Windows 便携版（产物输出到 app/）
+npx electron-builder --win portable
+```
+
+> 说明：本仓库**不包含** `node_modules` 和打包产物 `app/`（已在 .gitignore 排除）。
+> `src/package.json` 仅声明应用元信息，Electron 与 electron-builder 按需安装即可。
 
 ## 故障排查
 
@@ -93,6 +113,12 @@ D:\Deepseek-Harness\
 # 查找并杀掉占用 3080 端口的进程
 Stop-Process -Id (Get-NetTCPConnection -LocalPort 3080).OwningProcess -Force
 ```
+
+### 启动失败且提示"dsh 进程启动后立即退出"
+错误框会附带 dsh 的 stderr 输出。常见原因：
+- DSH 未安装：执行 `npm install -g @deepseek-ai/dsh`
+- node 不在 PATH：确认 `where node` / `which node` 能找到
+- 配置文件损坏：检查 `~/.dsh/settings.yaml` 和 `~/.dsh/profiles/web/package.json`
 
 ### 插件加载失败
 检查 `~/.dsh/profiles/web/package.json` 中的依赖是否完整，确保使用 pnpm 管理依赖。
