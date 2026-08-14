@@ -77,19 +77,29 @@ function getInstalledVersion() {
   return null;
 }
 
-/** 获取 npm 上最新版本 */
+/** 获取 npm 上最新版本（处理 301 重定向） */
 function getLatestVersion() {
   return new Promise((resolve) => {
-    http.get(`http://registry.npmjs.org/${DSH_PKG}/latest`, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          const pkg = JSON.parse(data);
-          resolve(pkg.version || null);
-        } catch { resolve(null); }
-      });
-    }).on('error', () => resolve(null));
+    const request = (url) => {
+      const mod = url.startsWith('https') ? require('https') : require('http');
+      mod.get(url, (res) => {
+        // 处理重定向（301/302/307/308）
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume();
+          request(res.headers.location);
+          return;
+        }
+        let data = '';
+        res.on('data', (chunk) => data += chunk);
+        res.on('end', () => {
+          try {
+            const pkg = JSON.parse(data);
+            resolve(pkg.version || null);
+          } catch { resolve(null); }
+        });
+      }).on('error', () => resolve(null));
+    };
+    request(`https://registry.npmjs.org/${DSH_PKG}/latest`);
   });
 }
 
@@ -106,15 +116,57 @@ function isNewer(local, remote) {
   return rc > lc;
 }
 
+/** 定位 dsh 可执行文件（不依赖 PATH，因为双击快捷方式时 PATH 不含 npm-global） */
+function findDshCommand() {
+  const candidates = [];
+
+  // 1. 通过 npm prefix -g 获取全局 bin 目录
+  try {
+    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (prefix) {
+      candidates.push(path.join(prefix, 'dsh.cmd'));
+      candidates.push(path.join(prefix, 'dsh'));
+    }
+  } catch (e) {}
+
+  // 2. 通过 npm root -g 推断（bin 在 root 的上一级）
+  try {
+    const root = execSync('npm root -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (root) {
+      candidates.push(path.join(path.dirname(root), 'dsh.cmd'));
+      candidates.push(path.join(path.dirname(root), 'dsh'));
+    }
+  } catch (e) {}
+
+  // 3. 常见全局安装位置
+  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'dsh.cmd'));
+  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'dsh.cmd'));
+  candidates.push('C:\\Program Files\\nodejs\\dsh.cmd');
+
+  for (const c of candidates) {
+    try {
+      if (c && fs.existsSync(c)) return c;
+    } catch (e) {}
+  }
+  return null;
+}
+
 /** 启动 DSH Web 服务 */
 function startDSH() {
   return new Promise((resolve, reject) => {
     const isWindows = process.platform === 'win32';
     const dshArgs = ['web'];
 
-    console.log(`[DSH Desktop] Starting: dsh ${dshArgs.join(' ')}`);
+    // 使用绝对路径启动，避免双击快捷方式时 PATH 找不到 dsh
+    const dshBin = findDshCommand();
+    if (!dshBin) {
+      reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
+      return;
+    }
 
-    dshProcess = spawn('dsh', dshArgs, {
+    console.log(`[DSH Desktop] Starting: ${dshBin} ${dshArgs.join(' ')}`);
+
+    dshProcess = spawn(dshBin, dshArgs, {
       cwd: app.getPath('home'),
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: isWindows,
@@ -155,26 +207,39 @@ function startDSH() {
   });
 }
 
-/** 停止 DSH Web 服务 */
+/** 停止 DSH Web 服务（强制清理，确保无孤儿进程） */
 function stopDSH() {
+  console.log('[DSH Desktop] Stopping dsh process...');
+
+  // 1. 先尝试关闭已知子进程树
   if (dshProcess) {
-    console.log('[DSH Desktop] Stopping dsh process...');
     if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', dshProcess.pid, '/f', '/t'], {
-        stdio: 'ignore', shell: true,
-      });
+      try {
+        spawn('taskkill', ['/pid', dshProcess.pid, '/f', '/t'], {
+          stdio: 'ignore', shell: true,
+        });
+      } catch (e) {}
     } else {
-      dshProcess.kill('SIGTERM');
-    }
-    dshProcess = null;
-  } else {
-    if (process.platform === 'win32') {
-      spawn('powershell', [
-        '-Command',
-        `Get-NetTCPConnection -LocalPort ${DSH_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }`,
-      ], { stdio: 'ignore', shell: true });
+      try { dshProcess.kill('SIGTERM'); } catch (e) {}
     }
   }
+
+  // 2. 无论是否有子进程引用，直接按端口强制清理（最可靠，避免孤儿进程）
+  if (process.platform === 'win32') {
+    try {
+      spawn('powershell', [
+        '-Command',
+        `Get-NetTCPConnection -LocalPort ${DSH_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { ` +
+        `try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }`,
+      ], { stdio: 'ignore', shell: true });
+    } catch (e) {}
+  } else {
+    try {
+      spawn('fuser', ['-k', `${DSH_PORT}/tcp`], { stdio: 'ignore', shell: true });
+    } catch (e) {}
+  }
+
+  dshProcess = null;
 }
 
 // ── 更新检查 ──────────────────────────────────────────
@@ -727,8 +792,27 @@ app.on('before-quit', (e) => {
 });
 
 app.on('window-all-closed', () => {
+  // 等待端口释放后再退出（防止孤儿进程）
+  const deadline = Date.now() + 5000;
+  const checkPort = () => {
+    const conn = net.connect(DSH_PORT, '127.0.0.1');
+    conn.on('connect', () => {
+      conn.destroy();
+      if (Date.now() < deadline) setTimeout(checkPort, 300);
+    });
+    conn.on('error', () => {
+      conn.destroy();
+      app.quit();
+    });
+    conn.setTimeout(500);
+    conn.on('timeout', () => {
+      conn.destroy();
+      if (Date.now() < deadline) setTimeout(checkPort, 300);
+      else app.quit();
+    });
+  };
   stopDSH();
-  app.quit();
+  checkPort();
 });
 
 app.on('activate', () => {

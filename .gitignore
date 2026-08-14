@@ -17,3 +17,5 @@ dist/
 # OS
 Thumbs.db
 .DS_Store
+
+test-plugin/
