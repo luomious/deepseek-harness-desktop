@@ -748,14 +748,23 @@ async function performUpdate(localVer, remoteVer) {
 
 // ── 插件管理 ──────────────────────────────────────────
 
-/** 获取已安装的插件列表 */
+// DSH 基础包黑名单：这些是核心依赖，绝对不允许卸载（UI 层有提示，但主进程必须硬性拦截）
+const CORE_DEPS = new Set([
+  '@deepseek-ai/dsh',
+  '@deepseek-ai/dsh-base',
+  '@deepseek-ai/dsh-web-app',
+]);
+
+/** 获取已安装的插件列表（过滤核心依赖，仅展示可管理的第三方插件） */
 function getInstalledPlugins() {
   try {
     const pkgJsonPath = path.join(PROFILE_DIR, 'package.json');
     if (!fs.existsSync(pkgJsonPath)) return [];
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
     const deps = pkg.dependencies || {};
-    return Object.entries(deps).map(([name, version]) => ({ name, version }));
+    return Object.entries(deps)
+      .filter(([name]) => !CORE_DEPS.has(name))
+      .map(([name, version]) => ({ name, version }));
   } catch (e) {
     return [];
   }
@@ -820,6 +829,35 @@ async function pnpmCmd(action, target, cwd) {
   });
 }
 
+/** 解析 pnpm 常见错误，转成用户可读的中文提示 */
+function friendlyPnpmError(raw) {
+  const msg = String(raw || '');
+  if (/ERR_PNPM_IGNORED_BUILDS/.test(msg)) {
+    return '安装成功，但部分依赖的原生模块未编译（node-pty 等），终端类功能可能不可用。可运行 pnpm approve-builds 后重新构建。';
+  }
+  if (/ERR_PNPM_UNEXPECTED_STORE/.test(msg)) {
+    return 'pnpm store 位置异常，请先运行 pnpm install 重新链接依赖。';
+  }
+  if (/ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ECONNRESET|network/.test(msg)) {
+    return '网络错误：无法连接 npm 仓库，请检查网络后重试。';
+  }
+  if (/EACCES|EPERM|EINVAL|EROFS/.test(msg)) {
+    return '权限不足或文件被占用，请关闭占用程序后重试。';
+  }
+  if (/not found|No matching version|404|NO_MATCHING_VERSION/.test(msg)) {
+    return '未找到该插件包，请检查包名是否正确（npm 包名小写，scoped 包为 @scope/name）。';
+  }
+  if (/already exists|already installed/.test(msg)) {
+    return '该插件已安装。';
+  }
+  if (/ERESOLVE|peer dep|peerDependencies/.test(msg)) {
+    return '存在依赖冲突（peer dependencies），插件可能无法正常加载，请检查兼容性。';
+  }
+  // 截断过长的原始输出（防 pnpm 刷屏）
+  const firstLine = msg.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || msg;
+  return firstLine.length > 200 ? firstLine.slice(0, 200) + '...' : firstLine;
+}
+
 async function installPlugin(pluginName) {
   if (!pluginName) return { success: false, error: '插件名不能为空' };
 
@@ -837,16 +875,15 @@ async function installPlugin(pluginName) {
     const output = await pnpmCmd('add', pluginName, PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
-    return { success: false, error: e.message || String(e), name: pluginName };
+    const errMsg = friendlyPnpmError(e.message || e);
+    // 部分情况实际安装成功（如 IGNORED_BUILDS 只是警告，pnpm 仍返回非 0）
+    // 此时包已写入 profile，列表刷新后可见；标记为 success 以便 UI 引导重启
+    if (/IGNORED_BUILDS/.test(String(e.message || ''))) {
+      return { success: true, warning: errMsg, name: pluginName };
+    }
+    return { success: false, error: errMsg, name: pluginName };
   }
 }
-
-// DSH 基础包黑名单：这些是核心依赖，绝对不允许卸载（UI 层有提示，但主进程必须硬性拦截）
-const CORE_DEPS = new Set([
-  '@deepseek-ai/dsh',
-  '@deepseek-ai/dsh-base',
-  '@deepseek-ai/dsh-web-app',
-]);
 
 /** 卸载插件 */
 async function uninstallPlugin(pluginName) {
@@ -862,7 +899,7 @@ async function uninstallPlugin(pluginName) {
     const output = await pnpmCmd('remove', pluginName, PROFILE_DIR);
     return { success: true, output, name: pluginName };
   } catch (e) {
-    return { success: false, error: e.message || String(e), name: pluginName };
+    return { success: false, error: friendlyPnpmError(e.message || e), name: pluginName };
   }
 }
 
@@ -989,9 +1026,8 @@ function openPluginManager() {
   });
   pluginWin.webContents.on('will-redirect', (event) => event.preventDefault());
 
-  const installed = getInstalledPlugins();
-
-  // XSS 防御：插件名可能来自恶意本地插件的 package.json，必须转义后再嵌入 HTML
+  // XSS 防御：插件名可能来自恶意本地插件的 package.json，必须转义后再嵌入 HTML。
+  // 注：esc 供主进程拼接初始 HTML 使用；前端 JS 内也有自己的 esc（refreshInstalled 渲染用）
   const esc = (s) => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1049,16 +1085,12 @@ function openPluginManager() {
   <div id="tab-installed" class="tab-content active">
     <div class="section">
       <div class="section-title">已安装的插件</div>
-      ${installed.length > 0
-        ? `<ul class="plugin-list">${installed.map(p => `
-            <li class="plugin-item">
-              <div><span class="plugin-name">${esc(p.name)}</span><span class="plugin-ver">${esc(p.version)}</span></div>
-              <button class="btn-danger" data-name="${esc(p.name)}">卸载</button>
-            </li>`).join('')}</ul>`
-        : '<div class="empty">暂无已安装的第三方插件</div>'}
+      <ul class="plugin-list" id="installed-list">
+        <div class="empty">加载中...</div>
+      </ul>
       <div class="hint" style="margin-top:12px">
         DSH 基础包 (@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app) 是核心依赖，不支持在此卸载。<br>
-        可使用下方功能安装新插件。
+        可使用下方功能安装新插件。安装/卸载后列表自动刷新，重启应用后生效。
       </div>
     </div>
   </div>
@@ -1094,6 +1126,13 @@ function openPluginManager() {
 <script>
   // contextIsolation 启用，通过 preload 暴露的 window.electronAPI 通信
 
+  // XSS 防御：插件名/版本可能来自恶意本地插件的 package.json，渲染前必须转义
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', ['installed','remote','local'][i] === name);
@@ -1112,12 +1151,35 @@ function openPluginManager() {
     document.getElementById('status').className = 'status';
   }
 
+  // 动态刷新已安装插件列表（安装/卸载后调用，无需重启窗口）
+  // 注意：此处是嵌套在外部模板字符串内的 JS，避免使用反引号，用拼接防转义问题
+  function refreshInstalled() {
+    window.electronAPI.listPlugins().then(list => {
+      const wrap = document.getElementById('installed-list');
+      if (!wrap) return;
+      if (!list || list.length === 0) {
+        wrap.innerHTML = '<div class="empty">暂无已安装的第三方插件</div>';
+        return;
+      }
+      wrap.innerHTML = list.map(p => {
+        return '<li class="plugin-item">' +
+          '<div><span class="plugin-name">' + esc(p.name) + '</span><span class="plugin-ver">' + esc(p.version) + '</span></div>' +
+          '<button class="btn-danger" data-name="' + esc(p.name) + '">卸载</button>' +
+          '</li>';
+      }).join('');
+    });
+  }
+
   function installRemote() {
     const name = document.getElementById('remote-name').value.trim();
     if (!name) { showStatus('请输入插件包名', 'error'); return; }
     showStatus('正在安装 ' + name + ' ...', 'success');
     window.electronAPI.installPlugin(name).then(r => {
-      if (r.success) { showStatus('插件 ' + r.name + ' 安装成功！请重启应用生效。', 'success'); }
+      if (r.success) {
+        refreshInstalled();
+        const tip = r.warning ? '（' + r.warning + '）' : '';
+        showStatus('插件 ' + r.name + ' 安装成功！' + tip + ' 请重启应用生效。', 'success');
+      }
       else { showStatus('安装失败: ' + r.error, 'error'); }
     });
   }
@@ -1127,7 +1189,11 @@ function openPluginManager() {
     if (!p) { showStatus('请输入或选择插件路径', 'error'); return; }
     showStatus('正在安装本地插件...', 'success');
     window.electronAPI.installLocalPlugin(p).then(r => {
-      if (r.success) { showStatus('本地插件 ' + r.name + ' 安装成功！请重启应用生效。', 'success'); }
+      if (r.success) {
+        refreshInstalled();
+        const tip = r.warning ? '（' + r.warning + '）' : '';
+        showStatus('本地插件 ' + r.name + ' 安装成功！' + tip + ' 请重启应用生效。', 'success');
+      }
       else { showStatus('安装失败: ' + r.error, 'error'); }
     });
   }
@@ -1136,7 +1202,10 @@ function openPluginManager() {
     if (!confirm('确定要卸载插件 ' + name + ' 吗？')) return;
     showStatus('正在卸载 ' + name + ' ...', 'success');
     window.electronAPI.uninstallPlugin(name).then(r => {
-      if (r.success) { showStatus('插件 ' + r.name + ' 已卸载。请重启应用生效。', 'success'); setTimeout(() => location.reload(), 1500); }
+      if (r.success) {
+        refreshInstalled();
+        showStatus('插件 ' + r.name + ' 已卸载。请重启应用生效。', 'success');
+      }
       else { showStatus('卸载失败: ' + r.error, 'error'); }
     });
   }
@@ -1154,6 +1223,9 @@ function openPluginManager() {
       if (p) document.getElementById('local-path').value = p;
     });
   }
+
+  // 窗口加载完成后拉取一次已安装列表
+  refreshInstalled();
 </script>
 </body>
 </html>
@@ -1257,6 +1329,11 @@ ipcMain.handle('plugin:uninstall', async (event, name) => {
 ipcMain.handle('plugin:installLocal', async (event, pluginPath) => {
   if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
   return await installLocalPlugin(pluginPath);
+});
+ipcMain.handle('plugin:list', (event) => {
+  // 插件列表只读，不涉及高危操作；仍限制为插件管理窗口调用（防远程内容枚举）
+  if (!isPluginManagerSender(event)) return [];
+  return getInstalledPlugins();
 });
 ipcMain.handle('dialog:selectFolder', async (event) => {
   if (!isPluginManagerSender(event)) return null;
