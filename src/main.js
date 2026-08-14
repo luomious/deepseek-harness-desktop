@@ -710,6 +710,23 @@ async function performUpdate(localVer, remoteVer) {
       '更新失败',
       `更新过程中出错：\n${e.message || e}\n\n请稍后手动执行：\nnpm install -g @deepseek-ai/dsh@latest`
     );
+    // 更新失败必须恢复 DSH 服务：更新开始前已 stopDSH，不恢复会导致应用停在"服务已停止"状态
+    try {
+      console.log('[DSH Desktop] Restoring DSH service after failed update...');
+      await startDSH();
+      const ready = await waitForDSH();
+      if (ready && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(DSH_URL).catch((err) => {
+          console.error('[DSH Desktop] Failed to reload UI after failed update:', err);
+        });
+      }
+    } catch (e2) {
+      console.error('[DSH Desktop] Failed to restore DSH service after failed update:', e2);
+      dialog.showErrorBox(
+        '服务恢复失败',
+        `更新失败，且 DSH 服务重启失败：\n${e2.message || e2}\n\n请手动重启应用。`
+      );
+    }
     return { hasUpdate: true, local: localVer, remote: remoteVer, error: e.message };
   }
 }
