@@ -559,10 +559,12 @@ function stopDSH() {
 
 /** 检查 DSH 是否有新版本 */
 async function checkForUpdates(silent = true) {
+  // 防御：mainWindow 可能在更新检查期间被用户关闭
+  const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
   const local = await getInstalledVersion();
   if (!local) {
-    if (!silent) {
-      dialog.showMessageBox(mainWindow, {
+    if (!silent && win) {
+      dialog.showMessageBox(win, {
         type: 'warning',
         title: '检查更新',
         message: '无法获取当前安装的 DSH 版本',
@@ -575,8 +577,8 @@ async function checkForUpdates(silent = true) {
 
   const remote = await getLatestVersion();
   if (!remote) {
-    if (!silent) {
-      dialog.showMessageBox(mainWindow, {
+    if (!silent && win) {
+      dialog.showMessageBox(win, {
         type: 'warning',
         title: '检查更新',
         message: '无法连接到 npm 仓库获取最新版本',
@@ -596,7 +598,8 @@ async function checkForUpdates(silent = true) {
       return { hasUpdate, local, remote };
     }
 
-    const choice = dialog.showMessageBoxSync(mainWindow, {
+    if (!win) return { hasUpdate, local, remote };
+    const choice = dialog.showMessageBoxSync(win, {
       type: 'info',
       title: '发现新版本',
       message: `DSH 有新版本可用！`,
@@ -609,9 +612,9 @@ async function checkForUpdates(silent = true) {
     if (choice === 0) {
       return await performUpdate(local, remote);
     }
-  } else {
-    if (!silent) {
-      dialog.showMessageBox(mainWindow, {
+    } else {
+    if (!silent && win) {
+      dialog.showMessageBox(win, {
         type: 'info',
         title: '检查更新',
         message: '已是最新版本',
@@ -619,7 +622,7 @@ async function checkForUpdates(silent = true) {
         buttons: ['确定'],
       });
     }
-  }
+    }
 
   return { hasUpdate, local, remote };
 }
@@ -631,6 +634,7 @@ async function performUpdate(localVer, remoteVer) {
   await new Promise(r => setTimeout(r, 2000));
 
   // 显示进度对话框
+  const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
   const progressWin = new BrowserWindow({
     width: 420,
     height: 200,
@@ -638,7 +642,7 @@ async function performUpdate(localVer, remoteVer) {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    parent: mainWindow,
+    parent: win,
     modal: true,
     alwaysOnTop: true,
     webPreferences: { contextIsolation: true },
@@ -682,7 +686,7 @@ async function performUpdate(localVer, remoteVer) {
 
     safeClose(progressWin);
 
-    const choice = await dialog.showMessageBox(mainWindow, {
+    const choice = await dialog.showMessageBox(win, {
       type: 'info',
       title: '更新完成',
       message: 'DSH 已更新到最新版本！',
@@ -1131,6 +1135,9 @@ function createWindow() {
 
 // ── 插件管理窗口 ──────────────────────────────────────
 
+// 插件管理窗口引用（isTrustedSender 精确校验用；提前声明供 openPluginManager 和 IPC 校验共用）
+let pluginWin = null;
+
 function openPluginManager() {
   // 若已有插件管理窗口则聚焦，不重复打开
   if (pluginWin && !pluginWin.isDestroyed()) {
@@ -1435,14 +1442,15 @@ function createMenu() {
     {
       label: '帮助',
       submenu: [
-        { label: '检查更新', click: () => checkForUpdates(false) },
+        { label: '检查更新', click: () => { checkForUpdates(false).catch(err => console.error('[DSH Desktop] Update check failed:', err)); } },
         { type: 'separator' },
         { label: 'DSH 文档', click: () => shell.openExternal('https://github.com/deepseek-ai/deepseek-harness') },
         { label: 'DeepSeek 官网', click: () => shell.openExternal('https://deepseek.com') },
         { type: 'separator' },
         { label: '关于', click: async () => {
           const ver = (await getInstalledVersion()) || '未知';
-          dialog.showMessageBox(mainWindow, {
+          const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
+          dialog.showMessageBox(win, {
             type: 'info', title: '关于 DeepSeek Harness',
             message: 'DeepSeek Harness Desktop',
             detail: `版本: ${getAppVersion()}\nDSH: ${ver}\n\n基于 DeepSeek Harness 的桌面封装应用\nMIT License`,
@@ -1461,8 +1469,6 @@ function createMenu() {
 // ipcMain 和 dialog 已在文件开头从 electron 解构，此处用别名
 const electronDialog = dialog;
 
-// 插件管理窗口引用（isTrustedSender 精确校验用）
-let pluginWin = null;
 
 /** 校验 IPC 调用来源：只允许本应用的受信任窗口（主窗口/插件管理窗口）调用 */
 function isTrustedSender(event) {
