@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uninstallPlugin: (name) => ipcRenderer.invoke('plugin:uninstall', name),
   installLocalPlugin: (path) => ipcRenderer.invoke('plugin:installLocal', path),
   listPlugins: () => ipcRenderer.invoke('plugin:list'),
+  setPluginEnabled: (name, enabled) => ipcRenderer.invoke('plugin:setEnabled', name, enabled),
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
   checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),

@@ -756,17 +756,147 @@ const CORE_DEPS = new Set([
 ]);
 
 /** 获取已安装的插件列表（过滤核心依赖，仅展示可管理的第三方插件） */
-function getInstalledPlugins() {
+function getInstalledPlugins(profileDir = PROFILE_DIR) {
   try {
-    const pkgJsonPath = path.join(PROFILE_DIR, 'package.json');
+    const pkgJsonPath = path.join(profileDir, 'package.json');
     if (!fs.existsSync(pkgJsonPath)) return [];
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
     const deps = pkg.dependencies || {};
     return Object.entries(deps)
       .filter(([name]) => !CORE_DEPS.has(name))
-      .map(([name, version]) => ({ name, version }));
+      .map(([name, version]) => ({ name, version, disabled: isPluginDisabled(name, profileDir) }));
   } catch (e) {
     return [];
+  }
+}
+
+/**
+ * 解析插件在 dsh 行（row）系统中的注册 id。
+ * - 声明 dsh.bundle.patch 的插件（如皮肤包）：从 patch 文件的 insert 条目取行 id
+ *   （皮肤是 ui-skin-maid-atelier，而非包名）
+ * - 普通插件：行 id = 包名
+ */
+function getPluginRowIds(packageName, profileDir = PROFILE_DIR) {
+  try {
+    const base = path.join(profileDir, 'node_modules', packageName);
+    const pkg = JSON.parse(fs.readFileSync(path.join(base, 'package.json'), 'utf-8'));
+    const patchRel = pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch;
+    if (patchRel) {
+      const patchPath = path.join(base, patchRel);
+      if (fs.existsSync(patchPath)) {
+        const text = fs.readFileSync(patchPath, 'utf-8');
+        const ids = [];
+        for (const m of text.matchAll(/^\s*- id:\s*['"]?([^'"\s]+)['"]?\s*$/gm)) ids.push(m[1]);
+        if (ids.length) return ids;
+      }
+    }
+  } catch (e) {}
+  return [packageName];
+}
+
+/** 读取 profile 的 cordis.patch.yml（用户层补丁，覆盖 bundle 层）。返回 { header, rows } */
+function readProfilePatch(profileDir = PROFILE_DIR) {
+  const file = path.join(profileDir, 'cordis.patch.yml');
+  if (!fs.existsSync(file)) return { header: '', rows: [] };
+  const lines = fs.readFileSync(file, 'utf-8').split(/\r?\n/);
+  const header = [];
+  const rows = [];
+  let i = 0;
+  while (i < lines.length && !lines[i].trim().startsWith('- id:')) { header.push(lines[i]); i++; }
+  for (; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t.startsWith('- id:')) { header.push(lines[i]); continue; }
+    const id = t.replace(/^- id:\s*/, '').trim().replace(/^['"]|['"]$/g, '');
+    const block = [lines[i]];
+    let j = i + 1;
+    while (j < lines.length && (/^\s/.test(lines[j]) || lines[j].trim() === '')) { block.push(lines[j]); j++; }
+    rows.push({ id, block });
+    i = j - 1;
+  }
+  return { header: header.join('\n'), rows };
+}
+
+/** 设置某行 id 的禁用状态：写入/移除 profile 补丁中的 disabled: true 行 */
+function setRowDisabled(rowId, disabled, profileDir = PROFILE_DIR) {
+  const file = path.join(profileDir, 'cordis.patch.yml');
+  const { header, rows } = readProfilePatch(profileDir);
+  const next = rows.filter((r) => r.id !== rowId);
+  if (disabled) next.push({ id: rowId, block: ["- id: '" + rowId + "'", '  disabled: true'] });
+  const headerPart = header.split('\n').filter((l) => l.trim() !== '[]').reduce((acc, l) => {
+    if (l.trim() === '') { if (acc.length && acc[acc.length - 1].trim() !== '') acc.push(l); }
+    else acc.push(l);
+    return acc;
+  }, []);
+  const body = next.length ? [...headerPart, ...next.flatMap((r) => r.block)] : [...headerPart, '[]'];
+  fs.writeFileSync(file, body.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n');
+}
+
+/** 插件当前是否被禁用（profile 补丁中任意一行 id 带 disabled: true） */
+function isPluginDisabled(packageName, profileDir = PROFILE_DIR) {
+  const rows = getPluginRowIds(packageName, profileDir);
+  const { rows: patchRows } = readProfilePatch(profileDir);
+  const disabledIds = new Set(
+    patchRows.filter((r) => /disabled:\s*true/.test(r.block.join('\n'))).map((r) => r.id)
+  );
+  return rows.some((id) => disabledIds.has(id));
+}
+
+/** 启用/禁用插件（写 profile 补丁；重启 dsh 后生效） */
+async function setPluginEnabled(packageName, enabled, profileDir = PROFILE_DIR) {
+  if (typeof enabled !== 'boolean') return { success: false, error: '参数错误', name: packageName };
+  const verr = validateArg(packageName, 'pkg');
+  if (verr) return { success: false, error: verr, name: packageName };
+  if (CORE_DEPS.has(packageName)) return { success: false, error: '核心依赖不允许禁用', name: packageName };
+  if (!getInstalledPlugins(profileDir).some((p) => p.name === packageName)) {
+    return { success: false, error: '插件未安装', name: packageName };
+  }
+  try {
+    const rows = getPluginRowIds(packageName, profileDir);
+    for (const rowId of rows) setRowDisabled(rowId, !enabled, profileDir);
+    return { success: true, name: packageName, enabled };
+  } catch (e) {
+    return { success: false, error: e.message || String(e), name: packageName };
+  }
+}
+
+/** 某依赖是否声明 dsh.bundle（作为 profile 层参与启动组合） */
+function exportsBundlePatch(packageName, profileDir = PROFILE_DIR) {
+  try {
+    const base = path.join(profileDir, 'node_modules', packageName);
+    const pkg = JSON.parse(fs.readFileSync(path.join(base, 'package.json'), 'utf-8'));
+    const patchRel = pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch;
+    if (!patchRel) return false;
+    return fs.existsSync(path.join(base, patchRel));
+  } catch (e) { return false; }
+}
+
+/**
+ * 对齐 dsh.profile.bundles 与已安装依赖（复刻上游 dsh plugin 的 reconcile 逻辑）：
+ * 声明 dsh.bundle 的依赖加入 bundles 层（其 cordis.patch.yml 才会被应用），
+ * 卸载或失去声明的则移出。核心 bundle（dsh-base/dsh-web-app，不在 dependencies 中）不受影响。
+ */
+function reconcileBundles(profileDir = PROFILE_DIR) {
+  try {
+    const pkgJsonPath = path.join(profileDir, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) return;
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+    const deps = Object.keys(pkg.dependencies || {});
+    const bundles = pkg.dsh && pkg.dsh.profile && Array.isArray(pkg.dsh.profile.bundles) ? [...pkg.dsh.profile.bundles] : [];
+    let changed = false;
+    for (const name of deps) {
+      if (exportsBundlePatch(name, profileDir) && !bundles.includes(name)) { bundles.push(name); changed = true; }
+    }
+    const depSet = new Set(deps);
+    // 保留规则：是依赖且声明 dsh.bundle → 保留；非依赖（模板核心 bundle，如 dsh-base/dsh-web-app）→ 仅当属于核心包才保留，
+    // 已卸载的第三方 bundle 必须移出
+    const kept = bundles.filter((name) => depSet.has(name) ? exportsBundlePatch(name, profileDir) : CORE_DEPS.has(name));
+    if (kept.length !== bundles.length) { bundles.length = 0; bundles.push(...kept); changed = true; }
+    if (changed) {
+      pkg.dsh = { ...pkg.dsh, profile: { ...(pkg.dsh.profile || {}), bundles } };
+      fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + '\n');
+    }
+  } catch (e) {
+    console.error('[DSH Desktop] reconcileBundles failed:', e);
   }
 }
 
@@ -873,6 +1003,8 @@ async function installPlugin(pluginName) {
 
     // pnpm add <pkg> --dir <profile>（node 直接执行 pnpm.cjs，无 shell）
     const output = await pnpmCmd('add', pluginName, PROFILE_DIR);
+    // 同步 bundles 层：声明 dsh.bundle 的插件（皮肤等）自动加入 dsh.profile.bundles
+    reconcileBundles();
     return { success: true, output, name: pluginName };
   } catch (e) {
     const errMsg = friendlyPnpmError(e.message || e);
@@ -897,6 +1029,8 @@ async function uninstallPlugin(pluginName) {
     }
 
     const output = await pnpmCmd('remove', pluginName, PROFILE_DIR);
+    // 从 bundles 层移除（若该插件声明过 dsh.bundle）
+    reconcileBundles();
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: friendlyPnpmError(e.message || e), name: pluginName };
@@ -924,6 +1058,8 @@ async function installLocalPlugin(pluginPath) {
 
     // 使用 file: 协议安装（pnpm 原生，无 shell）
     const output = await pnpmCmd('add', `file:${pluginPath}`, PROFILE_DIR);
+    // 同步 bundles 层
+    reconcileBundles();
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginPath };
@@ -1055,6 +1191,11 @@ function openPluginManager() {
   .btn-secondary:hover { background: #444; }
   .btn-danger { background: #e74c3c; color: white; }
   .btn-danger:hover { background: #d73b2c; }
+  .actions { display: flex; gap: 6px; }
+  .btn-toggle { background: #2d3a55; color: #9db8e8; border: 1px solid #3d5075; }
+  .btn-toggle:hover { background: #3a4d73; }
+  .tag-disabled { font-size: 11px; color: #f87171; margin-left: 8px; border: 1px solid #f87171; border-radius: 4px; padding: 1px 6px; }
+  .tag-active { font-size: 11px; color: #4ade80; margin-left: 8px; border: 1px solid #4ade80; border-radius: 4px; padding: 1px 6px; }
   .plugin-list { list-style: none; }
   .plugin-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #16213e; border-radius: 8px; margin-bottom: 6px; }
   .plugin-name { font-size: 13px; font-weight: 500; }
@@ -1089,8 +1230,8 @@ function openPluginManager() {
         <div class="empty">加载中...</div>
       </ul>
       <div class="hint" style="margin-top:12px">
-        DSH 基础包 (@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app) 是核心依赖，不支持在此卸载。<br>
-        可使用下方功能安装新插件。安装/卸载后列表自动刷新，重启应用后生效。
+        DSH 基础包 (@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app) 是核心依赖，不支持在此卸载/禁用。<br>
+        可对第三方插件执行「禁用/启用」与「卸载」；改动写入 profile 补丁，重启应用后生效。
       </div>
     </div>
   </div>
@@ -1163,8 +1304,12 @@ function openPluginManager() {
       }
       wrap.innerHTML = list.map(p => {
         return '<li class="plugin-item">' +
-          '<div><span class="plugin-name">' + esc(p.name) + '</span><span class="plugin-ver">' + esc(p.version) + '</span></div>' +
+          '<div><span class="plugin-name">' + esc(p.name) + '</span><span class="plugin-ver">' + esc(p.version) + '</span>' +
+          '<span class="' + (p.disabled ? 'tag-disabled' : 'tag-active') + '">' + (p.disabled ? '已禁用' : '运行中') + '</span></div>' +
+          '<div class="actions">' +
+          '<button class="btn-toggle" data-toggle="' + esc(p.name) + '" data-disabled="' + (p.disabled ? '1' : '0') + '">' + (p.disabled ? '启用' : '禁用') + '</button>' +
           '<button class="btn-danger" data-name="' + esc(p.name) + '">卸载</button>' +
+          '</div>' +
           '</li>';
       }).join('');
     });
@@ -1216,6 +1361,26 @@ function openPluginManager() {
     if (!btn) return;
     const name = btn.getAttribute('data-name');
     if (name != null) uninstall(name);
+  });
+
+  // 启用/禁用开关（写 profile 补丁，重启 dsh 后生效）
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-toggle]');
+    if (!btn) return;
+    const name = btn.getAttribute('data-toggle');
+    const disabled = btn.getAttribute('data-disabled') === '1';
+    if (name == null) return;
+    const action = disabled ? '启用' : '禁用';
+    if (!confirm('确定要' + action + '插件 ' + name + ' 吗？')) return;
+    showStatus('正在' + action + ' ' + name + ' ...', 'success');
+    window.electronAPI.setPluginEnabled(name, disabled).then(r => {
+      if (r.success) {
+        refreshInstalled();
+        showStatus('插件 ' + r.name + ' 已' + action + '。请重启应用生效。', 'success');
+      } else {
+        showStatus(action + '失败: ' + r.error, 'error');
+      }
+    });
   });
 
   function selectFolder() {
@@ -1334,6 +1499,10 @@ ipcMain.handle('plugin:list', (event) => {
   // 插件列表只读，不涉及高危操作；仍限制为插件管理窗口调用（防远程内容枚举）
   if (!isPluginManagerSender(event)) return [];
   return getInstalledPlugins();
+});
+ipcMain.handle('plugin:setEnabled', async (event, name, enabled) => {
+  if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
+  return await setPluginEnabled(name, enabled);
 });
 ipcMain.handle('dialog:selectFolder', async (event) => {
   if (!isPluginManagerSender(event)) return null;

@@ -29,3 +29,7 @@ test-plugin/
 # 鏈満寮�鍙戣緟鍔╄剼鏈紙鍚釜浜鸿矾寰勶紝涓嶅叆搴擄級
 approve-builds.ps1
 install-dsh-plugins.ps1
+
+# 第三方插件源码（file: 依赖指向，不入库）
+plugins/
+
