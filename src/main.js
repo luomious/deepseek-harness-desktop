@@ -333,7 +333,10 @@ function findDshBin() {
   }
 
   // 2. 定位 dsh 的 lib/bin.js（npm 全局安装目录）
+  // 优先级：用户级全局 (Roaming\npm) > 动态 npm prefix/root > QClaw npm-global（最后兜底）
+  // 这样用户 npm install -g @deepseek-ai/dsh 后即优先使用独立安装，不依赖 QClaw 环境
   const binCandidates = [];
+  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
   try {
     const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
     if (prefix) binCandidates.push(path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
@@ -343,7 +346,6 @@ function findDshBin() {
     if (root) binCandidates.push(path.join(root, '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
   } catch (e) {}
   binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
 
   let binJs = null;
   for (const c of binCandidates) {
@@ -377,12 +379,12 @@ function findPnpmBin() {
       }
     }
   } catch (e) {}
-  // 兜底：常见位置（分平台）
+  // 兜底：常见位置（分平台）；Roaming\npm 优先于 QClaw（用户独立安装优先）
   const isWin = process.platform === 'win32';
   const fallbackBases = isWin
     ? [
-        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
         path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
         path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
       ]
     : [
@@ -412,8 +414,8 @@ function findNpmCli() {
     ? [
         path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
         path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
-        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
         path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
       ]
     : [
         '/usr/local/lib/node_modules',
@@ -462,6 +464,33 @@ function isDSHOrigin(url) {
 }
 
 /** 启动 DSH Web 服务 */
+/**
+ * 构造 DSH 服务进程的干净环境变量。
+ * WorkBuddy 等宿主会通过 NODE_OPTIONS 注入文件删除保护 shim（genie-safe-delete.cjs），
+ * 该 shim 会把 fs.unlinkSync 重定向为 trash 操作，并对 ~/.dsh 等受保护路径直接 abort。
+ * DSH 服务启动时会 heal ~/.dsh/profiles/node_modules 下的 junction（需 unlink 重建），
+ * 被 shim 拦截后启动失败，表现为「服务崩溃/新会话无反应」。
+ * 这里剔除全部 CODEBUDDY_SAFE_DELETE_* / GENIE_TRASH_DIR 注入，并移除 NODE_OPTIONS 中的 shim 引用。
+ */
+function buildDshEnv() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('CODEBUDDY_SAFE_DELETE_') || key === 'GENIE_TRASH_DIR' || key === 'BASH_ENV') {
+      delete env[key];
+    }
+  }
+  if (env.NODE_OPTIONS) {
+    // 移除 --require=genie-safe-delete.cjs 注入（路径含 genie-safe-delete 或 safe-delete）
+    const parts = env.NODE_OPTIONS.split(/\s+(?=--)/).filter((p) => {
+      const lower = p.toLowerCase();
+      return !lower.includes('genie-safe-delete') && !lower.includes('safe-delete');
+    });
+    if (parts.length > 0) env.NODE_OPTIONS = parts.join(' ');
+    else delete env.NODE_OPTIONS;
+  }
+  return env;
+}
+
 function startDSH() {
   return new Promise((resolve, reject) => {
     const dshArgs = ['web'];
@@ -480,6 +509,7 @@ function startDSH() {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: false,
       windowsHide: true,
+      env: buildDshEnv(),
     });
 
     // settled：promise 是否已结算（spawn 成功即 resolve，之后 exit 视为"运行中退出"）

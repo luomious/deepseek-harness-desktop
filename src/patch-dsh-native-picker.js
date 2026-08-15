@@ -45,10 +45,17 @@ function findDshNodeModulesRoot() {
     const root = execSync('npm root -g', { encoding: 'utf-8', windowsHide: true }).trim();
     if (root) candidates.push(root);
   } catch (e) { /* 同上 */ }
-  // DSH 官方默认安装位置（QClaw 发行版）
-  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules'));
-  // 其它常见全局安装位置
+  // 用户级全局安装（npm install -g 默认落点，独立于 QClaw）
   candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules'));
+  // 系统全局安装（npm prefix -g 指向）
+  try {
+    const sysPrefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    if (sysPrefix && !candidates.includes(path.join(sysPrefix, 'node_modules'))) {
+      candidates.push(path.join(sysPrefix, 'node_modules'));
+    }
+  } catch (e) { /* npm 不在 PATH：忽略 */ }
+  // DSH 官方默认安装位置（QClaw 发行版，最后兜底）
+  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules'));
 
   for (const c of candidates) {
     if (!c) continue;
