@@ -603,6 +603,50 @@ function stopDSH() {
   dshProcess = null;
 }
 
+/**
+ * 强制清理占用指定端口的进程（Windows: taskkill；macOS/Linux: fuser -k）
+ * 用于端口被僵死/非 DSH 进程占用时，自愈式清理后重新拉起服务。
+ */
+function killProcessOnPort(port) {
+  return new Promise((resolve) => {
+    try {
+      if (process.platform === 'win32') {
+        // 先找 PID（netstat 输出格式稳定，纯内部解析，无 shell）
+        const { execSync } = require('child_process');
+        let pid = null;
+        try {
+          const lines = execSync(`netstat -ano`, { encoding: 'utf-8', windowsHide: true }).split(/\r?\n/);
+          for (const line of lines) {
+            if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+              const parts = line.trim().split(/\s+/);
+              pid = parts[parts.length - 1];
+              break;
+            }
+          }
+        } catch (e) {}
+        if (pid) {
+          spawn('taskkill', ['/pid', pid, '/f', '/t'], { stdio: 'ignore', shell: false });
+          console.log(`[DSH Desktop] Killed process ${pid} holding port ${port}`);
+        }
+      } else {
+        spawn('fuser', ['-k', `${port}/tcp`], { stdio: 'ignore', shell: false });
+      }
+    } catch (e) {}
+    // 不等待 taskkill 完成（异步清理），resolve 后由调用方轮询端口
+    resolve();
+  });
+}
+
+/** 轮询等待端口释放 */
+async function waitPortReleased(port, maxRetries = 10, interval = 500) {
+  for (let i = 0; i < maxRetries; i++) {
+    const listening = await isPortListening(port);
+    if (!listening) return true;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return false;
+}
+
 // ── 更新检查 ──────────────────────────────────────────
 
 /** 检查 DSH 是否有新版本 */
@@ -1624,15 +1668,27 @@ app.whenReady().then(async () => {
       req.on('error', () => resolve(false));
     });
     if (!isDSH) {
-      dialog.showErrorBox(
-        '端口被占用',
-        `端口 ${DSH_PORT} 已被其他程序占用，且不是 DSH 服务。\n请关闭占用程序后重启应用，或修改 DSH_PORT 配置。`
-      );
-      app.quit();
-      return;
+      // 端口被非 DSH 进程占用：不直接退出，先清理占位进程再自启动（自愈）
+      // 场景：上次服务异常退出留下僵死进程，或被杀进程的 socket 未释放
+      console.warn(`[DSH Desktop] Port ${DSH_PORT} occupied by non-DSH process, cleaning up...`);
+      await killProcessOnPort(DSH_PORT);
+      // 等待端口释放后走自启动分支
+      const released = await waitPortReleased(DSH_PORT, 10, 500);
+      if (!released) {
+        dialog.showErrorBox(
+          '端口被占用',
+          `端口 ${DSH_PORT} 已被其他程序占用，且无法自动清理。\n请手动关闭占用程序后重启应用。`
+        );
+        app.quit();
+        return;
+      }
+      // 端口已释放，继续走自启动逻辑
+    } else {
+      console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
     }
-    console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
-  } else {
+  }
+
+  if (!(await isPortListening(DSH_PORT))) {
     // 启动 DSH 服务前应用原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
     try {
       const patchResult = applyNativePickerPatch();
