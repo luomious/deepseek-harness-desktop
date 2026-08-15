@@ -72,6 +72,7 @@ D:\Deepseek-Harness\
 ├── app/                # 打包产物（electron-builder 输出，不入库）
 │   └── resources/      # app.asar（当前生效的打包代码）
 ├── logs/               # 启动链路验证日志与截图
+├── build-app.ps1       # 【重要】一键重新打包 app.asar（改代码后必跑）
 ├── *.ps1               # 本机辅助脚本（不入库）：插件安装 / 构建批准
 ├── release_notes_v1xx.md  # 各版本发布说明
 └── PROJECT_README.md   # 本文件
@@ -88,6 +89,7 @@ D:\Deepseek-Harness\
 | `dsh --profile headless "task"` | 无头模式运行任务 |
 | `npm install -g @deepseek-ai/dsh` | 全局安装/更新 DSH 本体 |
 | `cd src && npx electron .` | 源码方式运行桌面应用（开发调试） |
+| `powershell -ExecutionPolicy Bypass -File .\build-app.ps1` | 重新打包 app.asar（改代码后必须执行） |
 | `pnpm add <pkg> --dir ~/.dsh/profiles/web` | 安装插件（与桌面应用一致的方式） |
 | `pnpm approve-builds` | 批准依赖构建脚本（node-pty 等原生模块） |
 
@@ -110,6 +112,59 @@ npx electron-builder --win portable
 
 > 说明：本仓库**不包含** `node_modules` 和打包产物 `app/`（已在 .gitignore 排除）。
 > `src/package.json` 仅声明应用元信息，Electron 与 electron-builder 按需安装即可。
+
+## ⚠️ 重要：更新代码后必须重新打包桌面版（否则 exe 仍是旧代码）
+
+**这是本项目最容易踩的坑**：桌面版 `DeepSeek Harness.exe` 运行时加载的是
+`app/resources/app.asar`（代码快照），**不是** `src/` 下的实时源码。
+
+修改 `src/main.js` / `preload.js` / `renderer/` 之后，如果只提交 GitHub 而不重新打包，
+exe 下次启动仍然运行**旧代码**，表现为「修复没生效 / 点击无反应 / 行为与文档不符」。
+
+### 标准流程（每次改完代码必须执行）
+
+```sh
+# 1. 修改 src/ 下的代码（main.js / preload.js / renderer / assets）
+
+# 2. 重新打包 app.asar（用最新 src 覆盖 app/resources/app.asar）
+#    方式 A：直接运行项目内的一键脚本（推荐）
+powershell -ExecutionPolicy Bypass -File .\build-app.ps1
+
+#    方式 B：手动执行（需 @electron/asar，一次性安装）
+npm install -g @electron/asar
+asar pack src "app/resources/app.asar"
+```
+
+打包完成后，**完全退出**正在运行的桌面版（任务栏图标 → 退出，或任务管理器结束
+所有 `DeepSeek Harness.exe` 进程），再重新双击 `app/DeepSeek Harness.exe` 才会
+加载新代码。Electron 的单实例锁会导致「不退出旧进程就直接启动新实例」时新实例
+静默退出（退出码 0 无报错），所以**必须先退出旧实例**。
+
+### 验证是否已加载新代码
+
+打包后可用以下命令确认 `app.asar` 内包含预期改动：
+
+```sh
+# 检查 buildDshEnv 等关键函数是否已进入 asar（以 main.js 为例）
+npx asar extract-file app/resources/app.asar main.js
+# 然后 grep 新代码特征字符串
+```
+
+### 完整发布流程（提交 GitHub 前）
+
+```text
+1. 修改 src/ 代码
+2. node --check src/main.js 语法检查
+3. 重新打包：build-app.ps1（或 asar pack src "app/resources/app.asar"）
+4. 完全退出旧实例 → 双击 exe 验证修复生效
+5. 写 release_notes_v1xx.md
+6. git add + commit + push
+```
+
+> 历史教训（2026-08-15）：v1.1.8~v1.2.0 的多项修复（UTF-16 路径截断、
+> WorkBuddy shim 注入崩溃、DSH 独立化）已推送 GitHub，但因未重新打包 app.asar，
+> exe 一直运行旧代码，用户侧「点击新会话没反应」问题持续存在。
+> 重新打包后需重启 exe 才生效。
 
 ## 故障排查
 
