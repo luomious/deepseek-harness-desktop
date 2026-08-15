@@ -20,12 +20,33 @@ let mainWindow = null;
 let dshProcess = null;
 let isQuitting = false;
 
+// ── 启动日志（诊断用：记录启动流程每一步，便于排查「打开没反应」）──
+const LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-startup.log');
+function bootLog(msg) {
+  try {
+    const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${msg}\n`;
+    fs.appendFileSync(LOG_FILE, line, 'utf8');
+  } catch (e) { /* 日志失败不影响主流程 */ }
+  console.log('[DSH Desktop]', msg);
+}
+
+// ── 渲染进程日志（诊断「点击没反应」等前端问题）──
+const RENDERER_LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-renderer.log');
+function rendererLog(level, msg) {
+  try {
+    const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] [${level}] ${msg}\n`;
+    fs.appendFileSync(RENDERER_LOG_FILE, line, 'utf8');
+  } catch (e) { /* 日志失败不影响主流程 */ }
+}
+
 // ── 单实例锁：防止双击两次导致多个窗口共享一个 DSH 服务 ──
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   // 已有实例在运行，退出本实例
+  bootLog('single-instance lock FAILED, quitting (已有实例?)');
   app.quit();
 } else {
+  bootLog('single-instance lock acquired');
   app.on('second-instance', () => {
     // 第二个实例被唤起时，聚焦已有窗口
     if (mainWindow) {
@@ -616,8 +637,10 @@ function killProcessOnPort(port) {
         let pid = null;
         try {
           const lines = execSync(`netstat -ano`, { encoding: 'utf-8', windowsHide: true }).split(/\r?\n/);
+          // 精确匹配 ":<port> "（后跟空白），避免 :3080 误匹配 :30800 等其它端口
+          const portRe = new RegExp(':' + port + '\\s');
           for (const line of lines) {
-            if (line.includes(`:${port}`) && line.includes('LISTENING')) {
+            if (portRe.test(line) && line.includes('LISTENING')) {
               const parts = line.trim().split(/\s+/);
               pid = parts[parts.length - 1];
               break;
@@ -904,51 +927,96 @@ function getPluginRowIds(packageName, profileDir = PROFILE_DIR) {
   return [packageName];
 }
 
-/** 读取 profile 的 cordis.patch.yml（用户层补丁，覆盖 bundle 层）。返回 { header, rows } */
+/**
+ * 读取 profile 的 cordis.patch.yml。返回 { header, items }：
+ * - header：首个顶层列表项之前的注释/空行/占位 []
+ * - items：顶层列表项块（每项从 "- " 起，含缩进续行；覆盖 "- id:" 覆盖行与 "- insert:" 挂载块）
+ */
 function readProfilePatch(profileDir = PROFILE_DIR) {
   const file = path.join(profileDir, 'cordis.patch.yml');
-  if (!fs.existsSync(file)) return { header: '', rows: [] };
+  if (!fs.existsSync(file)) return { header: [], items: [] };
   const lines = fs.readFileSync(file, 'utf-8').split(/\r?\n/);
   const header = [];
-  const rows = [];
+  const items = [];
   let i = 0;
-  while (i < lines.length && !lines[i].trim().startsWith('- id:')) { header.push(lines[i]); i++; }
-  for (; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (!t.startsWith('- id:')) { header.push(lines[i]); continue; }
-    const id = t.replace(/^- id:\s*/, '').trim().replace(/^['"]|['"]$/g, '');
+  while (i < lines.length && !lines[i].trim().startsWith('- ')) { header.push(lines[i]); i++; }
+  while (i < lines.length) {
     const block = [lines[i]];
     let j = i + 1;
-    while (j < lines.length && (/^\s/.test(lines[j]) || lines[j].trim() === '')) { block.push(lines[j]); j++; }
-    rows.push({ id, block });
-    i = j - 1;
+    while (j < lines.length && (lines[j].trim() === '' || lines[j].startsWith(' ') || lines[j].startsWith('\t'))) { block.push(lines[j]); j++; }
+    items.push(block);
+    i = j;
   }
-  return { header: header.join('\n'), rows };
+  return { header, items };
 }
 
-/** 设置某行 id 的禁用状态：写入/移除 profile 补丁中的 disabled: true 行 */
-function setRowDisabled(rowId, disabled, profileDir = PROFILE_DIR) {
+/** 写回 profile 补丁：header（去占位 [] 与多余空行）+ 各顶层块；无块时回退 [] */
+function writeProfilePatch(profileDir, header, items) {
   const file = path.join(profileDir, 'cordis.patch.yml');
-  const { header, rows } = readProfilePatch(profileDir);
-  const next = rows.filter((r) => r.id !== rowId);
-  if (disabled) next.push({ id: rowId, block: ["- id: '" + rowId + "'", '  disabled: true'] });
-  const headerPart = header.split('\n').filter((l) => l.trim() !== '[]').reduce((acc, l) => {
+  const headerPart = header.filter((l) => l.trim() !== '[]').reduce((acc, l) => {
     if (l.trim() === '') { if (acc.length && acc[acc.length - 1].trim() !== '') acc.push(l); }
     else acc.push(l);
     return acc;
   }, []);
-  const body = next.length ? [...headerPart, ...next.flatMap((r) => r.block)] : [...headerPart, '[]'];
+  const body = items.length ? [...headerPart, ...items.flatMap((b) => b)] : [...headerPart, '[]'];
   fs.writeFileSync(file, body.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n');
 }
 
-/** 插件当前是否被禁用（profile 补丁中任意一行 id 带 disabled: true） */
+/** 块是否为 "- id: <id>" 覆盖行；是则返回 id，否则 null */
+function itemId(item) {
+  const t = (item[0] || '').trim();
+  if (!t.startsWith('- id:')) return null;
+  return t.slice('- id:'.length).trim().replace(/^['"]/, '').replace(/['"]$/, '');
+}
+
+/** 块是否为挂载块；是则返回其 name 值，否则 null */
+function itemMountedName(item) {
+  const t0 = (item[0] || '').trim();
+  if (!t0.startsWith('- insert:')) return null;
+  for (const l of item) {
+    const t = l.trim();
+    if (t.startsWith('name:')) return t.slice('name:'.length).trim().replace(/^['"]/, '').replace(/['"]$/, '');
+  }
+  return null;
+}
+
+/** 块是否为挂载 <packageName> 的 insert 块 */
+function itemMountsPackage(item, packageName) {
+  return itemMountedName(item) === packageName;
+}
+
+/** 设置某行 id 的禁用状态（bundle 插件）：写入/移除 profile 补丁中的 disabled: true 覆盖行 */
+function setRowDisabled(rowId, disabled, profileDir = PROFILE_DIR) {
+  const { header, items } = readProfilePatch(profileDir);
+  const next = items.filter((b) => itemId(b) !== rowId);
+  if (disabled) next.push(["- id: '" + rowId + "'", '  disabled: true']);
+  writeProfilePatch(profileDir, header, next);
+}
+
+/** 设置纯前端插件的挂载状态（非 bundle 插件）：写入/移除 insert 挂载块 */
+function setInsertRow(packageName, mounted, profileDir = PROFILE_DIR) {
+  const { header, items } = readProfilePatch(profileDir);
+  const next = items.filter((b) => !itemMountsPackage(b, packageName));
+  if (mounted) next.push(['- insert:', "    - id: '" + packageName + "'", "      name: '" + packageName + "'"]);
+  writeProfilePatch(profileDir, header, next);
+}
+
+/** 插件当前是否被禁用 */
 function isPluginDisabled(packageName, profileDir = PROFILE_DIR) {
-  const rows = getPluginRowIds(packageName, profileDir);
-  const { rows: patchRows } = readProfilePatch(profileDir);
-  const disabledIds = new Set(
-    patchRows.filter((r) => /disabled:\s*true/.test(r.block.join('\n'))).map((r) => r.id)
-  );
-  return rows.some((id) => disabledIds.has(id));
+  const { items } = readProfilePatch(profileDir);
+  if (exportsBundlePatch(packageName, profileDir)) {
+    // bundle 插件：profile 补丁中是否存在 disabled: true 覆盖行
+    const rows = getPluginRowIds(packageName, profileDir);
+    const disabledIds = new Set(
+      items.filter((b) => b.join('\n').includes('disabled: true')).map((b) => itemId(b)).filter(Boolean)
+    );
+    return rows.some((id) => disabledIds.has(id));
+  }
+  if (hasClientEntry(packageName, profileDir)) {
+    // 纯前端插件：挂载块缺失即视为禁用
+    return !items.some((b) => itemMountsPackage(b, packageName));
+  }
+  return false;
 }
 
 /** 启用/禁用插件（写 profile 补丁；重启 dsh 后生效） */
@@ -961,12 +1029,29 @@ async function setPluginEnabled(packageName, enabled, profileDir = PROFILE_DIR) 
     return { success: false, error: '插件未安装', name: packageName };
   }
   try {
-    const rows = getPluginRowIds(packageName, profileDir);
-    for (const rowId of rows) setRowDisabled(rowId, !enabled, profileDir);
+    if (exportsBundlePatch(packageName, profileDir)) {
+      const rows = getPluginRowIds(packageName, profileDir);
+      for (const rowId of rows) setRowDisabled(rowId, !enabled, profileDir);
+    } else if (hasClientEntry(packageName, profileDir)) {
+      setInsertRow(packageName, enabled, profileDir);
+    } else {
+      return { success: false, error: '该插件无前端入口，卸载即可移除，无需禁用', name: packageName };
+    }
     return { success: true, name: packageName, enabled };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: packageName };
   }
+}
+
+/** 依赖是否有浏览器端入口（dsh.client 声明 + exports["./client"]）——非 bundle 的纯前端插件 */
+function hasClientEntry(packageName, profileDir = PROFILE_DIR) {
+  try {
+    const base = path.join(profileDir, 'node_modules', packageName);
+    const pkg = JSON.parse(fs.readFileSync(path.join(base, 'package.json'), 'utf-8'));
+    if (!pkg.dsh || !pkg.dsh.client) return false;
+    const exp = pkg.exports && pkg.exports['./client'];
+    return typeof exp === 'string' || (exp && typeof exp.default === 'string');
+  } catch (e) { return false; }
 }
 
 /** 某依赖是否声明 dsh.bundle（作为 profile 层参与启动组合） */
@@ -981,32 +1066,53 @@ function exportsBundlePatch(packageName, profileDir = PROFILE_DIR) {
 }
 
 /**
- * 对齐 dsh.profile.bundles 与已安装依赖（复刻上游 dsh plugin 的 reconcile 逻辑）：
- * 声明 dsh.bundle 的依赖加入 bundles 层（其 cordis.patch.yml 才会被应用），
- * 卸载或失去声明的则移出。核心 bundle（dsh-base/dsh-web-app，不在 dependencies 中）不受影响。
+ * 对齐 profile 与已安装依赖（复刻上游 dsh plugin 的 reconcile 逻辑，并补纯前端插件挂载）：
+ * - bundle 插件（声明 dsh.bundle）：加入 dsh.profile.bundles 层（其 cordis.patch.yml 才会被应用）
+ * - 纯前端插件（dsh.client 但无 dsh.bundle）：在 profile 补丁追加 insert 挂载块
+ * - 卸载/失去声明的分别移出；核心 bundle（dsh-base/dsh-web-app，不在 dependencies 中）不受影响
  */
-function reconcileBundles(profileDir = PROFILE_DIR) {
+function reconcilePlugins(profileDir = PROFILE_DIR) {
   try {
     const pkgJsonPath = path.join(profileDir, 'package.json');
     if (!fs.existsSync(pkgJsonPath)) return;
     const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
     const deps = Object.keys(pkg.dependencies || {});
+    const depSet = new Set(deps);
+
+    // 1) bundles 层对齐
     const bundles = pkg.dsh && pkg.dsh.profile && Array.isArray(pkg.dsh.profile.bundles) ? [...pkg.dsh.profile.bundles] : [];
     let changed = false;
     for (const name of deps) {
       if (exportsBundlePatch(name, profileDir) && !bundles.includes(name)) { bundles.push(name); changed = true; }
     }
-    const depSet = new Set(deps);
-    // 保留规则：是依赖且声明 dsh.bundle → 保留；非依赖（模板核心 bundle，如 dsh-base/dsh-web-app）→ 仅当属于核心包才保留，
-    // 已卸载的第三方 bundle 必须移出
     const kept = bundles.filter((name) => depSet.has(name) ? exportsBundlePatch(name, profileDir) : CORE_DEPS.has(name));
     if (kept.length !== bundles.length) { bundles.length = 0; bundles.push(...kept); changed = true; }
     if (changed) {
       pkg.dsh = { ...pkg.dsh, profile: { ...(pkg.dsh.profile || {}), bundles } };
       fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + '\n');
     }
+
+    // 2) 纯前端插件挂载块对齐
+    const { header, items } = readProfilePatch(profileDir);
+    // 移除挂载了"已不在依赖中"插件的 insert 块
+    const nextItems = items.filter((b) => {
+      const mounted = itemMountedName(b);
+      if (mounted === null) return true; // 非 insert 块（用户行/禁用行）保留
+      return depSet.has(mounted);         // 挂载的包仍在依赖中则保留，否则移除
+    });
+    // 补充缺失的纯前端插件挂载块
+    let added = false;
+    for (const name of deps) {
+      if (exportsBundlePatch(name, profileDir)) continue; // bundle 插件走 bundles 层
+      if (!hasClientEntry(name, profileDir)) continue;     // 无前端入口，无需挂载
+      if (!nextItems.some((b) => itemMountsPackage(b, name))) {
+        nextItems.push(['- insert:', "    - id: '" + name + "'", "      name: '" + name + "'"]);
+        added = true;
+      }
+    }
+    if (added || nextItems.length !== items.length) writeProfilePatch(profileDir, header, nextItems);
   } catch (e) {
-    console.error('[DSH Desktop] reconcileBundles failed:', e);
+    console.error('[DSH Desktop] reconcilePlugins failed:', e);
   }
 }
 
@@ -1114,7 +1220,7 @@ async function installPlugin(pluginName) {
     // pnpm add <pkg> --dir <profile>（node 直接执行 pnpm.cjs，无 shell）
     const output = await pnpmCmd('add', pluginName, PROFILE_DIR);
     // 同步 bundles 层：声明 dsh.bundle 的插件（皮肤等）自动加入 dsh.profile.bundles
-    reconcileBundles();
+    reconcilePlugins();
     return { success: true, output, name: pluginName };
   } catch (e) {
     const errMsg = friendlyPnpmError(e.message || e);
@@ -1140,7 +1246,7 @@ async function uninstallPlugin(pluginName) {
 
     const output = await pnpmCmd('remove', pluginName, PROFILE_DIR);
     // 从 bundles 层移除（若该插件声明过 dsh.bundle）
-    reconcileBundles();
+    reconcilePlugins();
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: friendlyPnpmError(e.message || e), name: pluginName };
@@ -1169,7 +1275,7 @@ async function installLocalPlugin(pluginPath) {
     // 使用 file: 协议安装（pnpm 原生，无 shell）
     const output = await pnpmCmd('add', `file:${pluginPath}`, PROFILE_DIR);
     // 同步 bundles 层
-    reconcileBundles();
+    reconcilePlugins();
     return { success: true, output, name: pluginName };
   } catch (e) {
     return { success: false, error: e.message || String(e), name: pluginPath };
@@ -1210,6 +1316,22 @@ function createWindow() {
     // 仅允许 http/https 外部链接用系统浏览器打开，其余拒绝
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // 捕获渲染进程日志与异常（前端点击无反应、JS 报错时排查用）
+  // Electron 30+ 使用结构化签名 (event, details)，details = { level, message, lineNumber, sourceId, frame }
+  mainWindow.webContents.on('console-message', (_event, details) => {
+    const d = details || {};
+    rendererLog('console', '[' + (d.sourceId || '?') + ':' + (d.lineNumber ?? '?') + '] ' + d.level + ' ' + (d.message ?? ''));
+  });
+  mainWindow.webContents.on('unhandled-rejection', (_event, reason) => {
+    rendererLog('unhandled-rejection', String(reason));
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    rendererLog('render-process-gone', `reason=${details?.reason}, exitCode=${details?.exitCode}`);
+  });
+  mainWindow.webContents.on('unresponsive', () => {
+    rendererLog('unresponsive', 'renderer process became unresponsive');
   });
 
   // 拦截主窗口导航：只允许停留在 DSH 本地服务，禁止跳到外部站点
@@ -1552,6 +1674,9 @@ function createMenu() {
       submenu: [
         { label: '检查更新', click: () => { checkForUpdates(false).catch(err => console.error('[DSH Desktop] Update check failed:', err)); } },
         { type: 'separator' },
+        { label: '打开启动日志', click: () => { shell.openPath(LOG_FILE).catch(() => {}); } },
+        { label: '打开前端日志', click: () => { shell.openPath(RENDERER_LOG_FILE).catch(() => {}); } },
+        { type: 'separator' },
         { label: 'DSH 文档', click: () => shell.openExternal('https://github.com/deepseek-ai/deepseek-harness') },
         { label: 'DeepSeek 官网', click: () => shell.openExternal('https://deepseek.com') },
         { type: 'separator' },
@@ -1639,9 +1764,19 @@ ipcMain.handle('app:getVersion', (event) => {
 // ── 应用生命周期 ──────────────────────────────────────
 
 app.whenReady().then(async () => {
+  bootLog('whenReady: createWindow');
   createWindow();
 
+  // 启动时自愈：对齐 profile（bundle 层 + 纯前端插件挂载块），修复"依赖已登记但未挂载"的漂移
+  try {
+    reconcilePlugins();
+    bootLog('whenReady: reconcilePlugins done');
+  } catch (reconcileErr) {
+    bootLog('whenReady: reconcilePlugins failed (non-fatal): ' + (reconcileErr.message || reconcileErr));
+  }
+
   const alreadyRunning = await isPortListening(DSH_PORT);
+  bootLog(`whenReady: isPortListening(${DSH_PORT}) = ${alreadyRunning}`);
 
   if (alreadyRunning) {
     // 端口被占用：验证是否真的是 DSH 服务（避免加载其他程序的页面并暴露 preload 权限）
@@ -1670,6 +1805,7 @@ app.whenReady().then(async () => {
     if (!isDSH) {
       // 端口被非 DSH 进程占用：不直接退出，先清理占位进程再自启动（自愈）
       // 场景：上次服务异常退出留下僵死进程，或被杀进程的 socket 未释放
+      bootLog(`whenReady: port ${DSH_PORT} occupied by non-DSH, cleaning up...`);
       console.warn(`[DSH Desktop] Port ${DSH_PORT} occupied by non-DSH process, cleaning up...`);
       await killProcessOnPort(DSH_PORT);
       // 等待端口释放后走自启动分支
@@ -1684,22 +1820,28 @@ app.whenReady().then(async () => {
       }
       // 端口已释放，继续走自启动逻辑
     } else {
+      bootLog('whenReady: DSH already running on port');
       console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
     }
   }
 
   if (!(await isPortListening(DSH_PORT))) {
+    bootLog('whenReady: port free, calling startDSH()');
     // 启动 DSH 服务前应用原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
     try {
       const patchResult = applyNativePickerPatch();
+      bootLog(`whenReady: native picker patch ${patchResult.status}`);
       console.log('[DSH Desktop] Native picker patch:', patchResult.status, '-', patchResult.path);
     } catch (patchErr) {
+      bootLog(`whenReady: native picker patch FAILED (non-fatal): ${patchErr.message}`);
       console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
     }
     try {
       await startDSH();
+      bootLog('whenReady: startDSH resolved');
       console.log('[DSH Desktop] DSH process started, waiting for ready...');
     } catch (err) {
+      bootLog(`whenReady: startDSH FAILED: ${err.message || err}`);
       dialog.showErrorBox(
         '启动失败',
         `无法启动 DeepSeek Harness 服务：\n${err.message || err}\n\n请确认已通过 npm install -g @deepseek-ai/dsh 安装 DSH。`
@@ -1709,6 +1851,7 @@ app.whenReady().then(async () => {
     }
 
     const ready = await waitForDSH();
+    bootLog(`whenReady: waitForDSH = ${ready}`);
     if (!ready) {
       dialog.showErrorBox(
         '服务超时',
@@ -1719,6 +1862,7 @@ app.whenReady().then(async () => {
     }
   }
 
+  bootLog('whenReady: DSH ready, loading web UI');
   console.log('[DSH Desktop] DSH ready, loading web UI...');
 
   if (mainWindow && !mainWindow.isDestroyed()) {
