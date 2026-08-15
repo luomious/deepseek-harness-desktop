@@ -22,21 +22,30 @@ let isQuitting = false;
 
 // ── 启动日志（诊断用：记录启动流程每一步，便于排查「打开没反应」）──
 const LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-startup.log');
-function bootLog(msg) {
+const LOG_MAX_BYTES = 1024 * 1024; // 单日志文件上限 1MB，超出截半，防无限增长
+
+/** 追加一行日志；超出上限时只保留后半段（截半），避免磁盘被日志占满 */
+function appendLog(file, line) {
   try {
-    const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${msg}\n`;
-    fs.appendFileSync(LOG_FILE, line, 'utf8');
+    fs.appendFileSync(file, line, 'utf8');
+    if (fs.statSync(file).size > LOG_MAX_BYTES) {
+      const buf = fs.readFileSync(file);
+      fs.writeFileSync(file, buf.slice(Math.floor(buf.length / 2)));
+    }
   } catch (e) { /* 日志失败不影响主流程 */ }
+}
+
+function bootLog(msg) {
+  const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${msg}\n`;
+  appendLog(LOG_FILE, line);
   console.log('[DSH Desktop]', msg);
 }
 
 // ── 渲染进程日志（诊断「点击没反应」等前端问题）──
 const RENDERER_LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-renderer.log');
 function rendererLog(level, msg) {
-  try {
-    const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] [${level}] ${msg}\n`;
-    fs.appendFileSync(RENDERER_LOG_FILE, line, 'utf8');
-  } catch (e) { /* 日志失败不影响主流程 */ }
+  const line = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] [${level}] ${msg}\n`;
+  appendLog(RENDERER_LOG_FILE, line);
 }
 
 // ── 单实例锁：防止双击两次导致多个窗口共享一个 DSH 服务 ──
