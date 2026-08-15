@@ -6,6 +6,7 @@ const net = require('net');
 const fs = require('fs');
 const os = require('os');
 const zlib = require('zlib');
+const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picker');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -1569,6 +1570,13 @@ app.whenReady().then(async () => {
     }
     console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
   } else {
+    // 启动 DSH 服务前应用原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
+    try {
+      const patchResult = applyNativePickerPatch();
+      console.log('[DSH Desktop] Native picker patch:', patchResult.status, '-', patchResult.path);
+    } catch (patchErr) {
+      console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
+    }
     try {
       await startDSH();
       console.log('[DSH Desktop] DSH process started, waiting for ready...');
