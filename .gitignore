@@ -30,7 +30,5 @@ test-plugin/
 approve-builds.ps1
 install-dsh-plugins.ps1
 
-# µÚÈı·½²å¼şÔ´Âë£¨file: ÒÀÀµÖ¸Ïò£¬²»Èë¿â£©
+# ç¬¬ä¸‰æ–¹æ’ä»¶æºç ï¼ˆfile: ä¾èµ–æŒ‡å‘ï¼Œä¸å…¥åº“ï¼‰
 plugins/
-
-`nasar_*_verify/
