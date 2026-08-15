@@ -32,6 +32,23 @@ if (!gotLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
+    // 若 DSH 服务已停止（如用户手动结束进程），双击图标时恢复服务并加载 UI，避免白屏。
+    // 与 activate 分支逻辑一致（activate 只覆盖窗口全关后的场景）。
+    isPortListening(DSH_PORT).then((running) => {
+      if (running) return;
+      startDSH()
+        .then(() => waitForDSH())
+        .then((ready) => {
+          if (ready && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadURL(DSH_URL).catch((err) => {
+              console.error('[DSH Desktop] Failed to reload UI on second-instance:', err);
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('[DSH Desktop] Failed to restart DSH on second-instance:', err);
+        });
+    });
   });
 }
 
@@ -613,17 +630,20 @@ async function checkForUpdates(silent = true) {
     if (choice === 0) {
       return await performUpdate(local, remote);
     }
-    } else {
-    if (!silent && win) {
-      dialog.showMessageBox(win, {
-        type: 'info',
-        title: '检查更新',
-        message: '已是最新版本',
-        detail: `当前版本: ${local}\n最新版本: ${remote}`,
-        buttons: ['确定'],
-      });
-    }
-    }
+    // 用户选择「稍后再说」：不打扰，直接返回（不落入下方"已是最新版本"分支）
+    return { hasUpdate, local, remote };
+  }
+
+  // 无更新（或更新已处理完毕）时的收尾
+  if (!silent && win) {
+    dialog.showMessageBox(win, {
+      type: 'info',
+      title: '检查更新',
+      message: '已是最新版本',
+      detail: `当前版本: ${local}\n最新版本: ${remote}`,
+      buttons: ['确定'],
+    });
+  }
 
   return { hasUpdate, local, remote };
 }
@@ -632,7 +652,13 @@ async function checkForUpdates(silent = true) {
 async function performUpdate(localVer, remoteVer) {
   // 先停止 DSH 服务
   stopDSH();
-  await new Promise(r => setTimeout(r, 2000));
+  // 等待端口释放（最多 5 秒），确保 dsh 进程树完全退出——否则 Windows 上
+  // npm install -g 覆盖 @deepseek-ai/dsh 目录时可能 EPERM（文件被运行中进程占用）
+  const portDeadline = Date.now() + 5000;
+  while (Date.now() < portDeadline) {
+    if (!(await isPortListening(DSH_PORT))) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
 
   // 显示进度对话框
   const win = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
@@ -713,6 +739,11 @@ async function performUpdate(localVer, remoteVer) {
           });
         } else {
           console.error('[DSH Desktop] DSH service failed to restart after update');
+          // 更新成功但服务没能拉起：必须提示，否则应用停在"服务已停止"状态且用户无感知
+          dialog.showErrorBox(
+            '服务启动失败',
+            `DSH 更新成功，但服务未能重新启动（30 秒超时）。\n请重启应用后重试。`
+          );
         }
       } catch (e) {
         console.error('[DSH Desktop] Failed to restart DSH after update:', e);
@@ -1405,7 +1436,9 @@ function openPluginManager() {
   `)}`;
 
   const pmURL = html;
-  pluginWin.loadURL(pmURL);
+  pluginWin.loadURL(pmURL).catch((err) => {
+    console.error('[DSH Desktop] Failed to load plugin manager:', err);
+  });
   pluginWin.on('closed', () => { pluginWin = null; });
 }
 
@@ -1667,6 +1700,13 @@ app.on('activate', async () => {
     const running = await isPortListening(DSH_PORT);
     if (!running) {
       try {
+        // 与 whenReady 启动路径保持一致：启动前应用原生目录选择器补丁（幂等，重装 DSH 后自动修复）
+        try {
+          const patchResult = applyNativePickerPatch();
+          console.log('[DSH Desktop] Native picker patch:', patchResult.status, '-', patchResult.path);
+        } catch (patchErr) {
+          console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
+        }
         await startDSH();
         const ready = await waitForDSH();
         if (!ready) {
