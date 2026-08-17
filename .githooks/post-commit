@@ -1,0 +1,23 @@
+#!/bin/sh
+# post-commit hook: warn when the desktop exe (app/resources/app.asar)
+# is stale relative to the src/ source tree.
+#
+# Runs after every commit. It never blocks the commit (always exits 0);
+# it only prints a warning when src/ is newer than the packed app.asar,
+# which means the local exe is running old code and needs `build-app.ps1`.
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+PS=""
+for c in powershell pwsh; do
+  if command -v "$c" >/dev/null 2>&1; then
+    PS="$c"
+    break
+  fi
+done
+
+if [ -n "$PS" ] && [ -f "$ROOT/check-exe-stale.ps1" ]; then
+  "$PS" -NoProfile -ExecutionPolicy Bypass -File "$ROOT/check-exe-stale.ps1"
+fi
+
+exit 0

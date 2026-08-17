@@ -35,3 +35,6 @@ plugins/
 
 # 临时打包/验证脚本目录（不入库）
 tools/
+
+# DSH web profile 本地备份（回滚用，不入库）
+.dsh-web-profile-*/
