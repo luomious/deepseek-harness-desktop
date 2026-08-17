@@ -38,3 +38,6 @@ tools/
 
 # DSH web profile 本地备份（回滚用，不入库）
 .dsh-web-profile-*/
+
+# dsh-safe-delete 回收区（运行时生成，不入库）
+.dsh-trash/
