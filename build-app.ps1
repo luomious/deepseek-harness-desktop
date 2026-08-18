@@ -120,6 +120,8 @@ console.log('package.json BOM (must be false):', bom);
 try { JSON.parse(pkg.toString('utf8').replace(/^\uFEFF/, '')); console.log('package.json parses: true'); }
 catch (e) { console.log('package.json parses: FALSE - ' + e.message); }
 console.log('lib/version.js present:', !!asar.extractFile(process.argv[2], 'lib/version.js'));
+console.log('lib/brain.js present:', !!asar.extractFile(process.argv[2], 'lib/brain.js'));
+console.log('lib/npm-paths.js present:', !!asar.extractFile(process.argv[2], 'lib/npm-paths.js'));
 "@
 Set-Content -Path $checkJs -Value $checkCode -Encoding ASCII
 try {
@@ -129,6 +131,51 @@ try {
 }
 Remove-Item $checkJs -ErrorAction SilentlyContinue
 $env:NODE_PATH = $origNodePath
+
+# 7. smoke test: launch the exe, wait for port 3080 + boot manifest, then exit.
+#    A bad pack (e.g. the BOM regression) is caught here instead of by the user.
+Write-Host ''
+Write-Host '==== smoke test ====' -ForegroundColor Green
+$exe = Join-Path $root 'app\DeepSeek Harness.exe'
+if (Test-Path $exe) {
+    Write-Host 'killing running instances (single-instance lock), then launching...' -ForegroundColor Gray
+    Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+    $startupLog = Join-Path $env:TEMP 'dsh-desktop-startup.log'
+    $errLog = Join-Path $env:TEMP 'dsh-desktop-error.log'
+    Remove-Item $startupLog, $errLog -ErrorAction SilentlyContinue
+    $proc = Start-Process -FilePath $exe -PassThru
+    $ready = $false
+    for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 500
+        if ($proc.HasExited) { break }
+        try {
+            $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:3080' -UseBasicParsing -TimeoutSec 2
+            if ($resp.StatusCode -eq 200 -and $resp.Content -match '__DSH_BOOT__') { $ready = $true; break }
+        } catch {}
+    }
+    if ($ready) {
+        Write-Host 'smoke: PASS (3080 ready + __DSH_BOOT__)' -ForegroundColor Green
+    } else {
+        Write-Host 'smoke: FAIL - exe did not serve 3080' -ForegroundColor Red
+        if (Test-Path $startupLog) {
+            Write-Host '--- startup log tail ---'
+            Get-Content $startupLog -Tail 15
+        }
+        if (Test-Path $errLog) {
+            Write-Host '--- error log ---'
+            Get-Content $errLog -Tail 5
+        }
+        Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | Stop-Process -Force
+        Write-Error 'Smoke test failed: repacked exe does not start correctly. Restore app.asar from the backup taken above and fix the source.'
+        exit 1
+    }
+    Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue | Stop-Process -Force
+    Start-Sleep -Seconds 2
+    Write-Host 'smoke: cleaned up (exe stopped)' -ForegroundColor Gray
+} else {
+    Write-Host 'smoke: skipped (exe not found at app\DeepSeek Harness.exe)' -ForegroundColor Yellow
+}
 
 Write-Host ''
 Write-Host '==== DONE. Next steps ====' -ForegroundColor Cyan
