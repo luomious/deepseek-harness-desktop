@@ -61,6 +61,27 @@ function bootLog(msg) {
   console.log('[DSH Desktop]', msg);
 }
 
+// ── 主进程全局异常保护：任何未捕获异常记录现场后退出，避免无痕崩溃 ──
+// 现场 = 错误日志（APP-001 含堆栈）+ 启动日志 + brain 经验表（同步落盘）。
+// uncaughtException 后进程状态不可信，保存现场后立即退出（不尝试继续运行）。
+process.on('uncaughtException', (err) => {
+  try {
+    const msg = (err && err.message) || String(err);
+    errorLog.log('APP-001', { module: 'main', msg, ctx: { stack: err && err.stack } });
+    bootLog('FATAL uncaughtException: ' + msg);
+    brain.save();
+  } catch (e) {}
+  app.exit(1);
+});
+// unhandledRejection 不退出进程（Node/Electron 默认仅告警），但必须记录现场
+process.on('unhandledRejection', (reason) => {
+  try {
+    const msg = String((reason && reason.message) || reason);
+    errorLog.log('APP-001', { module: 'main', msg, ctx: { stack: reason && reason.stack, rejection: true } });
+    bootLog('FATAL unhandledRejection: ' + msg);
+  } catch (e) {}
+});
+
 // DSH 服务生命周期管理器（启动/停止/端口管理/进程状态，唯一实现见 lib/dsh-service.js）
 const dshService = createDshService({
   serviceLogFile: DSH_SERVICE_LOG,
@@ -235,6 +256,7 @@ const updateChecker = createUpdateChecker({
   dialog,
   BrowserWindow,
   app,
+  errorLog,
   getMainWindow: () => (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null,
   DSH_URL,
   DSH_PKG,

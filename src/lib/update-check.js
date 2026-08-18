@@ -16,6 +16,7 @@ const path = require('path');
  *   safeClose,       // (win) => void 窗口安全关闭
  *   dialog, BrowserWindow, app,  // electron API
  *   getMainWindow,   // () => BrowserWindow|null（当前主窗口）
+ *   errorLog,        // 可选注入（诊断中心，记录 UPD-001）
  *   DSH_URL, DSH_PKG,             // 常量
  *   logger,          // (msg) => void
  *   getInstalledVersion,          // 可选注入（默认内部实现）
@@ -33,6 +34,7 @@ function createUpdateChecker(options) {
   const BrowserWindow = options.BrowserWindow;
   const app = options.app;
   const getMainWindow = options.getMainWindow;
+  const errorLog = options.errorLog;
   const DSH_URL = options.DSH_URL;
   const DSH_PKG = options.DSH_PKG;
   const logger = options.logger || console.log;
@@ -252,11 +254,19 @@ function createUpdateChecker(options) {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+    // 进度文案更新（executeJavaScript 由主进程注入，不受页面 CSP 限制；失败静默）
+    const setProgress = (html) => {
+      try {
+        progressWin.webContents.executeJavaScript(`document.getElementById('stage').innerHTML = ${JSON.stringify(html)}`);
+      } catch (e) {}
+    };
+
     progressWin.loadURL(`data:text/html,${encodeURIComponent(`
       <html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"></head><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
-        <div style="font-size:18px;font-weight:600;margin-bottom:16px;">正在更新 DSH...</div>
-        <div style="font-size:13px;color:#888;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
-        <div style="margin-top:20px;width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden;">
+        <div style="font-size:18px;font-weight:600;margin-bottom:8px;">正在更新 DSH...</div>
+        <div style="font-size:13px;color:#888;margin-bottom:16px;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
+        <div id="stage" style="font-size:13px;color:#9db8e8;margin-bottom:16px;">正在停止服务...</div>
+        <div style="margin-top:4px;width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden;">
           <div style="width:100%;height:100%;background:linear-gradient(90deg,#4a9eff,#7b68ee);animation:pulse 1.2s infinite;"></div>
         </div>
         <style>@keyframes pulse{0%{opacity:0.4}50%{opacity:1}100%{opacity:0.4}}</style>
@@ -270,11 +280,13 @@ function createUpdateChecker(options) {
       // 用它跑 npm-cli.js 会启动 Electron GUI 而非执行 npm，导致更新失败
       const npmCli = findNpmCli();
       if (!npmCli) throw new Error('未找到 npm-cli.js，请确认 npm 安装正常');
+      setProgress('正在下载并安装新版本（可能需要 1-2 分钟）...');
       // npm install -g 可能耗时 1-2 分钟，超时放宽到 3 分钟
       const output = await execNode(npmCli, ['install', '-g', `${DSH_PKG}@latest`], null, 180000);
       logger(`[DSH Desktop] Update output: ${output}`);
 
       // 验证真实安装版本（退出码 0 不代表装上了目标版本，防 registry 延迟/版本漂移）
+      setProgress('正在校验安装版本...');
       const afterVer = await getInstalledVersionImpl();
       if (afterVer && remoteVer && afterVer !== remoteVer) {
         logger(`[DSH Desktop] Installed version mismatch after update: expected ${remoteVer}, got ${afterVer}`);
@@ -334,10 +346,17 @@ function createUpdateChecker(options) {
 
       return { hasUpdate: false, updated: true, local: remoteVer, remote: remoteVer };
     } catch (e) {
-      safeClose(progressWin);
+      const errMsg = (e && e.message) || String(e);
+      logger(`[DSH Desktop] Update failed: ${errMsg}`);
+      if (errorLog) {
+        errorLog.log('UPD-001', { module: 'update-check', msg: errMsg, ctx: { local: localVer, remote: remoteVer, stage: 'npm-install' } });
+      }
+      // 失败原因直接显示在进度窗口内（比系统错误框更直观：进度窗在最前且可见）
+      try { setProgress(`<span style="color:#f87171;">更新失败：${escVer(errMsg)}</span>`); } catch (e2) {}
+      setTimeout(() => safeClose(progressWin), 3000);
       dialog.showErrorBox(
         '更新失败',
-        `更新过程中出错：\n${e.message || e}\n\n请稍后手动执行：\nnpm install -g @deepseek-ai/dsh@latest`
+        `更新过程中出错：\n${errMsg}\n\n请稍后手动执行：\nnpm install -g @deepseek-ai/dsh@latest`
       );
       // 更新失败必须恢复 DSH 服务：更新开始前已 stopDSH，不恢复会导致应用停在"服务已停止"状态
       try {

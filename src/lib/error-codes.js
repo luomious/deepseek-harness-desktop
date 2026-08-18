@@ -17,6 +17,8 @@ const ERROR_CODES = {
   'NPM-002': { title: 'pnpm 安装失败（权限/占用）', hint: '关闭占用程序后重试' },
   'NPM-003': { title: 'npm 查询挂起已强制终止', hint: '已自动降级静态路径' },
   'PATCH-001': { title: '补丁自愈失败', hint: '导出诊断报告反馈开发者（升级后补丁规则失配）' },
+  'UPD-001': { title: 'DSH 更新失败', hint: '查看报错信息；可手动执行 npm install -g @deepseek-ai/dsh@latest' },
+  'APP-001': { title: '主进程异常（未捕获错误）', hint: '已记录现场；导出诊断报告反馈开发者' },
 };
 
 /** 未知错误码兜底 */

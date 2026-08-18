@@ -25,6 +25,8 @@ function makeFakes(overrides = {}) {
     stopped: 0,
     installArgs: null,
     loads: [],
+    progressUpdates: [],
+    errorEntries: [],
   };
   const fakeWin = {
     isDestroyed: () => false,
@@ -55,7 +57,13 @@ function makeFakes(overrides = {}) {
       showErrorBox: (title, msg) => state.errors.push([title, msg]),
     },
     BrowserWindow: function () {
-      return { webContents: { on: () => {} }, loadURL: () => Promise.resolve(), isDestroyed: () => false, close: () => {} };
+      return {
+        webContents: {
+          on: () => {},
+          executeJavaScript: (code) => { state.progressUpdates.push(code); return Promise.resolve(); },
+        },
+        loadURL: () => Promise.resolve(), isDestroyed: () => false, close: () => {},
+      };
     },
     app: { relaunch: () => { state.relaunched++; }, exit: () => { state.exited++; } },
     getMainWindow: () => fakeWin,
@@ -149,15 +157,43 @@ function makeFakes(overrides = {}) {
 
   console.log('== performUpdate: 安装失败恢复服务 ==');
   {
+    const fakeTimers = [];
+    const savedSetTimeout = global.setTimeout;
+    global.setTimeout = (fn, ms) => { fakeTimers.push({ fn, ms }); return fakeTimers.length; };
+    try {
+      const { state, fakeDeps } = makeFakes({
+        getInstalledVersion: async () => '1.2.3',
+        execNode: async () => { throw new Error('npm EPERM'); },
+        errorLog: { log: (code, ev) => state.errorEntries.push({ code, ev }) },
+      });
+      const uc = createUpdateChecker(fakeDeps);
+      const r = await uc.performUpdate('1.2.3', '2.0.0');
+      t('返回 error', !!r.error, true);
+      t('服务已恢复', state.started, 1);
+      t('错误弹窗', state.errors.length >= 1, true);
+      t('错误码 UPD-001 已记录', state.errorEntries[0].code, 'UPD-001');
+      t('错误码含远程版本 ctx', state.errorEntries[0].ev.ctx.remote, '2.0.0');
+      const failUpdates = state.progressUpdates.filter((c) => c.includes('更新失败'));
+      t('进度窗口内显示失败原因', failUpdates.length >= 1, true);
+      t('失败原因含错误信息', failUpdates.some((c) => c.includes('EPERM')), true);
+      t('失败延迟关窗（3s）', fakeTimers.some((t) => t.ms === 3000), true);
+      // 触发延迟关窗（safeClose 无副作用 mock，仅验证逻辑存在）
+      for (const t2 of fakeTimers) t2.fn();
+    } finally { global.setTimeout = savedSetTimeout; }
+  }
+
+  console.log('== performUpdate: 成功路径进度阶段 ==');
+  {
     const { state, fakeDeps } = makeFakes({
-      getInstalledVersion: async () => '1.2.3',
-      execNode: async () => { throw new Error('npm EPERM'); },
+      getInstalledVersion: async () => '2.0.0',
+      dialog: { showMessageBox: async () => ({ response: 1 }), showErrorBox: () => {} },
     });
     const uc = createUpdateChecker(fakeDeps);
-    const r = await uc.performUpdate('1.2.3', '2.0.0');
-    t('返回 error', !!r.error, true);
-    t('服务已恢复', state.started, 1);
-    t('错误弹窗', state.errors.length >= 1, true);
+    await uc.performUpdate('1.2.3', '2.0.0');
+    const all = state.progressUpdates.join('\n');
+    t('安装阶段文案出现', all.includes('正在下载并安装'), true);
+    t('校验阶段文案出现', all.includes('正在校验安装版本'), true);
+    t('成功路径无失败文案', all.includes('更新失败'), false);
   }
 
   console.log('== getInstalledVersion 真实兜底链（npm list 空 → bin.js 反推）==');
