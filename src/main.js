@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const zlib = require('zlib');
 const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picker');
+const { isNewer } = require('./lib/version');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -15,6 +16,36 @@ const DSH_PKG = '@deepseek-ai/dsh';
 const DSH_HOME = path.join(os.homedir(), '.dsh');
 const PROFILE_DIR = path.join(DSH_HOME, 'profiles', 'web');
 const isDev = process.argv.includes('--dev');
+
+// npm prefix/root 结果缓存：桌面应用运行期间环境稳定，避免每次启动反复执行
+// execSync('npm prefix -g')（findDshBin/findPnpmBin/findNpmCli 合计调用 6+ 次）
+const npmPrefixCache = { value: null, loaded: false };
+const npmRootCache = { value: null, loaded: false };
+
+/** 安全执行 execSync（带超时），失败返回 null，绝不阻塞启动 */
+function execSyncSafe(cmd) {
+  try {
+    return execSync(cmd, { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+function getNpmPrefix() {
+  if (!npmPrefixCache.loaded) {
+    npmPrefixCache.loaded = true;
+    npmPrefixCache.value = execSyncSafe('npm prefix -g');
+  }
+  return npmPrefixCache.value;
+}
+
+function getNpmRoot() {
+  if (!npmRootCache.loaded) {
+    npmRootCache.loaded = true;
+    npmRootCache.value = execSyncSafe('npm root -g');
+  }
+  return npmRootCache.value;
+}
 
 let mainWindow = null;
 let dshProcess = null;
@@ -49,6 +80,9 @@ function rendererLog(level, msg) {
 }
 
 // ── 单实例锁：防止双击两次导致多个窗口共享一个 DSH 服务 ──
+// 禁用 Windows 原生遮挡检测：窗口被其他窗口完全盖住（occluded）时 Chromium 会冻结渲染，
+// 导致切回窗口后 UI 长时间无响应（backgroundThrottling:false 不覆盖此行为）。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   // 已有实例在运行，退出本实例
@@ -195,7 +229,7 @@ async function getInstalledVersion() {
 
   // 兜底 2：从 npm prefix -g 动态推断全局 node_modules 路径
   try {
-    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    const prefix = getNpmPrefix();
     if (prefix) {
       const pkgPath = path.join(prefix, 'node_modules', DSH_PKG, 'package.json');
       if (fs.existsSync(pkgPath)) {
@@ -258,58 +292,6 @@ function getAppVersion() {
   }
 }
 
-/** 比较语义化版本号（支持 semver pre-release），返回 true 表示 remote 比 local 新 */
-function isNewer(local, remote) {
-  if (!local || !remote) return false;
-
-  const parseSemver = (v) => {
-    // 防御：npm 可能返回数字类型版本号（如 1.2.3 被 JSON 解析为数字）
-    if (typeof v !== 'string') {
-      try { v = String(v); } catch (e) { return { parts: [0, 0, 0], pre: '' }; }
-    }
-    // 分离 major.minor.patch 和 pre-release 标签
-    const main = v.replace(/-.*$/, '').split('.').map(n => parseInt(n, 10) || 0);
-    const pre = v.includes('-') ? v.split('-')[1] : '';
-    return { parts: main, pre };
-  };
-
-  const lp = parseSemver(local);
-  const rp = parseSemver(remote);
-
-  // 比较主版本号
-  for (let i = 0; i < 3; i++) {
-    const l = lp.parts[i] || 0;
-    const r = rp.parts[i] || 0;
-    if (r > l) return true;
-    if (r < l) return false;
-  }
-
-  // 主版本相同，按 semver 规范比较 pre-release：
-  // 正式版 > 任何 pre-release；pre-release 按数字标识符数值比较
-  if (!lp.pre && !rp.pre) return false;      // 完全相同
-  if (!lp.pre && rp.pre) return false;       // local 正式版 > remote rc → 无更新
-  if (lp.pre && !rp.pre) return true;        // local rc → remote 正式版 → 有更新
-
-  // 都是 pre-release：按 . 分隔的标识符逐段比较（数字按数值，字母按字符串）
-  const lpParts = lp.pre.split('.');
-  const rpParts = rp.pre.split('.');
-  const maxLen = Math.max(lpParts.length, rpParts.length);
-  for (let i = 0; i < maxLen; i++) {
-    const l = lpParts[i];
-    const r = rpParts[i];
-    if (l === undefined) return true;   // local 更短 → local 更旧 → 有更新
-    if (r === undefined) return false;  // remote 更短 → remote 更旧 → 无更新
-    if (l === r) continue;
-    // 数字段按数值比较
-    const ln = /^\d+$/.test(l) ? parseInt(l, 10) : NaN;
-    const rn = /^\d+$/.test(r) ? parseInt(r, 10) : NaN;
-    if (!isNaN(ln) && !isNaN(rn)) return rn > ln;
-    // 字母段按字符串比较
-    return r > l;
-  }
-  return false;  // 完全相同
-}
-
 /**
  * 定位 dsh 的 node 解释器 + bin.js 绝对路径（安全执行方案）
  * 不依赖 PATH（双击快捷方式时 PATH 不含 npm-global），也完全绕开 .cmd/shell
@@ -329,12 +311,14 @@ function findDshBin() {
   if (!nodeExe) {
     try {
       const whichCmd = process.platform === 'win32' ? 'where node' : 'which node';
-      const lines = execSync(whichCmd, { encoding: 'utf-8', windowsHide: true }).trim().split(/\r?\n/);
-      for (const line of lines) {
-        const p = line.trim();
-        if (p && !p.toLowerCase().endsWith('.cmd') && !p.toLowerCase().endsWith('.bat') && fs.existsSync(p)) {
-          nodeExe = p;
-          break;
+      const lines = execSyncSafe(whichCmd);
+      if (lines) {
+        for (const line of lines.split(/\r?\n/)) {
+          const p = line.trim();
+          if (p && !p.toLowerCase().endsWith('.cmd') && !p.toLowerCase().endsWith('.bat') && fs.existsSync(p)) {
+            nodeExe = p;
+            break;
+          }
         }
       }
     } catch (e) {}
@@ -367,14 +351,14 @@ function findDshBin() {
   // 这样用户 npm install -g @deepseek-ai/dsh 后即优先使用独立安装，不依赖 QClaw 环境
   const binCandidates = [];
   binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  try {
-    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+  {
+    const prefix = getNpmPrefix();
     if (prefix) binCandidates.push(path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  } catch (e) {}
-  try {
-    const root = execSync('npm root -g', { encoding: 'utf-8', windowsHide: true }).trim();
+  }
+  {
+    const root = getNpmRoot();
     if (root) binCandidates.push(path.join(root, '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  } catch (e) {}
+  }
   binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
 
   let binJs = null;
@@ -398,7 +382,7 @@ function findDshBin() {
  */
 function findPnpmBin() {
   try {
-    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    const prefix = getNpmPrefix();
     if (prefix) {
       const candidates = [
         path.join(prefix, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
@@ -432,7 +416,7 @@ function findPnpmBin() {
 /** 定位 npm-cli.js（node 可直接执行，替代 npm.cmd） */
 function findNpmCli() {
   try {
-    const prefix = execSync('npm prefix -g', { encoding: 'utf-8', windowsHide: true }).trim();
+    const prefix = getNpmPrefix();
     if (prefix) {
       const c = path.join(prefix, 'node_modules', 'npm', 'bin', 'npm-cli.js');
       try { if (fs.existsSync(c)) return c; } catch (e) {}
@@ -569,6 +553,8 @@ function startDSH() {
 
     dshProcess.on('exit', (code, signal) => {
       console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
+      const exitDetail = stderrBuf.trim() ? `\nstderr:\n${stderrBuf.trim().slice(-4096)}` : '';
+      bootLog(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}${exitDetail}`);
       dshProcess = null;
       // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
       // 立即 reject 而不是等 30s 超时；附带 stderr 便于排查
@@ -636,16 +622,17 @@ function stopDSH() {
 /**
  * 强制清理占用指定端口的进程（Windows: taskkill；macOS/Linux: fuser -k）
  * 用于端口被僵死/非 DSH 进程占用时，自愈式清理后重新拉起服务。
+ * 防误杀：Windows 下先解析占用进程名，仅当进程名属于 node/electron 类
+ * （大概率是僵死的 DSH 实例）才 taskkill；其他程序占用则不动，交由调用方提示。
  */
 function killProcessOnPort(port) {
   return new Promise((resolve) => {
     try {
       if (process.platform === 'win32') {
-        // 先找 PID（netstat 输出格式稳定，纯内部解析，无 shell）
         const { execSync } = require('child_process');
         let pid = null;
         try {
-          const lines = execSync(`netstat -ano`, { encoding: 'utf-8', windowsHide: true }).split(/\r?\n/);
+          const lines = execSync('netstat -ano', { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).split(/\r?\n/);
           // 精确匹配 ":<port> "（后跟空白），避免 :3080 误匹配 :30800 等其它端口
           const portRe = new RegExp(':' + port + '\\s');
           for (const line of lines) {
@@ -657,6 +644,20 @@ function killProcessOnPort(port) {
           }
         } catch (e) {}
         if (pid) {
+          // 进程名白名单：仅清理 node/electron 类进程（DSH 是 node 服务）。
+          // 避免误杀用户业务程序（如 python 等也监听 3080 的情况）。
+          let pname = '';
+          try {
+            const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
+            const m = /^"([^"]+)"/.exec(out.trim());
+            if (m) pname = m[1].toLowerCase();
+          } catch (e) {}
+          const allowed = pname === '' || ['node.exe', 'electron.exe', 'dsh.exe'].some((n) => pname.endsWith(n) || pname === n);
+          if (!allowed) {
+            console.log(`[DSH Desktop] Port ${port} held by non-node process "${pname}" (pid ${pid}), NOT killing it`);
+            resolve(false);
+            return;
+          }
           spawn('taskkill', ['/pid', pid, '/f', '/t'], { stdio: 'ignore', shell: false });
           console.log(`[DSH Desktop] Killed process ${pid} holding port ${port}`);
         }
@@ -665,7 +666,7 @@ function killProcessOnPort(port) {
       }
     } catch (e) {}
     // 不等待 taskkill 完成（异步清理），resolve 后由调用方轮询端口
-    resolve();
+    resolve(true);
   });
 }
 
@@ -717,8 +718,21 @@ async function checkForUpdates(silent = true) {
 
   if (hasUpdate) {
     if (silent) {
-      // 静默模式（启动时自动检查）：只记录日志，不弹窗打扰用户
+      // 静默模式（启动时自动检查）：只记录日志，不弹窗打扰用户；
+      // 用系统通知提示有新版本，点击通知转为手动检查（弹窗确认是否更新）
       console.log(`[DSH Desktop] Update available (silent): ${local} → ${remote}`);
+      try {
+        const { Notification } = require('electron');
+        if (Notification.isSupported()) {
+          const n = new Notification({
+            title: 'DSH 有新版本可用',
+            body: `当前 ${local} → 最新 ${remote}`,
+            silent: true,
+          });
+          n.on('click', () => { checkForUpdates(false).catch((err) => console.error('[DSH Desktop] Update check failed:', err)); });
+          n.show();
+        }
+      } catch (e) {}
       return { hasUpdate, local, remote };
     }
 
@@ -816,6 +830,21 @@ async function performUpdate(localVer, remoteVer) {
     // npm install -g 可能耗时 1-2 分钟，超时放宽到 3 分钟
     const output = await execNode(npmCli, ['install', '-g', `${DSH_PKG}@latest`], null, 180000);
     console.log('[DSH Desktop] Update output:', output);
+
+    // 验证真实安装版本（退出码 0 不代表装上了目标版本，防 registry 延迟/版本漂移）
+    const afterVer = await getInstalledVersion();
+    if (afterVer && remoteVer && afterVer !== remoteVer) {
+      console.warn(`[DSH Desktop] Installed version mismatch after update: expected ${remoteVer}, got ${afterVer}`);
+      safeClose(progressWin);
+      dialog.showMessageBox(win, {
+        type: 'warning',
+        title: '版本校验异常',
+        message: '更新完成，但版本校验不一致',
+        detail: `期望版本: ${remoteVer}\n实际版本: ${afterVer}\n\n可能原因：npm registry 延迟或安装被部分中断。\n可稍后通过「帮助 → 检查更新」再次确认。`,
+        buttons: ['知道了'],
+      });
+      return { hasUpdate: false, updated: true, local: afterVer, remote: remoteVer };
+    }
 
     safeClose(progressWin);
 
@@ -1308,6 +1337,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // 最小化/后台时不冻结渲染进程：冻结会导致切回窗口时 UI 长时间无响应
+      backgroundThrottling: false,
     },
     frame: true,
     titleBarStyle: 'default',
@@ -1900,6 +1931,9 @@ app.on('before-quit', (e) => {
 });
 
 app.on('window-all-closed', () => {
+  // 关闭窗口即退出本应用：标记退出中，避免 stopDSH 杀服务时
+  // exit handler 误弹「DSH 服务已停止」（正常退出被误报为崩溃）
+  isQuitting = true;
   // 停止 DSH 并等待端口释放（防止孤儿进程）
   stopDSH();
   const deadline = Date.now() + 5000;

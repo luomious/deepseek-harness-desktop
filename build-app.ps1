@@ -24,6 +24,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $srcDir = Join-Path $root 'src'
 $asarFile = Join-Path $root 'app\resources\app.asar'
+$origNodePath = $env:NODE_PATH
 
 Write-Host '==== DeepSeek Harness Desktop: repack app.asar ====' -ForegroundColor Cyan
 
@@ -64,11 +65,21 @@ if (Test-Path $asarFile) {
     Write-Host "backup: $bak" -ForegroundColor Gray
 }
 
-# 4. repack
+# 4. repack to a temp file first, then atomically replace (Move-Item = rename)
+#    so a failed/interrupted pack never leaves a corrupted app.asar in place
 Write-Host 'packing app.asar ...' -ForegroundColor Yellow
+$tmpAsar = Join-Path (Split-Path $asarFile) ('app.asar.tmp.' + [guid]::NewGuid().ToString('N'))
 Push-Location $root
-& node $asarCli pack $srcDir $asarFile
-if ($LASTEXITCODE -ne 0) { Pop-Location; Write-Error 'pack failed'; exit 1 }
+try {
+    & node $asarCli pack $srcDir $tmpAsar
+    if ($LASTEXITCODE -ne 0) { throw "asar pack failed (exit $LASTEXITCODE)" }
+    Move-Item -Force -LiteralPath $tmpAsar -Destination $asarFile
+} catch {
+    Remove-Item -LiteralPath $tmpAsar -ErrorAction SilentlyContinue
+    Pop-Location
+    Write-Error $_
+    exit 1
+}
 Pop-Location
 
 # 5. verify
@@ -103,7 +114,7 @@ try {
     Write-Host '(verify script skipped)' -ForegroundColor Gray
 }
 Remove-Item $checkJs -ErrorAction SilentlyContinue
-$env:NODE_PATH = $null
+$env:NODE_PATH = $origNodePath
 
 Write-Host ''
 Write-Host '==== DONE. Next steps ====' -ForegroundColor Cyan

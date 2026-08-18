@@ -1,49 +1,11 @@
-// 临时回归测试：验证 v1.1.9 审计修复的关键逻辑（不污染仓库，跑完即删）
-// 1) isNewer 语义版本比较（复制自 main.js，防止回归）
-// 2) checkForUpdates 决策矩阵（重构后的控制流行为）
+// 回归测试：验证关键逻辑（isNewer 来自 src/lib/version.js 真实实现，非复制副本）
+// 1) isNewer 语义版本比较（测试与 main.js 共用同一模块）
+// 2) checkForUpdates 决策矩阵（重构后的控制流行为模拟）
 
 const assert = require('assert');
+const { isNewer } = require('../src/lib/version.js');
 
-// ── isNewer 实现（与 main.js 一致） ──────────────────────
-function isNewer(local, remote) {
-  if (!local || !remote) return false;
-  const parseSemver = (v) => {
-    if (typeof v !== 'string') {
-      try { v = String(v); } catch (e) { return { parts: [0, 0, 0], pre: '' }; }
-    }
-    const main = v.replace(/-.*$/, '').split('.').map(n => parseInt(n, 10) || 0);
-    const pre = v.includes('-') ? v.split('-')[1] : '';
-    return { parts: main, pre };
-  };
-  const lp = parseSemver(local);
-  const rp = parseSemver(remote);
-  for (let i = 0; i < 3; i++) {
-    const l = lp.parts[i] || 0;
-    const r = rp.parts[i] || 0;
-    if (r > l) return true;
-    if (r < l) return false;
-  }
-  if (!lp.pre && !rp.pre) return false;
-  if (!lp.pre && rp.pre) return false;
-  if (lp.pre && !rp.pre) return true;
-  const lpParts = lp.pre.split('.');
-  const rpParts = rp.pre.split('.');
-  const maxLen = Math.max(lpParts.length, rpParts.length);
-  for (let i = 0; i < maxLen; i++) {
-    const l = lpParts[i];
-    const r = rpParts[i];
-    if (l === undefined) return true;
-    if (r === undefined) return false;
-    if (l === r) continue;
-    const ln = /^\d+$/.test(l) ? parseInt(l, 10) : NaN;
-    const rn = /^\d+$/.test(r) ? parseInt(r, 10) : NaN;
-    if (!isNaN(ln) && !isNaN(rn)) return rn > ln;
-    return r > l;
-  }
-  return false;
-}
-
-// ── checkForUpdates 决策逻辑（重构后，与 main.js 一致） ───
+// ── checkForUpdates 决策逻辑（行为模拟，与 main.js 决策流一致） ───
 // 返回 { hasUpdate, local, remote, dialogShown, performUpdateCalled }
 function simulateCheck(silent, hasUpdate, choice) {
   const local = '1.0.0';
@@ -56,7 +18,7 @@ function simulateCheck(silent, hasUpdate, choice) {
 
   if (hasUpdate) {
     if (silent) {
-      // 静默模式：只记录日志
+      // 静默模式：只记录日志 + 系统通知（不弹窗、不更新）
       return { hasUpdate, local, remote, ...calls };
     }
     if (!win) return { hasUpdate, local, remote, ...calls };
@@ -79,52 +41,52 @@ function simulateCheck(silent, hasUpdate, choice) {
 // ── isNewer 测试 ───────────────────────────────────────
 let pass = 0, fail = 0;
 function t(name, actual, expected) {
-  if (actual === expected) { pass++; console.log('  ✓', name); }
-  else { fail++; console.log('  ✗', name, '→ got', actual, 'expected', expected); }
+  if (actual === expected) { pass++; console.log('  OK', name); }
+  else { fail++; console.log('  FAIL', name, '-> got', actual, 'expected', expected); }
 }
 
-console.log('== isNewer ==');
-t('1.0.0 vs 2.0.0 → true', isNewer('1.0.0', '2.0.0'), true);
-t('2.0.0 vs 1.0.0 → false', isNewer('2.0.0', '1.0.0'), false);
-t('1.0.0 vs 1.0.0 → false', isNewer('1.0.0', '1.0.0'), false);
-t('1.0.0 vs 1.1.0 → true', isNewer('1.0.0', '1.1.0'), true);
-t('1.1.0 vs 1.0.5 → true', isNewer('1.0.5', '1.1.0'), true);
-t('1.0.0 vs 1.0.0-rc.1 → false (正式版更新)', isNewer('1.0.0', '1.0.0-rc.1'), false);
-t('1.0.0-rc.1 vs 1.0.0 → true (rc→正式版)', isNewer('1.0.0-rc.1', '1.0.0'), true);
-t('1.0.0-rc.1 vs 1.0.0-rc.2 → true', isNewer('1.0.0-rc.1', '1.0.0-rc.2'), true);
-t('1.0.0-rc.2 vs 1.0.0-rc.1 → false', isNewer('1.0.0-rc.2', '1.0.0-rc.1'), false);
-t('1.0.0-alpha vs 1.0.0-alpha.1 → true', isNewer('1.0.0-alpha', '1.0.0-alpha.1'), true);
-t('1.0.0-beta vs 1.0.0-alpha → true (beta>alpha)', isNewer('1.0.0-alpha', '1.0.0-beta'), true);
-t('null vs 1.0.0 → false', isNewer(null, '1.0.0'), false);
-t('1.0.0 vs null → false', isNewer('1.0.0', null), false);
-t('数字版本 1 vs 2 → true', isNewer(1, 2), true);
-t('1.2 vs 1.10 → true (数值比较)', isNewer('1.2', '1.10'), true);
+console.log('== isNewer (src/lib/version.js) ==');
+t('1.0.0 vs 2.0.0 -> true', isNewer('1.0.0', '2.0.0'), true);
+t('2.0.0 vs 1.0.0 -> false', isNewer('2.0.0', '1.0.0'), false);
+t('1.0.0 vs 1.0.0 -> false', isNewer('1.0.0', '1.0.0'), false);
+t('1.0.0 vs 1.1.0 -> true', isNewer('1.0.0', '1.1.0'), true);
+t('1.1.0 vs 1.0.5 -> true', isNewer('1.0.5', '1.1.0'), true);
+t('1.0.0 vs 1.0.0-rc.1 -> false (release newer)', isNewer('1.0.0', '1.0.0-rc.1'), false);
+t('1.0.0-rc.1 vs 1.0.0 -> true (rc->release)', isNewer('1.0.0-rc.1', '1.0.0'), true);
+t('1.0.0-rc.1 vs 1.0.0-rc.2 -> true', isNewer('1.0.0-rc.1', '1.0.0-rc.2'), true);
+t('1.0.0-rc.2 vs 1.0.0-rc.1 -> false', isNewer('1.0.0-rc.2', '1.0.0-rc.1'), false);
+t('1.0.0-alpha vs 1.0.0-alpha.1 -> true', isNewer('1.0.0-alpha', '1.0.0-alpha.1'), true);
+t('1.0.0-beta vs 1.0.0-alpha -> true (beta>alpha)', isNewer('1.0.0-alpha', '1.0.0-beta'), true);
+t('null vs 1.0.0 -> false', isNewer(null, '1.0.0'), false);
+t('1.0.0 vs null -> false', isNewer('1.0.0', null), false);
+t('numeric 1 vs 2 -> true', isNewer(1, 2), true);
+t('1.2 vs 1.10 -> true (numeric)', isNewer('1.2', '1.10'), true);
 
-console.log('== checkForUpdates 决策矩阵 ==');
+console.log('== checkForUpdates decision matrix ==');
 // 场景 1：静默检查，有更新 → 不弹窗、不更新
 let r = simulateCheck(true, true, -1);
-t('silent+有更新 → 不弹窗', r.dialogShown === null, true);
-t('silent+有更新 → 不更新', r.performUpdateCalled === false, true);
-t('silent+有更新 → hasUpdate=true', r.hasUpdate === true, true);
+t('silent+update -> no dialog', r.dialogShown === null, true);
+t('silent+update -> no performUpdate', r.performUpdateCalled === false, true);
+t('silent+update -> hasUpdate=true', r.hasUpdate === true, true);
 
 // 场景 2：手动检查，有更新，选「立即更新」(choice=0) → performUpdate
 r = simulateCheck(false, true, 0);
-t('手动+有更新+立即更新 → 弹"发现新版本"', r.dialogShown === 'update-available', true);
-t('手动+有更新+立即更新 → performUpdate 被调用', r.performUpdateCalled === true, true);
+t('manual+update+now -> "update-available" dialog', r.dialogShown === 'update-available', true);
+t('manual+update+now -> performUpdate called', r.performUpdateCalled === true, true);
 
 // 场景 3：手动检查，有更新，选「稍后再说」(choice=1) → 不弹"已是最新版本"
 r = simulateCheck(false, true, 1);
-t('手动+有更新+稍后再说 → 弹"发现新版本"', r.dialogShown === 'update-available', true);
-t('手动+有更新+稍后再说 → 不弹"已是最新版本"', r.dialogShown !== 'up-to-date', true);
-t('手动+有更新+稍后再说 → hasUpdate=true', r.hasUpdate === true, true);
+t('manual+update+later -> "update-available" dialog', r.dialogShown === 'update-available', true);
+t('manual+update+later -> no "up-to-date" dialog', r.dialogShown !== 'up-to-date', true);
+t('manual+update+later -> hasUpdate=true', r.hasUpdate === true, true);
 
 // 场景 4：手动检查，无更新 → 弹"已是最新版本"
 r = simulateCheck(false, false, -1);
-t('手动+无更新 → 弹"已是最新版本"', r.dialogShown === 'up-to-date', true);
+t('manual+no-update -> "up-to-date" dialog', r.dialogShown === 'up-to-date', true);
 
 // 场景 5：静默检查，无更新 → 不弹窗
 r = simulateCheck(true, false, -1);
-t('silent+无更新 → 不弹窗', r.dialogShown === null, true);
+t('silent+no-update -> no dialog', r.dialogShown === null, true);
 
-console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
+console.log(`\nresult: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

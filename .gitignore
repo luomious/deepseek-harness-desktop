@@ -41,3 +41,9 @@ tools/
 
 # dsh-safe-delete 回收区（运行时生成，不入库）
 .dsh-trash/
+
+# dsh 运行时数据（如 dsh-tool-search.json，不入库）
+.dsh/
+
+# 本地文档/笔记（不入库）
+docs/
