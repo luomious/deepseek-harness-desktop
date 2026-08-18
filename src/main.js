@@ -13,6 +13,7 @@ const npmPaths = require('./lib/npm-paths');
 const { execSyncSafe: execSafe } = npmPaths;
 const { ErrorLog } = require('./lib/error-log');
 const { SafeMode } = require('./lib/safe-mode');
+const { reconcilePatches } = require('./lib/patch-manifest');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -1929,6 +1930,24 @@ app.whenReady().then(async () => {
     } catch (patchErr) {
       bootLog(`whenReady: native picker patch FAILED (non-fatal): ${patchErr.message}`);
       console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
+    }
+    // 补丁自愈清单：modlens / safe-delete 的 node_modules 补丁（升级覆盖后自动重打）
+    try {
+      const patchResults = reconcilePatches({ profileDir: PROFILE_DIR });
+      for (const pr of patchResults) {
+        if (pr.status === 'applied') {
+          bootLog(`whenReady: patch ${pr.id} applied`);
+          console.log('[DSH Desktop] Patch applied:', pr.id);
+        } else if (pr.status === 'failed') {
+          errorLog.log('PATCH-001', { module: 'patch-manifest', msg: `${pr.id}: ${pr.error || 'unknown'}`, ctx: { file: pr.file } });
+          bootLog(`whenReady: patch ${pr.id} FAILED (non-fatal): ${pr.error}`);
+          console.warn('[DSH Desktop] Patch failed (non-fatal):', pr.id, pr.error);
+        } else {
+          bootLog(`whenReady: patch ${pr.id} skipped (${pr.reason || pr.status})`);
+        }
+      }
+    } catch (patchErr) {
+      bootLog(`whenReady: patch manifest FAILED (non-fatal): ${patchErr.message}`);
     }
     try {
       await startDSH();
