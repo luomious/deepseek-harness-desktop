@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain, session } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -88,16 +88,57 @@ const dshService = createDshService({
   errorLog,
   logger: bootLog,
 });
-// 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
+// 运行中意外退出：自动恢复（重启服务 + 重载 UI），限次防死循环，超限才弹窗兜底。
+// 失败窗口：5 分钟内最多 AUTO_RESTART_MAX 次，之后升级为弹窗提示并退出，避免无感故障循环。
+const AUTO_RESTART_MAX = 3;
+const AUTO_RESTART_WINDOW_MS = 5 * 60 * 1000;
+let dshRestartTimes = [];
 dshService.setOnUnexpectedExit((code, signal) => {
-  if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-    errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
+  if (isQuitting || !mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+  errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
+  const now = Date.now();
+  dshRestartTimes = dshRestartTimes.filter((t) => now - t < AUTO_RESTART_WINDOW_MS);
+  if (dshRestartTimes.length >= AUTO_RESTART_MAX) {
+    bootLog(`BOOT-002 -> auto-restart exhausted (${AUTO_RESTART_MAX} in window), prompting user`);
     dialog.showErrorBox(
       'DSH 服务已停止',
-      `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})。\n应用将关闭，请重新启动。`
+      `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})，自动恢复失败 ${AUTO_RESTART_MAX} 次。\n应用将关闭，请重新启动。`
     );
     app.quit();
+    return;
   }
+  dshRestartTimes.push(now);
+  const attempt = dshRestartTimes.length;
+  bootLog(`BOOT-002 -> auto restart attempt ${attempt}/${AUTO_RESTART_MAX}...`);
+  const backoffMs = 1000 * Math.pow(2, attempt - 1);
+  setTimeout(() => {
+    (async () => {
+      try {
+        const running = await dshService.isPortListening();
+        if (!running) {
+          await dshService.start();
+          const ready = await dshService.waitForReady();
+          if (!ready) throw new Error('waitForReady timed out');
+        }
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          await mainWindow.loadURL(DSH_URL);
+        }
+        dshRestartTimes = [];
+        bootLog(`BOOT-002 -> auto restart recovered (attempt ${attempt})`);
+        console.log('[DSH Desktop] DSH auto-restarted successfully');
+      } catch (err) {
+        bootLog(`BOOT-002 -> auto restart attempt ${attempt} FAILED: ${(err && err.message) || err}`);
+        console.error('[DSH Desktop] DSH auto-restart failed:', err);
+        if (attempt >= AUTO_RESTART_MAX) {
+          dialog.showErrorBox(
+            'DSH 服务已停止',
+            `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})，自动恢复失败。\n应用将关闭，请重新启动。`
+          );
+          app.quit();
+        }
+      }
+    })();
+  }, backoffMs);
 });
 
 // ── 渲染进程日志（诊断「点击没反应」等前端问题）──
@@ -425,6 +466,14 @@ await new Promise((resolve, reject) => {
 // ── 应用生命周期 ──────────────────────────────────────
 
 app.whenReady().then(async () => {
+  // 系统通知权限：允许渲染进程（dsh web UI 及插件 bundle）用 Web Notification API 弹 toast。
+  // 仅放行 notifications，其余一律拒绝（不扩大渲染器权限面）。须在 app ready 后设置。
+  // 注意：不调用 app.setAppUserModelId——设置后任务栏图标会改为从 AUMID 关联的
+  // shortcut 取值（未创建快捷方式时回退到 Electron 默认图标），与 exe 图标不一致。
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'notifications');
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'notifications');
   bootLog('whenReady: createWindow');
   windowUI.createWindow();
 

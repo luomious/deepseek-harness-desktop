@@ -66,10 +66,20 @@ function createWindowUI(options) {
     });
 
     // 捕获渲染进程日志与异常（前端点击无反应、JS 报错时排查用）
-    // Electron 30+ 使用结构化签名 (event, details)，details = { level, message, lineNumber, sourceId, frame }
-    win.webContents.on('console-message', (_event, details) => {
-      const d = details || {};
-      rendererLog('console', '[' + (d.sourceId || '?') + ':' + (d.lineNumber ?? '?') + '] ' + d.level + ' ' + (d.message ?? ''));
+    // Electron 30+ 文档为结构化签名 (event, details)，但 33.x 实测以 positional (event, level, message, line, sourceId) 触发
+    const handleConsole = (levelOrDetails, message, lineNumber, sourceId) => {
+      let d;
+      if (typeof levelOrDetails === 'object' && levelOrDetails !== null) {
+        d = levelOrDetails;
+      } else {
+        d = { level: levelOrDetails, message, lineNumber, sourceId };
+      }
+      rendererLog('console', '[' + (d.sourceId || '?') + ':' + (d.lineNumber ?? '?') + '] ' + (d.level ?? '') + ' ' + (d.message ?? ''));
+    };
+    win.webContents.on('console-message', (_event, ...args) => handleConsole(...args));
+    // Electron 37+ 改名为 console-message-added（positional 签名）
+    win.webContents.on('console-message-added', (_event, level, message, lineNumber, sourceId) => {
+      handleConsole(level, message, lineNumber, sourceId);
     });
     win.webContents.on('unhandled-rejection', (_event, reason) => {
       rendererLog('unhandled-rejection', String(reason));
