@@ -17,8 +17,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { execSync } = require('child_process');
+// npm/全局包路径查找的唯一实现（与 src/main.js 共用，见 lib/npm-paths.js）
+const npmPaths = require('./lib/npm-paths');
 
 const PKG_NATIVE = '@deepseek-ai/dsh-host-directory-picker-native';
 const TARGET_REL = path.join('lib', 'worker.cjs');
@@ -31,44 +31,12 @@ const FIXED_REPLACEMENT =
   '\t\tend += 2;\n' +
   '\t}';
 
-// npm prefix/root 只查一次（启动路径每次都会调用），带超时防 npm 挂起卡死启动
-let prefixCache = null;
-let rootCache = null;
-
-function execSyncSafe(cmd) {
-  try {
-    return execSync(cmd, { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).trim();
-  } catch (e) {
-    return null;
-  }
-}
-
 /**
- * 找出 DSH 所在的全局 node_modules 根目录。
+ * 找出 DSH 所在的全局 node_modules 根目录（唯一实现见 lib/npm-paths.js）。
  * 思路与 src/main.js 的 findDshBin 一致：npm prefix -g / npm root -g / 兜底路径。
  */
 function findDshNodeModulesRoot() {
-  const candidates = [];
-  if (prefixCache === null) prefixCache = execSyncSafe('npm prefix -g');
-  if (rootCache === null) rootCache = execSyncSafe('npm root -g');
-  if (prefixCache) candidates.push(path.join(prefixCache, 'node_modules'));
-  if (rootCache) candidates.push(rootCache);
-  // 用户级全局安装（npm install -g 默认落点，独立于 QClaw）
-  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules'));
-  // 系统全局安装（npm prefix -g 指向）
-  if (prefixCache && !candidates.includes(path.join(prefixCache, 'node_modules'))) {
-    candidates.push(path.join(prefixCache, 'node_modules'));
-  }
-  // DSH 官方默认安装位置（QClaw 发行版，最后兜底）
-  candidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules'));
-
-  for (const c of candidates) {
-    if (!c) continue;
-    try {
-      if (fs.existsSync(path.join(c, '@deepseek-ai', 'dsh'))) return c;
-    } catch (e) { /* 跳过不可读路径 */ }
-  }
-  return null;
+  return npmPaths.findDshNodeModulesRoot();
 }
 
 /**

@@ -9,6 +9,8 @@ const zlib = require('zlib');
 const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picker');
 const { isNewer } = require('./lib/version');
 const { Brain } = require('./lib/brain');
+const npmPaths = require('./lib/npm-paths');
+const { execSyncSafe: execSafe } = npmPaths;
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -17,36 +19,6 @@ const DSH_PKG = '@deepseek-ai/dsh';
 const DSH_HOME = path.join(os.homedir(), '.dsh');
 const PROFILE_DIR = path.join(DSH_HOME, 'profiles', 'web');
 const isDev = process.argv.includes('--dev');
-
-// npm prefix/root 结果缓存：桌面应用运行期间环境稳定，避免每次启动反复执行
-// execSync('npm prefix -g')（findDshBin/findPnpmBin/findNpmCli 合计调用 6+ 次）
-const npmPrefixCache = { value: null, loaded: false };
-const npmRootCache = { value: null, loaded: false };
-
-/** 安全执行 execSync（带超时），失败返回 null，绝不阻塞启动 */
-function execSyncSafe(cmd) {
-  try {
-    return execSync(cmd, { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).trim();
-  } catch (e) {
-    return null;
-  }
-}
-
-function getNpmPrefix() {
-  if (!npmPrefixCache.loaded) {
-    npmPrefixCache.loaded = true;
-    npmPrefixCache.value = execSyncSafe('npm prefix -g');
-  }
-  return npmPrefixCache.value;
-}
-
-function getNpmRoot() {
-  if (!npmRootCache.loaded) {
-    npmRootCache.loaded = true;
-    npmRootCache.value = execSyncSafe('npm root -g');
-  }
-  return npmRootCache.value;
-}
 
 let mainWindow = null;
 let dshProcess = null;
@@ -235,7 +207,7 @@ async function getInstalledVersion() {
 
   // 兜底 2：从 npm prefix -g 动态推断全局 node_modules 路径
   try {
-    const prefix = getNpmPrefix();
+    const prefix = npmPaths.getNpmPrefix();
     if (prefix) {
       const pkgPath = path.join(prefix, 'node_modules', DSH_PKG, 'package.json');
       if (fs.existsSync(pkgPath)) {
@@ -317,7 +289,7 @@ function findDshBin() {
   if (!nodeExe) {
     try {
       const whichCmd = process.platform === 'win32' ? 'where node' : 'which node';
-      const lines = execSyncSafe(whichCmd);
+      const lines = execSafe(whichCmd);
       if (lines) {
         for (const line of lines.split(/\r?\n/)) {
           const p = line.trim();
@@ -352,25 +324,8 @@ function findDshBin() {
     }
   }
 
-  // 2. 定位 dsh 的 lib/bin.js（npm 全局安装目录）
-  // 优先级：用户级全局 (Roaming\npm) > 动态 npm prefix/root > QClaw npm-global（最后兜底）
-  // 这样用户 npm install -g @deepseek-ai/dsh 后即优先使用独立安装，不依赖 QClaw 环境
-  const binCandidates = [];
-  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  {
-    const prefix = getNpmPrefix();
-    if (prefix) binCandidates.push(path.join(prefix, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  }
-  {
-    const root = getNpmRoot();
-    if (root) binCandidates.push(path.join(root, '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-  }
-  binCandidates.push(path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'));
-
-  let binJs = null;
-  for (const c of binCandidates) {
-    try { if (c && fs.existsSync(c)) { binJs = c; break; } } catch (e) {}
-  }
+  // 2. 定位 dsh 的 lib/bin.js（npm 全局安装目录，唯一实现见 lib/npm-paths.js）
+  const binJs = npmPaths.findDshBinJs();
 
   if (!nodeExe || !binJs) return null;
   return { node: nodeExe, bin: binJs };
@@ -387,66 +342,12 @@ function findDshBin() {
  * 绕过 dsh plugin 命令（上游在 Windows 用 shell:true 执行 pnpm，存在命令注入漏洞）
  */
 function findPnpmBin() {
-  try {
-    const prefix = getNpmPrefix();
-    if (prefix) {
-      const candidates = [
-        path.join(prefix, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs'),
-        path.join(prefix, 'pnpm.cjs'),
-      ];
-      for (const c of candidates) {
-        try { if (fs.existsSync(c)) return c; } catch (e) {}
-      }
-    }
-  } catch (e) {}
-  // 兜底：常见位置（分平台）；Roaming\npm 优先于 QClaw（用户独立安装优先）
-  const isWin = process.platform === 'win32';
-  const fallbackBases = isWin
-    ? [
-        path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
-        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
-      ]
-    : [
-        '/usr/local/lib/node_modules',
-        '/opt/homebrew/lib/node_modules',
-        '/usr/lib/node_modules',
-      ];
-  for (const base of fallbackBases) {
-    const c = path.join(base, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs');
-    try { if (fs.existsSync(c)) return c; } catch (e) {}
-  }
-  return null;
+  return npmPaths.findPnpmCjs();
 }
 
 /** 定位 npm-cli.js（node 可直接执行，替代 npm.cmd） */
 function findNpmCli() {
-  try {
-    const prefix = getNpmPrefix();
-    if (prefix) {
-      const c = path.join(prefix, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-      try { if (fs.existsSync(c)) return c; } catch (e) {}
-    }
-  } catch (e) {}
-  // 兜底：常见位置（分平台）
-  const isWin = process.platform === 'win32';
-  const fallbackBases = isWin
-    ? [
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs'),
-        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs'),
-        path.join(os.homedir(), 'AppData', 'Roaming', 'npm'),
-        path.join(os.homedir(), 'AppData', 'Roaming', 'QClaw', 'npm-global'),
-      ]
-    : [
-        '/usr/local/lib/node_modules',
-        '/opt/homebrew/lib/node_modules',
-        '/usr/lib/node_modules',
-      ];
-  for (const base of fallbackBases) {
-    const c = path.join(base, 'node_modules', 'npm', 'bin', 'npm-cli.js');
-    try { if (fs.existsSync(c)) return c; } catch (e) {}
-  }
-  return null;
+  return npmPaths.findNpmCliJs();
 }
 
 /** 安全关闭窗口（防重复 close 报错） */
