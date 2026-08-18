@@ -122,6 +122,10 @@ catch (e) { console.log('package.json parses: FALSE - ' + e.message); }
 console.log('lib/version.js present:', !!asar.extractFile(process.argv[2], 'lib/version.js'));
 console.log('lib/brain.js present:', !!asar.extractFile(process.argv[2], 'lib/brain.js'));
 console.log('lib/npm-paths.js present:', !!asar.extractFile(process.argv[2], 'lib/npm-paths.js'));
+console.log('lib/window-ui.js present:', !!asar.extractFile(process.argv[2], 'lib/window-ui.js'));
+console.log('lib/dsh-service.js present:', !!asar.extractFile(process.argv[2], 'lib/dsh-service.js'));
+console.log('lib/update-check.js present:', !!asar.extractFile(process.argv[2], 'lib/update-check.js'));
+console.log('lib/plugin-manager.js present:', !!asar.extractFile(process.argv[2], 'lib/plugin-manager.js'));
 "@
 Set-Content -Path $checkJs -Value $checkCode -Encoding ASCII
 try {
