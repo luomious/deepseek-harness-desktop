@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-session-history
+      name: '@dsh-external/dsh-session-history'
