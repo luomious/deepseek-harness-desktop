@@ -112,6 +112,7 @@ dshService.setOnUnexpectedExit((code, signal) => {
   bootLog(`BOOT-002 -> auto restart attempt ${attempt}/${AUTO_RESTART_MAX}...`);
   const backoffMs = 1000 * Math.pow(2, attempt - 1);
   setTimeout(() => {
+    if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
     (async () => {
       try {
         const running = await dshService.isPortListening();
