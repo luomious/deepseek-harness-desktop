@@ -103,7 +103,7 @@ function makeEnv(overrides = {}) {
   const env = {
     state,
     electron: {
-      app: { quit: () => { state.quitCalls = (state.quitCalls || 0) + 1; } },
+      app: { quit: () => { state.quitCalls = (state.quitCalls || 0) + 1; }, relaunch: () => { state.relaunchCalls = (state.relaunchCalls || 0) + 1; } },
       BrowserWindow,
       Menu: {
         buildFromTemplate: (tpl) => { state.builtTemplate = tpl; return tpl; },
@@ -163,8 +163,8 @@ function setupWindows() {
   {
     const { ui, state } = makeEnv();
     ui.initIpc();
-    const expect = ['plugin:install', 'plugin:uninstall', 'plugin:installLocal', 'plugin:list', 'plugin:setEnabled', 'dialog:selectFolder', 'app:checkUpdate', 'app:getVersion'];
-    t('注册 8 个 handler', state.handleCalls.length, 8);
+    const expect = ['plugin:install', 'plugin:uninstall', 'plugin:installLocal', 'plugin:list', 'plugin:setEnabled', 'dialog:selectFolder', 'app:restart', 'app:checkUpdate', 'app:getVersion'];
+    t('注册 9 个 handler', state.handleCalls.length, 9);
     t('channel 顺序正确', JSON.stringify(state.handleCalls), JSON.stringify(expect));
   }
   {
@@ -172,7 +172,7 @@ function setupWindows() {
     ui.initIpc();
     const { ui: ui2 } = makeEnv();
     ui2.initIpc();
-    t('重复 initIpc 不覆盖（幂等调用侧为 main.js 责任）', state.handleCalls.length, 8);
+    t('重复 initIpc 不覆盖（幂等调用侧为 main.js 责任）', state.handleCalls.length, 9);
   }
   {
     // 非受信 sender（伪造 webContents 对象，非主窗口/插件窗口）
@@ -190,6 +190,9 @@ function setupWindows() {
     t('app:getVersion 非受信 null', r4, null);
     const r5 = await state.handles['dialog:selectFolder'](fake);
     t('dialog:selectFolder 非受信 null', r5, null);
+    const r6 = await state.handles['app:restart'](fake);
+    t('app:restart 非受信拒绝', r6.success, false);
+    t('app:restart 非受信不重启', (state.relaunchCalls || 0) + (state.quitCalls || 0), 0);
   }
   {
     // 受信来源：主窗口 + 插件管理窗口
@@ -207,6 +210,18 @@ function setupWindows() {
     t('app:checkUpdate 主窗口授权透传', r4.local, '1.0.0');
     const r5 = await state.handles['app:getVersion'](mainEv);
     t('app:getVersion 主窗口授权', r5, '0.1.0-rc.7');
+  }
+  {
+    // app:restart 授权路径：插件窗口 → relaunch + quit；主窗口被拒
+    const { ui, state, mainWc, pmWc } = setupWindows();
+    ui.initIpc();
+    const r1 = await state.handles['app:restart'](mkEvent(mainWc));
+    t('app:restart 主窗口被拒（仅插件窗口）', r1.success, false);
+    const r2 = await state.handles['app:restart'](mkEvent(pmWc));
+    t('app:restart 插件窗口授权', r2.success, true);
+    await new Promise((r) => setTimeout(r, 10));
+    t('app:restart 触发 relaunch', state.relaunchCalls, 1);
+    t('app:restart 触发 quit', state.quitCalls, 1);
   }
   {
     // dialog:selectFolder 授权路径：canceled / 有路径

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listPlugins: () => ipcRenderer.invoke('plugin:list'),
   setPluginEnabled: (name, enabled) => ipcRenderer.invoke('plugin:setEnabled', name, enabled),
   selectFolder: () => ipcRenderer.invoke('dialog:selectFolder'),
+  restartApp: () => ipcRenderer.invoke('app:restart'),
   checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
 });

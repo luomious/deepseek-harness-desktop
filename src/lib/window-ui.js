@@ -289,6 +289,12 @@ function createWindowUI(options) {
     el.textContent = msg;
     el.className = 'status ' + type;
   }
+
+  // 插件变更后需要重启才生效：弹确认框，用户确认后自动重启
+  function promptRestart(action, name) {
+    const ok = confirm('插件 ' + name + ' 已' + action + '。需要重启应用才能生效，是否立即重启？');
+    if (ok) window.electronAPI.restartApp();
+  }
   function hideStatus() {
     document.getElementById('status').className = 'status';
   }
@@ -338,7 +344,8 @@ function createWindowUI(options) {
       if (r.success) {
         refreshInstalled();
         const tip = r.warning ? '（' + r.warning + '）' : '';
-        showStatus('本地插件 ' + r.name + ' 安装成功！' + tip + ' 请重启应用生效。', 'success');
+        showStatus('本地插件 ' + r.name + ' 安装成功！' + tip, 'success');
+        promptRestart('安装', r.name);
       }
       else { showStatus('安装失败: ' + r.error, 'error'); }
     });
@@ -350,7 +357,8 @@ function createWindowUI(options) {
     window.electronAPI.uninstallPlugin(name).then(r => {
       if (r.success) {
         refreshInstalled();
-        showStatus('插件 ' + r.name + ' 已卸载。请重启应用生效。', 'success');
+        showStatus('插件 ' + r.name + ' 已卸载。', 'success');
+        promptRestart('卸载', r.name);
       }
       else { showStatus('卸载失败: ' + r.error, 'error'); }
     });
@@ -377,7 +385,8 @@ function createWindowUI(options) {
     window.electronAPI.setPluginEnabled(name, disabled).then(r => {
       if (r.success) {
         refreshInstalled();
-        showStatus('插件 ' + r.name + ' 已' + action + '。请重启应用生效。', 'success');
+        showStatus('插件 ' + r.name + ' 已' + action + '。', 'success');
+        promptRestart(action, r.name);
       } else {
         showStatus(action + '失败: ' + r.error, 'error');
       }
@@ -515,6 +524,16 @@ function createWindowUI(options) {
       });
       if (result.canceled || result.filePaths.length === 0) return null;
       return result.filePaths[0];
+    });
+    ipcMain.handle('app:restart', (event) => {
+      // 插件变更（启用/禁用/卸载/安装）后重启应用；仅插件管理窗口可触发
+      if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
+      // 先回包（invoke 的 Promise 需要送达渲染进程），再优雅重启
+      setImmediate(() => {
+        app.relaunch();
+        app.quit();
+      });
+      return { success: true };
     });
     ipcMain.handle('app:checkUpdate', async (event) => {
       if (!isTrustedSender(event)) return { hasUpdate: false, local: null, remote: null };
