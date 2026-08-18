@@ -11,6 +11,7 @@ const { isNewer } = require('./lib/version');
 const { Brain } = require('./lib/brain');
 const npmPaths = require('./lib/npm-paths');
 const { execSyncSafe: execSafe } = npmPaths;
+const { ErrorLog } = require('./lib/error-log');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -32,6 +33,11 @@ const brain = new Brain({ stateFile: path.join(PROFILE_DIR, '.dsh-brain.json') }
 // ── 启动日志（诊断用：记录启动流程每一步，便于排查「打开没反应」）──
 const LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-startup.log');
 const LOG_MAX_BYTES = 1024 * 1024; // 单日志文件上限 1MB，超出截半，防无限增长
+
+// 诊断中心：错误码日志（%TEMP%\dsh-desktop-error.log，JSON 行 + 解决指引）
+const errorLog = new ErrorLog({ file: path.join(os.tmpdir(), 'dsh-desktop-error.log') });
+// DSH 服务进程完整输出落盘（%TEMP%\dsh-service.log），运行中报错不再只留退出时 4KB
+const DSH_SERVICE_LOG = path.join(os.tmpdir(), 'dsh-service.log');
 
 /** 追加一行日志；超出上限时只保留后半段（截半），避免磁盘被日志占满 */
 function appendLog(file, line) {
@@ -419,6 +425,7 @@ function startDSH() {
     // 使用 node + bin.js 绝对路径启动（无 shell，不依赖 PATH）
     const dsh = findDshBin();
     if (!dsh) {
+      errorLog.log('BOOT-001', { module: 'startDSH', msg: '未找到 dsh 命令（npm 全局未安装 @deepseek-ai/dsh）' });
       reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
       return;
     }
@@ -441,13 +448,17 @@ function startDSH() {
 
     dshProcess.stdout.on('data', (data) => {
       const text = data.toString().trim();
-      if (text) console.log(`[DSH] ${text}`);
+      if (text) {
+        console.log(`[DSH] ${text}`);
+        appendLog(DSH_SERVICE_LOG, text);
+      }
     });
 
     dshProcess.stderr.on('data', (data) => {
       const text = data.toString().trim();
       if (text) {
         console.error(`[DSH ERR] ${text}`);
+        appendLog(DSH_SERVICE_LOG, '[ERR] ' + text);
         // 只保留最近 4KB，防止异常刷屏撑爆内存
         stderrBuf = (stderrBuf + '\n' + text).slice(-4096);
       }
@@ -466,12 +477,14 @@ function startDSH() {
       // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
       // 立即 reject 而不是等 30s 超时；附带 stderr 便于排查
       if (!settled) {
+        errorLog.log('BOOT-002', { module: 'startDSH', msg: `dsh 进程启动后立即退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
         const detail = stderrBuf.trim() ? `\n\ndsh 输出:\n${stderrBuf.trim().slice(-1500)}` : '';
         reject(new Error(`dsh 进程启动后立即退出 (code=${code}${signal ? ', signal=' + signal : ''})${detail}`));
         return;
       }
       // 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
       if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+        errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
         dialog.showErrorBox(
           'DSH 服务已停止',
           `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})。\n应用将关闭，请重新启动。`
@@ -1276,6 +1289,7 @@ function createWindow() {
   });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     rendererLog('render-process-gone', `reason=${details?.reason}, exitCode=${details?.exitCode}`);
+    errorLog.log('RENDER-001', { module: 'renderer', msg: `reason=${details?.reason}, exitCode=${details?.exitCode}`, ctx: { reason: details?.reason, exitCode: details?.exitCode } });
     // 崩溃自动恢复：交给诊断引擎决策（5 秒后 reload 一次；连续崩溃由节流/判环自动停止）
     if (!isQuitting) {
       const crashEvent = { code: 'RENDER-001', stage: 'render', key: details?.reason || 'gone' };
@@ -1298,6 +1312,7 @@ function createWindow() {
   });
   mainWindow.webContents.on('unresponsive', () => {
     rendererLog('unresponsive', 'renderer process became unresponsive');
+    errorLog.log('RENDER-002', { module: 'renderer', msg: 'renderer process became unresponsive' });
   });
 
   // 拦截主窗口导航：只允许停留在 DSH 本地服务，禁止跳到外部站点
@@ -1777,6 +1792,7 @@ app.whenReady().then(async () => {
       // 等待端口释放后走自启动分支
       const released = await waitPortReleased(DSH_PORT, 10, 500);
       if (!released) {
+        errorLog.log('BOOT-003', { module: 'whenReady', msg: '端口 3080 被其他程序占用且自动清理失败', ctx: { port: DSH_PORT } });
         dialog.showErrorBox(
           '端口被占用',
           `端口 ${DSH_PORT} 已被其他程序占用，且无法自动清理。\n请手动关闭占用程序后重启应用。`
@@ -1847,6 +1863,7 @@ app.whenReady().then(async () => {
         brain.report(bootEvent, decision ? decision.action : 'throttled', false);
       }
       if (!autoRecovered) {
+        errorLog.log('BOOT-004', { module: 'whenReady', msg: 'DSH 服务启动超时（30秒）', ctx: { autoAction: decision ? decision.action : 'none' } });
         dialog.showErrorBox(
           '服务超时',
           'DeepSeek Harness 服务启动超时（30秒）。请检查网络和配置后重试。'
