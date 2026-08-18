@@ -117,6 +117,7 @@ if (!gotLock) {
           }
         })
         .catch((err) => {
+          errorLog.log('BOOT-004', { module: 'second-instance', msg: '第二实例唤起时重启 DSH 失败: ' + (err.message || err), ctx: { stage: 'restart-on-second-instance' } });
           console.error('[DSH Desktop] Failed to restart DSH on second-instance:', err);
         });
     });
@@ -154,8 +155,11 @@ function execNode(scriptPath, args, cwd, timeoutMs = 30000) {
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
+        // Windows 上 child.kill() 只杀父进程，npm 派生的子进程可能残留；
+        // taskkill /T /F 整树强杀（幂等：进程已退出时报错可忽略）
+        try { require('child_process').execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 3000 }); } catch (e) {}
         try { child.kill(); } catch (e) {}
-        reject(new Error(`命令超时: ${args.join(' ')}`));
+        reject(new Error(`命令超时: ${path.basename(scriptPath)} ${args.join(' ')}`));
       }
     }, timeoutMs);
 
@@ -184,22 +188,19 @@ function execNode(scriptPath, args, cwd, timeoutMs = 30000) {
   });
 }
 
-/** 获取桌面应用自身版本号（从 package.json 动态读取） */
+/** 获取桌面应用自身版本号（从 package.json 动态读取，缓存避免每次全读文件） */
+let _appVersion = null;
 function getAppVersion() {
+  if (_appVersion) return _appVersion;
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-    return pkg.version || '未知';
+    _appVersion = pkg.version || '未知';
   } catch (e) {
-    return '未知';
+    _appVersion = '未知';
   }
+  return _appVersion;
 }
 
-/**
- * 参数白名单校验（纵深防御，防止未来回归）
- * - 远程插件名：npm 包名规范（小写字母/数字/-/_/.），拒绝一切 shell 元字符
- * - 本地插件路径：绝对路径，拒绝 " & | < > ; ( ) * ? 等 shell 元字符
- * 返回 null 表示合法，否则返回错误描述
- */
 /**
  * 定位 pnpm.cjs（node 可直接执行的 pnpm 入口，无需 cmd shim）
  * 绕过 dsh plugin 命令（上游在 Windows 用 shell:true 执行 pnpm，存在命令注入漏洞）
@@ -212,6 +213,11 @@ function findPnpmBin() {
 function findNpmCli() {
   return npmPaths.findNpmCliJs();
 }
+
+/** 参数白名单校验（纵深防御，防止未来回归）：
+ * - pkg：npm 包名规范（小写字母/数字/-/_/.），拒绝一切 shell 元字符
+ * - path：绝对路径，拒绝 " & | < > ; ( ) * ? 等 shell 元字符
+ * 返回 null 表示合法，否则返回错误描述 */
 
 /** 安全关闭窗口（防重复 close 报错） */
 function safeClose(win) {
@@ -343,10 +349,7 @@ async function exportDiagnostics() {
         dshVersion = JSON.parse(fs.readFileSync(path.join(dshRoot, '@deepseek-ai', 'dsh', 'package.json'), 'utf-8')).version;
       }
     } catch (e) {}
-    const now = Date.now();
-    const bootFails = Object.keys(brain.throttle)
-      .filter((k) => k.startsWith('BOOT-004|') || k.startsWith('BOOT-002|'))
-      .reduce((n, k) => n + (brain.throttle[k] || []).filter((t) => now - t < 3600 * 1000).length, 0);
+const bootFails = brain.countRecent(['BOOT-004', 'BOOT-002'], 3600 * 1000);
     let bundles = [];
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(PROFILE_DIR, 'package.json'), 'utf-8'));
@@ -379,8 +382,10 @@ async function exportDiagnostics() {
       fs.rmSync(dir, { recursive: true, force: true });
       return;
     }
-    await new Promise((resolve, reject) => {
-      const ps = spawn('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${dir}' -DestinationPath '${result.filePath}' -Force`], { stdio: 'ignore', windowsHide: true, shell: false });
+await new Promise((resolve, reject) => {
+      // PowerShell 单引号内转义：路径中的 ' 需写成 ''，否则用户保存路径含 ' 时命令被破坏/注入
+      const esc = (p) => String(p).replace(/'/g, "''");
+      const ps = spawn('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${esc(dir)}' -DestinationPath '${esc(result.filePath)}' -Force`], { stdio: 'ignore', windowsHide: true, shell: false });
       ps.on('close', (code) => (code === 0 ? resolve() : reject(new Error('Compress-Archive exit code ' + code))));
       ps.on('error', reject);
     });
@@ -573,10 +578,7 @@ app.whenReady().then(async () => {
   // 安全模式启动成功：清除启动失败计数，保证下次启动恢复正常模式
   // （否则失败计数残留 → 每次启动都误判安全模式，永远困在安全模式）
   if (inSafeMode) {
-    for (const k of Object.keys(brain.throttle)) {
-      if (k.startsWith('BOOT-004|') || k.startsWith('BOOT-002|')) brain.throttle[k] = [];
-    }
-    brain.save();
+    brain.clearFailures(['BOOT-004', 'BOOT-002']);
     bootLog('whenReady: SAFE MODE boot OK, failure count cleared');
     console.log('[DSH Desktop] SAFE MODE boot OK, failure count cleared');
   }
@@ -668,6 +670,7 @@ app.on('activate', async () => {
           return;
         }
       } catch (err) {
+        errorLog.log('BOOT-004', { module: 'activate', msg: 'activate 时重启 DSH 失败: ' + (err.message || err), ctx: { stage: 'restart-on-activate' } });
         console.error('[DSH Desktop] Failed to restart DSH on activate:', err);
         return;
       }

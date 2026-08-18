@@ -177,6 +177,28 @@ class Brain {
     return this.budget.length >= BUDGET_MAX;
   }
 
+  // ── 统计查询：诊断报告/决策只通过方法读取，不直接依赖内部结构 ──
+  /** 统计指定指纹前缀在时间窗口内的失败次数 */
+  countRecent(prefixes, windowMs = THROTTLE_MS) {
+    const now = this.clock();
+    let n = 0;
+    for (const p of prefixes) {
+      for (const k of Object.keys(this.throttle)) {
+        if (!k.startsWith(p + '|')) continue;
+        n += (this.throttle[k] || []).filter((t) => now - t < windowMs).length;
+      }
+    }
+    return n;
+  }
+
+  /** 清除指定指纹前缀的全部节流记录（安全模式启动成功等场景，防止永久困在自动动作） */
+  clearFailures(prefixes) {
+    for (const k of Object.keys(this.throttle)) {
+      if (prefixes.some((p) => k.startsWith(p + '|'))) this.throttle[k] = [];
+    }
+    this.save();
+  }
+
   _impact(action) {
     const d = ACTION_DEFS[action] || ACTION_DEFS.notify;
     return { level: d.level, scope: d.scope, destructive: d.destructive, expected: d.expected };

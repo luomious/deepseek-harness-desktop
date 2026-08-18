@@ -132,5 +132,26 @@ const b9 = new Brain({ clock: c7.now, stateFile: tmpFile });
 t('损坏状态文件不崩溃', b9.experience['PLG-001|load|modlens'] === undefined, true);
 fs.unlinkSync(tmpFile);
 
+// ── Brain：countRecent / clearFailures（统计接口，不暴露内部结构）────────────────
+console.log('== Brain 统计接口 ==');
+const c8 = makeClock();
+const b10 = new Brain({ clock: c8.now });
+b10.report({ code: 'BOOT-004', stage: 'wait' }, 'restart', false);
+b10.report({ code: 'BOOT-004', stage: 'wait' }, 'kill-port', false);
+b10.report({ code: 'BOOT-002', stage: 'start' }, 'restart', false);
+b10.report({ code: 'PLG-001', stage: 'load', key: 'x' }, 'skip-plugin', false);
+t('countRecent 统计 BOOT 两前缀', b10.countRecent(['BOOT-004', 'BOOT-002'], 3600 * 1000), 3);
+t('countRecent 精确前缀（不含 PLG）', b10.countRecent(['BOOT-004']), 2);
+b10.clearFailures(['BOOT-004']);
+t('clearFailures 只清指定前缀', b10.countRecent(['BOOT-004', 'BOOT-002']), 1);
+t('clearFailures 不动其他前缀', b10.countRecent(['PLG-001']), 1);
+b10.clearFailures(['BOOT-002', 'PLG-001']);
+t('clearFailures 清全部', b10.countRecent(['BOOT-004', 'BOOT-002', 'PLG-001']), 0);
+c8.advance(61 * 60 * 1000);
+b10.report({ code: 'BOOT-004', stage: 'wait' }, 'restart', false);
+t('countRecent 窗口内生效', b10.countRecent(['BOOT-004']), 1);
+c8.advance(61 * 60 * 1000);
+t('countRecent 窗口外归零', b10.countRecent(['BOOT-004'], 3600 * 1000), 0);
+
 console.log(`\nresult: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
