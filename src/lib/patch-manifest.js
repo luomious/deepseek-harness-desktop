@@ -76,6 +76,29 @@ function patchCoreRemoteFlowSlots(content) {
   return { status: 'applied', fixed };
 }
 
+// ── node-pty：conpty console list agent 崩溃保护 ──
+// 根因：agent 子进程顶层调用 getConsoleProcessList(shellPid) 在 shell 已退出时
+// AttachConsole failed → 未捕获异常 → agent 非零退出 → dsh terminal 服务崩
+// → 整个 dsh 服务 code=1 退出（界面卡初始化）。
+function patchNodePtyConsoleAgent(content) {
+  const MARK = 'dsh desktop patch: attachconsole failure tolerance';
+  if (content.includes(MARK)) return { status: 'ok' };
+  const buggy = 'var consoleProcessList = getConsoleProcessList(shellPid);';
+  if (!content.includes(buggy)) return { status: 'failed', error: '未找到 agent 顶层调用点' };
+  const fixed = content.replace(
+    buggy,
+    'var consoleProcessList = [];\n' +
+      'try {\n' +
+      '  consoleProcessList = getConsoleProcessList(shellPid);\n' +
+      '} catch (e) {\n' +
+      '  // ' + MARK + '\n' +
+      '  consoleProcessList = [];\n' +
+      '}'
+  );
+  if (!fixed.includes(MARK)) return { status: 'failed', error: '补丁替换后验证失败' };
+  return { status: 'applied', fixed };
+}
+
 /** 对单个文件执行补丁：不存在 → skipped；已补 → ok；应用 → applied；失败 → failed */
 function applyFilePatch(file, patchFn) {
   try {
@@ -126,6 +149,11 @@ function buildManifest(profileDir, opts = {}) {
       file: coreWorkspaceClient,
       patch: patchCoreRemoteFlowSlots,
     },
+    {
+      id: 'node-pty-console-agent',
+      file: path.join(profileDir, 'node_modules', 'node-pty', 'lib', 'conpty_console_list_agent.js'),
+      patch: patchNodePtyConsoleAgent,
+    },
   ];
 }
 
@@ -146,4 +174,5 @@ module.exports = {
   patchModlensKey,
   patchSafeDeleteKey,
   patchCoreRemoteFlowSlots,
+  patchNodePtyConsoleAgent,
 };
