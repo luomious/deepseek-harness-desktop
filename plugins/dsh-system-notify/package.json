@@ -1,0 +1,21 @@
+{
+  "name": "@dsh-external/dsh-system-notify",
+  "version": "0.1.0",
+  "description": "系统通知：任务/会话完成时在电脑右上角弹 Windows toast；并向其他插件提供 ctx.notify service",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  }
+}

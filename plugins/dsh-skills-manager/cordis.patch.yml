@@ -1,0 +1,4 @@
+# dsh-skills-manager bundle 补丁层：安装后自动挂入 web profile 组合。
+- insert:
+    - id: skills-manager
+      name: dsh-skills-manager

@@ -1,0 +1,18 @@
+{
+  "name": "@dsh-external/dsh-web-fetch-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Local raw HTTP(S) fetch provider for DeepSeek Harness web_fetch, with SSRF guard and size cap.",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

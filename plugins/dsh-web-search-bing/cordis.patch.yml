@@ -1,0 +1,4 @@
+# dsh bundle layer: mount the keyless Bing search provider.
+- insert:
+    - id: dsh-web-search-bing
+      name: '@dsh-external/dsh-web-search-bing'
