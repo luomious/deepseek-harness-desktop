@@ -12,6 +12,7 @@ const { Brain } = require('./lib/brain');
 const npmPaths = require('./lib/npm-paths');
 const { execSyncSafe: execSafe } = npmPaths;
 const { ErrorLog } = require('./lib/error-log');
+const { SafeMode } = require('./lib/safe-mode');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -24,6 +25,7 @@ const isDev = process.argv.includes('--dev');
 let mainWindow = null;
 let dshProcess = null;
 let isQuitting = false;
+let inSafeMode = false; // 本次会话处于安全模式（退出时需恢复被隔离的配置）
 
 // 诊断决策引擎（brain）：感知错误信号 → 决策自动恢复动作（影响评估）→ 反馈学习。
 // 节流/判环/预算保证：任何故障循环最多触发有限次自动动作，最终回退到原兜底（弹窗/提示）。
@@ -845,6 +847,9 @@ const CORE_DEPS = new Set([
   '@deepseek-ai/dsh-base',
   '@deepseek-ai/dsh-web-app',
 ]);
+
+// 熔断/安全模式：连续启动失败（BOOT-004 自动恢复也失败）≥3 次 → 移出第三方 bundle
+const safeMode = new SafeMode({ profileDir: PROFILE_DIR, coreDeps: CORE_DEPS });
 
 /** 获取已安装的插件列表（过滤核心依赖，仅展示可管理的第三方插件） */
 function getInstalledPlugins(profileDir = PROFILE_DIR) {
@@ -1748,10 +1753,31 @@ app.whenReady().then(async () => {
   bootLog('whenReady: createWindow');
   createWindow();
 
+  // 熔断/安全模式：连续启动失败（BOOT-004 自动恢复也失败）≥3 次 → 跳过第三方 bundle
+  if (safeMode.hasBackup()) {
+    // 上次安全模式会话异常退出（强杀）：先恢复配置，避免配置停留在安全模式
+    safeMode.restore();
+    bootLog('whenReady: restored safe-mode backup (previous session interrupted)');
+  }
+  if (safeMode.shouldEnter(brain.throttle, ['BOOT-004|'])) {
+    const applied = safeMode.apply();
+    if (applied) {
+      inSafeMode = true;
+      errorLog.log('BOOT-005', { module: 'whenReady', msg: `连续启动失败进入安全模式，已跳过第三方 bundle: ${applied.removed.join(', ')}`, ctx: { removed: applied.removed } });
+      bootLog(`whenReady: SAFE MODE enabled, skipped: ${applied.removed.join(', ')}`);
+      console.warn(`[DSH Desktop] SAFE MODE: skipped third-party bundles: ${applied.removed.join(', ')}`);
+    }
+  }
+
   // 启动时自愈：对齐 profile（bundle 层 + 纯前端插件挂载块），修复"依赖已登记但未挂载"的漂移
+  // 注意：安全模式下跳过——reconcile 会把被隔离的第三方 bundle 补回配置，导致隔离失效
   try {
-    reconcilePlugins();
-    bootLog('whenReady: reconcilePlugins done');
+    if (!inSafeMode) {
+      reconcilePlugins();
+      bootLog('whenReady: reconcilePlugins done');
+    } else {
+      bootLog('whenReady: reconcilePlugins skipped (safe mode)');
+    }
   } catch (reconcileErr) {
     bootLog('whenReady: reconcilePlugins failed (non-fatal): ' + (reconcileErr.message || reconcileErr));
   }
@@ -1878,6 +1904,17 @@ app.whenReady().then(async () => {
   bootLog('whenReady: DSH ready, loading web UI');
   console.log('[DSH Desktop] DSH ready, loading web UI...');
 
+  // 安全模式启动成功：清除启动失败计数，保证下次启动恢复正常模式
+  // （否则失败计数残留 → 每次启动都误判安全模式，永远困在安全模式）
+  if (inSafeMode) {
+    for (const k of Object.keys(brain.throttle)) {
+      if (k.startsWith('BOOT-004|') || k.startsWith('BOOT-002|')) brain.throttle[k] = [];
+    }
+    brain.save();
+    bootLog('whenReady: SAFE MODE boot OK, failure count cleared');
+    console.log('[DSH Desktop] SAFE MODE boot OK, failure count cleared');
+  }
+
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.loadURL(DSH_URL).then(() => {
       console.log('[DSH Desktop] Web UI loaded successfully');
@@ -1900,6 +1937,11 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', (e) => {
   isQuitting = true;
+  // 安全模式会话正常退出：恢复被隔离的第三方 bundle 配置
+  if (inSafeMode && safeMode.hasBackup()) {
+    safeMode.restore();
+    bootLog('before-quit: safe mode profile restored');
+  }
   stopDSH();
 });
 
