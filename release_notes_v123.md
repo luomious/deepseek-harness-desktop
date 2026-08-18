@@ -8,7 +8,24 @@
 | 启动加速 | npm prefix/root 结果缓存：`findDshBin`/`findPnpmBin`/`findNpmCli` 合计 6+ 次 `execSync` 只在启动时执行一次，且全部带 5s 超时（防 npm 挂起卡死启动）；`patch-dsh-native-picker.js` 同样缓存 |
 | 版本比较重构 | `isNewer`（支持 semver pre-release）从 main.js 提取到 `src/lib/version.js`，桌面应用与 tests 共用同一实现（`tests/smoke-v119-logic.js` 已切换并补充用例） |
 | asar 原子打包 | `build-app.ps1`：先打包到临时文件再 `Move-Item` 原子替换，打包失败/中断不会留下损坏的 app.asar |
+| 打包卡死修复 | `src/package.json` 去除 UTF-8 BOM（Electron 30 读取 asar 内带 BOM 的 package.json 会在启动早期挂起，表现为无窗口/无渲染进程/无启动日志）；`build-app.ps1` 改用 `Copy-Item -Force` 替换（`Move-Item` 在目标被短暂占用时报 "file already exists"）并在 verify 阶段检查 BOM/JSON/version.js |
 | 版本号 | `src/package.json` → 1.2.3 |
+
+## 故障排查记录：重打包后 exe 启动卡死（BOM）
+
+### 现象
+重打包 app.asar（含 `src/lib/version.js` 提取与 npm 缓存改动）后，exe 启动无窗口、无渲染进程、无启动日志，主进程仅 ~52MB 且 CPU 近乎 0（挂起在 Electron 初始化早期，GPU 子进程参数中缺少 `CalculateNativeWinOcclusion`，证明 main.js 顶层尚未执行完）。
+
+### 排查过程
+- 新旧 asar 文件级 diff：main.js / version.js / patch / preload / icon / loading 内容与 hash 全部一致
+- 唯一差异：`package.json`（178 → 204 字节），内容为 1.2.2 → 1.2.3 且**开头多出 UTF-8 BOM**
+- 剥离 BOM 重打包（100,353 字节）→ 启动恢复正常（3-4 秒出窗口、3080 服务正常）
+
+### 根因
+Electron 30 读取 asar 内的 package.json 时对 UTF-8 BOM 处理异常，主进程在加载 main.js 之前挂起（表现为无任何启动日志）。BOM 是版本号从 1.2.2 改到 1.2.3 时编辑器写入的。
+
+### 预防
+`build-app.ps1` verify 阶段新增三项检查：package.json 无 BOM（必须 false）、JSON 可解析、lib/version.js 存在；打包后必须实际启动 exe 验证。
 
 ## 故障排查记录：rc.7 升级后"页面空壳 / 点击无响应"
 

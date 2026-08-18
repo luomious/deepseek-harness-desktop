@@ -73,7 +73,15 @@ Push-Location $root
 try {
     & node $asarCli pack $srcDir $tmpAsar
     if ($LASTEXITCODE -ne 0) { throw "asar pack failed (exit $LASTEXITCODE)" }
-    Move-Item -Force -LiteralPath $tmpAsar -Destination $asarFile
+    # IMPORTANT: package.json must NOT have a UTF-8 BOM. Electron hangs at startup
+    # when the asar-internal package.json starts with a BOM (observed on Electron 30).
+    # Windows Move-Item -Force can fail with "file already exists" when the target
+    # is briefly held open; Copy-Item -Force is more robust. Verify size after copy.
+    Copy-Item -Force -LiteralPath $tmpAsar -Destination $asarFile
+    $newSize = (Get-Item -LiteralPath $asarFile).Length
+    if ($newSize -ne (Get-Item -LiteralPath $tmpAsar).Length) { throw 'asar copy size mismatch' }
+    Remove-Item -LiteralPath $tmpAsar -ErrorAction SilentlyContinue
+    Write-Host "replaced app.asar ($newSize bytes)" -ForegroundColor Gray
 } catch {
     Remove-Item -LiteralPath $tmpAsar -ErrorAction SilentlyContinue
     Pop-Location
@@ -106,6 +114,12 @@ const buf = asar.extractFile(process.argv[2], 'main.js');
 const s = buf.toString('utf8');
 const marks = ['buildDshEnv', 'applyNativePickerPatch', 'requestSingleInstanceLock'];
 for (const m of marks) console.log('main.js has ' + m + ':', s.includes(m));
+const pkg = asar.extractFile(process.argv[2], 'package.json');
+const bom = pkg[0] === 0xEF && pkg[1] === 0xBB && pkg[2] === 0xBF;
+console.log('package.json BOM (must be false):', bom);
+try { JSON.parse(pkg.toString('utf8').replace(/^\uFEFF/, '')); console.log('package.json parses: true'); }
+catch (e) { console.log('package.json parses: FALSE - ' + e.message); }
+console.log('lib/version.js present:', !!asar.extractFile(process.argv[2], 'lib/version.js'));
 "@
 Set-Content -Path $checkJs -Value $checkCode -Encoding ASCII
 try {
