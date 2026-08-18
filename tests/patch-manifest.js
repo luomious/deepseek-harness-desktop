@@ -11,6 +11,7 @@ const {
   patchModlensKey,
   patchSafeDeleteKey,
   patchCoreRemoteFlowSlots,
+  patchCoreSidebarHeaderAction,
 } = require('../src/lib/patch-manifest.js');
 
 let pass = 0, fail = 0;
@@ -60,6 +61,47 @@ t('core 已补 → ok(幂等)', r.status, 'ok');
 r = patchCoreRemoteFlowSlots('function x() { nothing }');
 t('core 格式意外 → failed', r.status, 'failed');
 
+// core sidebar client.js：children 表补 sidebar.header.action + New Session 右侧渲染洞
+const sidebarSample = `children: {
+					"sidebar.workspaces": {
+						kind: "single",
+						scope: "root"
+					},
+					"sidebar.settings": {
+						kind: "single",
+						scope: "root"
+					},
+					"sidebar.footer.action": {
+						kind: "list",
+						scope: "root"
+					}
+				},
+				(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.Tooltip, {
+						label: t("session.new.label"),
+						delayMs: 500,
+						disabled: wide,
+						children: (0, react_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: SidebarRoot_module_css_default.newSession,
+							"aria-label": t("session.new.label"),
+							onClick: () => {
+								startSession();
+							},
+							children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconNewChatOutline16, { size: wide ? 14 : 18 }), wide && (0, react_jsx_runtime.jsx)("span", {
+								className: clsx(SidebarRoot_module_css_default.newSessionLabel, SidebarRoot_module_css_default.wide),
+								children: t("session.new")
+							})]
+						})
+					}),`;
+r = patchCoreSidebarHeaderAction(sidebarSample);
+t('sidebar 未补 → applied', r.status, 'applied');
+t('sidebar 补丁声明 header.action', r.fixed.includes('"sidebar.header.action"'), true);
+t('sidebar 补丁渲染 header.action', r.fixed.includes('renderSlot("sidebar.header.action", { wide })'), true);
+r = patchCoreSidebarHeaderAction(r.fixed);
+t('sidebar 已补 → ok(幂等)', r.status, 'ok');
+r = patchCoreSidebarHeaderAction('function x() { nothing }');
+t('sidebar 格式意外 → failed', r.status, 'failed');
+
 // ── 清单集成 ─────────────────────────────────────────
 console.log('== 清单集成 ==');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-patchm-'));
@@ -72,22 +114,25 @@ fs.writeFileSync(path.join(modlensDir, 'client.js'), "slots.register({ id: 'modl
 fs.writeFileSync(path.join(safeDir, 'client.js'), "slots.register({ id: 'safe-delete', order: 30 })");
 const coreClient = path.join(dir, 'core-client.js');
 fs.writeFileSync(coreClient, coreSample + '|' + coreSample.replace('sidebar.workspaces', 'conversation.hero.workspace'));
+const coreSidebarClient = path.join(dir, 'core-sidebar-client.js');
+fs.writeFileSync(coreSidebarClient, sidebarSample);
 
-let results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient });
-t('4 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 4);
+let results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreSidebarClient });
+t('5 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 5);
 
 // 幂等：再跑一次 → 全部 ok
-results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient });
-t('再跑幂等 → 全部 ok', results.filter((x) => x.status === 'ok').length, 4);
+results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreSidebarClient });
+t('再跑幂等 → 全部 ok', results.filter((x) => x.status === 'ok').length, 5);
 
 // 文件真实被修改
 t('index.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'index.js'), 'utf8').includes('scope.settings'), true);
 t('client.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'client.js'), 'utf8').includes("key: 'modlens'"), true);
 t('core 文件已写入补丁', fs.readFileSync(coreClient, 'utf8').includes('remoteFlow'), true);
+t('core sidebar 文件已写入补丁', fs.readFileSync(coreSidebarClient, 'utf8').includes('sidebar.header.action'), true);
 
 // 缺失文件 → skipped
 const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-patchm-empty-'));
-results = reconcilePatches({ profileDir: emptyDir, coreWorkspaceClient: path.join(emptyDir, 'nope.js') });
+results = reconcilePatches({ profileDir: emptyDir, coreWorkspaceClient: path.join(emptyDir, 'nope.js'), coreSidebarClient: path.join(emptyDir, 'nope.js') });
 t('缺失文件 → skipped', results.every((x) => x.status === 'skipped'), true);
 
 fs.rmSync(dir, { recursive: true, force: true });
