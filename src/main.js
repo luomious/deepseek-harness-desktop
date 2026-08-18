@@ -1626,6 +1626,90 @@ function openPluginManager() {
 
 // ── 菜单 ──────────────────────────────────────────────
 
+/**
+ * 导出诊断报告：收集 4 类日志 + 环境信息 + 插件清单 + brain 状态 → 压缩 zip。
+ * 报错时用户一键导出，开发者凭 zip 即可定位（无需来回问答）。
+ */
+async function exportDiagnostics() {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const dir = path.join(os.tmpdir(), 'dsh-diagnostics-' + stamp);
+    fs.mkdirSync(dir, { recursive: true });
+
+    // 1. 日志文件
+    const logs = {
+      'startup.log': LOG_FILE,
+      'error.log': errorLog.file,
+      'service.log': DSH_SERVICE_LOG,
+      'renderer.log': RENDERER_LOG_FILE,
+    };
+    for (const [name, src] of Object.entries(logs)) {
+      try { if (src && fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, name)); } catch (e) {}
+    }
+
+    // 2. brain 状态（失败计数/经验表）与安全模式备份（若存在）
+    try { if (brain.stateFile && fs.existsSync(brain.stateFile)) fs.copyFileSync(brain.stateFile, path.join(dir, 'brain-state.json')); } catch (e) {}
+    try { if (safeMode.hasBackup()) fs.copyFileSync(safeMode.backupFile, path.join(dir, 'safe-mode-backup.json')); } catch (e) {}
+
+    // 3. 环境信息
+    let dshVersion = 'unknown';
+    try {
+      const dshRoot = npmPaths.findDshNodeModulesRoot();
+      if (dshRoot) {
+        dshVersion = JSON.parse(fs.readFileSync(path.join(dshRoot, '@deepseek-ai', 'dsh', 'package.json'), 'utf-8')).version;
+      }
+    } catch (e) {}
+    const now = Date.now();
+    const bootFails = Object.keys(brain.throttle)
+      .filter((k) => k.startsWith('BOOT-004|') || k.startsWith('BOOT-002|'))
+      .reduce((n, k) => n + (brain.throttle[k] || []).filter((t) => now - t < 3600 * 1000).length, 0);
+    let bundles = [];
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(PROFILE_DIR, 'package.json'), 'utf-8'));
+      bundles = (pkg.dsh && pkg.dsh.profile && pkg.dsh.profile.bundles) || [];
+    } catch (e) {}
+    const info = [
+      'DSH Desktop 诊断报告',
+      `时间: ${new Date().toLocaleString()}`,
+      `平台: ${process.platform} ${process.arch}`,
+      `应用版本: ${getInstalledVersion() || 'unknown'}`,
+      `DSH 版本: ${dshVersion}`,
+      `安全模式: ${inSafeMode ? '本次会话已启用' : '未启用'}${safeMode.hasBackup() ? '（存在未恢复备份）' : ''}`,
+      `启动失败计数(近1h): ${bootFails}`,
+      '',
+      '已安装插件:',
+      ...getInstalledPlugins().map((p) => `  - ${p.name}@${p.version || '?'}${p.disabled ? ' [已禁用]' : ''}`),
+      '',
+      'profile bundles:',
+      ...bundles.map((b) => `  - ${b}`),
+    ].join('\n');
+    fs.writeFileSync(path.join(dir, 'info.txt'), info, 'utf8');
+
+    // 4. 选择保存位置并压缩（PowerShell Compress-Archive：原生 exe，-Command 单串传参，无注入面）
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出诊断报告',
+      defaultPath: path.join(os.homedir(), 'Desktop', `DSH-诊断-${stamp}.zip`),
+      filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePath) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const ps = spawn('powershell', ['-NoProfile', '-Command', `Compress-Archive -Path '${dir}' -DestinationPath '${result.filePath}' -Force`], { stdio: 'ignore', windowsHide: true, shell: false });
+      ps.on('close', (code) => (code === 0 ? resolve() : reject(new Error('Compress-Archive exit code ' + code))));
+      ps.on('error', reject);
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    dialog.showMessageBox(mainWindow, {
+      type: 'info', title: '诊断报告已导出',
+      message: `已保存到:\n${result.filePath}\n\n可将该 zip 发给开发者以快速定位问题。`,
+    });
+  } catch (err) {
+    dialog.showErrorBox('导出诊断报告失败', String((err && err.message) || err));
+  }
+}
+
 function createMenu() {
   const template = [
     {
@@ -1662,6 +1746,8 @@ function createMenu() {
         { type: 'separator' },
         { label: '打开启动日志', click: () => { shell.openPath(LOG_FILE).catch(() => {}); } },
         { label: '打开前端日志', click: () => { shell.openPath(RENDERER_LOG_FILE).catch(() => {}); } },
+        { type: 'separator' },
+        { label: '导出诊断报告', click: () => { exportDiagnostics().catch(err => console.error('[DSH Desktop] Export diagnostics failed:', err)); } },
         { type: 'separator' },
         { label: 'DSH 文档', click: () => shell.openExternal('https://github.com/deepseek-ai/deepseek-harness') },
         { label: 'DeepSeek 官网', click: () => shell.openExternal('https://deepseek.com') },
