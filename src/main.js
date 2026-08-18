@@ -1,5 +1,5 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const net = require('net');
@@ -10,10 +10,10 @@ const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picke
 const { isNewer } = require('./lib/version');
 const { Brain } = require('./lib/brain');
 const npmPaths = require('./lib/npm-paths');
-const { execSyncSafe: execSafe } = npmPaths;
 const { ErrorLog } = require('./lib/error-log');
 const { SafeMode } = require('./lib/safe-mode');
 const { reconcilePatches } = require('./lib/patch-manifest');
+const { createDshService } = require('./lib/dsh-service');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -24,7 +24,6 @@ const PROFILE_DIR = path.join(DSH_HOME, 'profiles', 'web');
 const isDev = process.argv.includes('--dev');
 
 let mainWindow = null;
-let dshProcess = null;
 let isQuitting = false;
 let inSafeMode = false; // 本次会话处于安全模式（退出时需恢复被隔离的配置）
 
@@ -59,6 +58,24 @@ function bootLog(msg) {
   console.log('[DSH Desktop]', msg);
 }
 
+// DSH 服务生命周期管理器（启动/停止/端口管理/进程状态，唯一实现见 lib/dsh-service.js）
+const dshService = createDshService({
+  serviceLogFile: DSH_SERVICE_LOG,
+  errorLog,
+  logger: bootLog,
+});
+// 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
+dshService.setOnUnexpectedExit((code, signal) => {
+  if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
+    dialog.showErrorBox(
+      'DSH 服务已停止',
+      `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})。\n应用将关闭，请重新启动。`
+    );
+    app.quit();
+  }
+});
+
 // ── 渲染进程日志（诊断「点击没反应」等前端问题）──
 const RENDERER_LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-renderer.log');
 function rendererLog(level, msg) {
@@ -85,10 +102,10 @@ if (!gotLock) {
     }
     // 若 DSH 服务已停止（如用户手动结束进程），双击图标时恢复服务并加载 UI，避免白屏。
     // 与 activate 分支逻辑一致（activate 只覆盖窗口全关后的场景）。
-    isPortListening(DSH_PORT).then((running) => {
+    dshService.isPortListening().then((running) => {
       if (running) return;
-      startDSH()
-        .then(() => waitForDSH())
+      dshService.start()
+        .then(() => dshService.waitForReady())
         .then((ready) => {
           if (ready && mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.loadURL(DSH_URL).catch((err) => {
@@ -105,27 +122,6 @@ if (!gotLock) {
 
 // ── 工具函数 ──────────────────────────────────────────
 
-/** 检查端口是否在监听 */
-function isPortListening(port) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    socket.setTimeout(1000);
-    socket.on('connect', () => { socket.destroy(); resolve(true); });
-    socket.on('timeout', () => { socket.destroy(); resolve(false); });
-    socket.on('error', () => { socket.destroy(); resolve(false); });
-    socket.connect(port, '127.0.0.1');
-  });
-}
-
-/** 等 DSH 服务就绪（最大 30 秒） */
-async function waitForDSH(maxRetries = 60, interval = 500) {
-  for (let i = 0; i < maxRetries; i++) {
-    if (await isPortListening(DSH_PORT)) return true;
-    await new Promise((r) => setTimeout(r, interval));
-  }
-  return false;
-}
-
 /** 执行命令并获取输出 */
 /**
  * 用 node.exe 直接执行任意 JS 入口（安全版本）
@@ -136,7 +132,7 @@ async function waitForDSH(maxRetries = 60, interval = 500) {
  */
 function execNode(scriptPath, args, cwd, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    const dsh = findDshBin();
+    const dsh = dshService.findDshBin();
     if (!dsh || !dsh.node) {
       reject(new Error('未找到 node 运行时，请确认 Node.js 安装正常'));
       return;
@@ -202,10 +198,10 @@ async function getInstalledVersion() {
     }
   } catch (e) {}
 
-  // 兜底 1：从 findDshBin() 已确认的 dsh 位置反推版本（最可靠 —— 能启动说明 bin.js 一定存在）
+  // 兜底 1：从 dshService.findDshBin() 已确认的 dsh 位置反推版本（最可靠 —— 能启动说明 bin.js 一定存在）
   // bin.js: <prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js → package.json 在其上级 dsh/ 目录
   try {
-    const dsh = findDshBin();
+    const dsh = dshService.findDshBin();
     if (dsh && dsh.bin) {
       const pkgPath = path.join(path.dirname(dsh.bin), '..', 'package.json');
       if (fs.existsSync(pkgPath)) {
@@ -280,67 +276,6 @@ function getAppVersion() {
 }
 
 /**
- * 定位 dsh 的 node 解释器 + bin.js 绝对路径（安全执行方案）
- * 不依赖 PATH（双击快捷方式时 PATH 不含 npm-global），也完全绕开 .cmd/shell
- * 返回 { node, bin }，分别是要执行的 node.exe 与 dsh 的 lib/bin.js
- */
-function findDshBin() {
-  // 1. 定位 node.exe（系统 PATH 含 nodejs 目录，用 where 动态解析）
-  let nodeExe = null;
-
-  // 仅当进程本身是 node.exe 时直接复用（如 ELECTRON_RUN_AS_NODE 模式或纯 node 调试）。
-  // 注意：Electron 主进程的 process.execPath 是 electron.exe / 打包后的 exe，不会命中此分支。
-  if (process.execPath && process.execPath.toLowerCase().endsWith('node.exe') && fs.existsSync(process.execPath)) {
-    nodeExe = process.execPath;
-  }
-
-  // 备用：where node（Windows）/ which node（macOS/Linux），过滤 shim 只要真正的 node
-  if (!nodeExe) {
-    try {
-      const whichCmd = process.platform === 'win32' ? 'where node' : 'which node';
-      const lines = execSafe(whichCmd);
-      if (lines) {
-        for (const line of lines.split(/\r?\n/)) {
-          const p = line.trim();
-          if (p && !p.toLowerCase().endsWith('.cmd') && !p.toLowerCase().endsWith('.bat') && fs.existsSync(p)) {
-            nodeExe = p;
-            break;
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  // 兜底：常见安装位置（分平台）
-  if (!nodeExe) {
-    if (process.platform === 'win32') {
-      for (const c of [
-        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
-        path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
-      ]) {
-        try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
-      }
-    } else {
-      // macOS/Linux：Homebrew、/usr/local、/usr、/opt 等常见安装位置
-      for (const c of [
-        '/usr/local/bin/node',
-        '/opt/homebrew/bin/node',
-        '/usr/bin/node',
-        '/bin/node',
-      ]) {
-        try { if (fs.existsSync(c)) { nodeExe = c; break; } } catch (e) {}
-      }
-    }
-  }
-
-  // 2. 定位 dsh 的 lib/bin.js（npm 全局安装目录，唯一实现见 lib/npm-paths.js）
-  const binJs = npmPaths.findDshBinJs();
-
-  if (!nodeExe || !binJs) return null;
-  return { node: nodeExe, bin: binJs };
-}
-
-/**
  * 参数白名单校验（纵深防御，防止未来回归）
  * - 远程插件名：npm 包名规范（小写字母/数字/-/_/.），拒绝一切 shell 元字符
  * - 本地插件路径：绝对路径，拒绝 " & | < > ; ( ) * ? 等 shell 元字符
@@ -391,216 +326,6 @@ function isDSHOrigin(url) {
   } catch (e) {
     return false;
   }
-}
-
-/** 启动 DSH Web 服务 */
-/**
- * 构造 DSH 服务进程的干净环境变量。
- * WorkBuddy 等宿主会通过 NODE_OPTIONS 注入文件删除保护 shim（genie-safe-delete.cjs），
- * 该 shim 会把 fs.unlinkSync 重定向为 trash 操作，并对 ~/.dsh 等受保护路径直接 abort。
- * DSH 服务启动时会 heal ~/.dsh/profiles/node_modules 下的 junction（需 unlink 重建），
- * 被 shim 拦截后启动失败，表现为「服务崩溃/新会话无反应」。
- * 这里剔除全部 CODEBUDDY_SAFE_DELETE_* / GENIE_TRASH_DIR 注入，并移除 NODE_OPTIONS 中的 shim 引用。
- */
-function buildDshEnv() {
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (key.startsWith('CODEBUDDY_SAFE_DELETE_') || key === 'GENIE_TRASH_DIR' || key === 'BASH_ENV') {
-      delete env[key];
-    }
-  }
-  if (env.NODE_OPTIONS) {
-    // 移除 --require=genie-safe-delete.cjs 注入（路径含 genie-safe-delete 或 safe-delete）
-    const parts = env.NODE_OPTIONS.split(/\s+(?=--)/).filter((p) => {
-      const lower = p.toLowerCase();
-      return !lower.includes('genie-safe-delete') && !lower.includes('safe-delete');
-    });
-    if (parts.length > 0) env.NODE_OPTIONS = parts.join(' ');
-    else delete env.NODE_OPTIONS;
-  }
-  return env;
-}
-
-function startDSH() {
-  return new Promise((resolve, reject) => {
-    const dshArgs = ['web'];
-
-    // 使用 node + bin.js 绝对路径启动（无 shell，不依赖 PATH）
-    const dsh = findDshBin();
-    if (!dsh) {
-      errorLog.log('BOOT-001', { module: 'startDSH', msg: '未找到 dsh 命令（npm 全局未安装 @deepseek-ai/dsh）' });
-      reject(new Error('未找到 dsh 命令，请先执行: npm install -g @deepseek-ai/dsh'));
-      return;
-    }
-
-    console.log(`[DSH Desktop] Starting: ${dsh.node} ${dsh.bin} ${dshArgs.join(' ')}`);
-
-    dshProcess = spawn(dsh.node, [dsh.bin, ...dshArgs], {
-      cwd: app.getPath('home'),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false,
-      windowsHide: true,
-      env: buildDshEnv(),
-    });
-
-    // settled：promise 是否已结算（spawn 成功即 resolve，之后 exit 视为"运行中退出"）
-    // 不依赖 stdout 文本（DSH 输出格式可能变化），避免 started 标志永不置位导致崩溃无提示
-    let settled = false;
-    // 收集 stderr，启动早期退出时带进错误信息，便于用户/开发者排查具体原因
-    let stderrBuf = '';
-
-    dshProcess.stdout.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.log(`[DSH] ${text}`);
-        appendLog(DSH_SERVICE_LOG, text);
-      }
-    });
-
-    dshProcess.stderr.on('data', (data) => {
-      const text = data.toString().trim();
-      if (text) {
-        console.error(`[DSH ERR] ${text}`);
-        appendLog(DSH_SERVICE_LOG, '[ERR] ' + text);
-        // 只保留最近 4KB，防止异常刷屏撑爆内存
-        stderrBuf = (stderrBuf + '\n' + text).slice(-4096);
-      }
-    });
-
-    dshProcess.on('error', (err) => {
-      console.error(`[DSH Desktop] Failed to start dsh:`, err);
-      if (!settled) reject(err);
-    });
-
-    dshProcess.on('exit', (code, signal) => {
-      console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
-      const exitDetail = stderrBuf.trim() ? `\nstderr:\n${stderrBuf.trim().slice(-4096)}` : '';
-      bootLog(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}${exitDetail}`);
-      dshProcess = null;
-      // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
-      // 立即 reject 而不是等 30s 超时；附带 stderr 便于排查
-      if (!settled) {
-        errorLog.log('BOOT-002', { module: 'startDSH', msg: `dsh 进程启动后立即退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
-        const detail = stderrBuf.trim() ? `\n\ndsh 输出:\n${stderrBuf.trim().slice(-1500)}` : '';
-        reject(new Error(`dsh 进程启动后立即退出 (code=${code}${signal ? ', signal=' + signal : ''})${detail}`));
-        return;
-      }
-      // 运行中意外退出：仅在非主动退出、窗口已显示、且应用仍在运行时提示（避免启动早期/退出期间误弹）
-      if (!isQuitting && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-        errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
-        dialog.showErrorBox(
-          'DSH 服务已停止',
-          `DeepSeek Harness 后端服务已停止运行 (code=${code}${signal ? ', signal=' + signal : ''})。\n应用将关闭，请重新启动。`
-        );
-        app.quit();
-      }
-    });
-
-    // 等待进程成功 spawn（避免 spawn 同步错误被吞）
-    dshProcess.once('spawn', () => {
-      settled = true;
-      // 子进程已成功创建，resolve 表示"已启动"（就绪检测由 waitForDSH 负责）
-      resolve();
-    });
-  });
-}
-
-/** 停止 DSH Web 服务（强制清理，确保无孤儿进程） */
-function stopDSH() {
-  console.log('[DSH Desktop] Stopping dsh process...');
-
-  // 1. 先尝试关闭已知子进程树
-  if (dshProcess) {
-    if (process.platform === 'win32') {
-      try {
-        // taskkill 是原生 exe，无需 shell；参数全部为内部生成的 pid，无注入面
-        spawn('taskkill', ['/pid', String(dshProcess.pid), '/f', '/t'], {
-          stdio: 'ignore', shell: false,
-        });
-      } catch (e) {}
-    } else {
-      try { dshProcess.kill('SIGTERM'); } catch (e) {}
-    }
-  }
-
-  // 2. 无论是否有子进程引用，直接按端口强制清理（最可靠，避免孤儿进程）
-  if (process.platform === 'win32') {
-    try {
-      // powershell 为原生 exe，-Command 整串作为单个参数传入，无 shell 拼接
-      spawn('powershell', [
-        '-NoProfile', '-Command',
-        `Get-NetTCPConnection -LocalPort ${DSH_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { ` +
-        `try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }`,
-      ], { stdio: 'ignore', shell: false });
-    } catch (e) {}
-  } else {
-    try {
-      spawn('fuser', ['-k', `${DSH_PORT}/tcp`], { stdio: 'ignore', shell: false });
-    } catch (e) {}
-  }
-
-  dshProcess = null;
-}
-
-/**
- * 强制清理占用指定端口的进程（Windows: taskkill；macOS/Linux: fuser -k）
- * 用于端口被僵死/非 DSH 进程占用时，自愈式清理后重新拉起服务。
- * 防误杀：Windows 下先解析占用进程名，仅当进程名属于 node/electron 类
- * （大概率是僵死的 DSH 实例）才 taskkill；其他程序占用则不动，交由调用方提示。
- */
-function killProcessOnPort(port) {
-  return new Promise((resolve) => {
-    try {
-      if (process.platform === 'win32') {
-        const { execSync } = require('child_process');
-        let pid = null;
-        try {
-          const lines = execSync('netstat -ano', { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).split(/\r?\n/);
-          // 精确匹配 ":<port> "（后跟空白），避免 :3080 误匹配 :30800 等其它端口
-          const portRe = new RegExp(':' + port + '\\s');
-          for (const line of lines) {
-            if (portRe.test(line) && line.includes('LISTENING')) {
-              const parts = line.trim().split(/\s+/);
-              pid = parts[parts.length - 1];
-              break;
-            }
-          }
-        } catch (e) {}
-        if (pid) {
-          // 进程名白名单：仅清理 node/electron 类进程（DSH 是 node 服务）。
-          // 避免误杀用户业务程序（如 python 等也监听 3080 的情况）。
-          let pname = '';
-          try {
-            const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
-            const m = /^"([^"]+)"/.exec(out.trim());
-            if (m) pname = m[1].toLowerCase();
-          } catch (e) {}
-          const allowed = pname === '' || ['node.exe', 'electron.exe', 'dsh.exe'].some((n) => pname.endsWith(n) || pname === n);
-          if (!allowed) {
-            console.log(`[DSH Desktop] Port ${port} held by non-node process "${pname}" (pid ${pid}), NOT killing it`);
-            resolve(false);
-            return;
-          }
-          spawn('taskkill', ['/pid', pid, '/f', '/t'], { stdio: 'ignore', shell: false });
-          console.log(`[DSH Desktop] Killed process ${pid} holding port ${port}`);
-        }
-      } else {
-        spawn('fuser', ['-k', `${port}/tcp`], { stdio: 'ignore', shell: false });
-      }
-    } catch (e) {}
-    // 不等待 taskkill 完成（异步清理），resolve 后由调用方轮询端口
-    resolve(true);
-  });
-}
-
-/** 轮询等待端口释放 */
-async function waitPortReleased(port, maxRetries = 10, interval = 500) {
-  for (let i = 0; i < maxRetries; i++) {
-    const listening = await isPortListening(port);
-    if (!listening) return true;
-    await new Promise((r) => setTimeout(r, interval));
-  }
-  return false;
 }
 
 // ── 更新检查 ──────────────────────────────────────────
@@ -694,12 +419,12 @@ async function checkForUpdates(silent = true) {
 /** 执行更新 */
 async function performUpdate(localVer, remoteVer) {
   // 先停止 DSH 服务
-  stopDSH();
+  dshService.stop();
   // 等待端口释放（最多 5 秒），确保 dsh 进程树完全退出——否则 Windows 上
   // npm install -g 覆盖 @deepseek-ai/dsh 目录时可能 EPERM（文件被运行中进程占用）
   const portDeadline = Date.now() + 5000;
   while (Date.now() < portDeadline) {
-    if (!(await isPortListening(DSH_PORT))) break;
+    if (!(await dshService.isPortListening())) break;
     await new Promise((r) => setTimeout(r, 250));
   }
 
@@ -746,7 +471,7 @@ async function performUpdate(localVer, remoteVer) {
   try {
     // 使用 node + npm-cli.js 直接执行（shell:false，与全局安全策略一致）
     // npm 参数全为常量/内部生成，无用户输入，但仍不用 shell 规避 cmd 解析风险
-    // 注意：必须用 findDshBin() 的 node.exe 执行，process.execPath 是 Electron 可执行文件（electron.exe / 打包 exe），
+    // 注意：必须用 dshService.findDshBin() 的 node.exe 执行，process.execPath 是 Electron 可执行文件（electron.exe / 打包 exe），
     // 用它跑 npm-cli.js 会启动 Electron GUI 而非执行 npm，导致更新失败
     const npmCli = findNpmCli();
     if (!npmCli) throw new Error('未找到 npm-cli.js，请确认 npm 安装正常');
@@ -782,15 +507,15 @@ async function performUpdate(localVer, remoteVer) {
 
     if (choice.response === 0) {
       // 立即重启
-      if (dshProcess) stopDSH();
+      if (dshService.isRunning()) dshService.stop();
       app.relaunch();
       app.exit(0);
     } else {
       // 稍后重启：重启 DSH 服务，保持应用可用
       console.log('[DSH Desktop] User chose to restart later, restarting DSH service...');
       try {
-        await startDSH();
-        const ready = await waitForDSH();
+        await dshService.start();
+        const ready = await dshService.waitForReady();
         if (ready && mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.loadURL(DSH_URL).catch((err) => {
             console.error('[DSH Desktop] Failed to reload UI after update:', err);
@@ -822,8 +547,8 @@ async function performUpdate(localVer, remoteVer) {
     // 更新失败必须恢复 DSH 服务：更新开始前已 stopDSH，不恢复会导致应用停在"服务已停止"状态
     try {
       console.log('[DSH Desktop] Restoring DSH service after failed update...');
-      await startDSH();
-      const ready = await waitForDSH();
+      await dshService.start();
+      const ready = await dshService.waitForReady();
       if (ready && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.loadURL(DSH_URL).catch((err) => {
           console.error('[DSH Desktop] Failed to reload UI after failed update:', err);
@@ -1110,7 +835,7 @@ async function pnpmCmd(action, target, cwd) {
 
   // 固定参数由代码内部生成（无注入面）；用户参数只透传一个 finalTarget
   const args = [action, finalTarget, '--dir', PROFILE_DIR];
-  const dsh = findDshBin();
+  const dsh = dshService.findDshBin();
   if (!dsh || !dsh.node) throw new Error('未找到 node 运行时，请确认 Node.js 安装正常');
   const nodeExe = dsh.node;
   return new Promise((resolve, reject) => {
@@ -1869,7 +1594,7 @@ app.whenReady().then(async () => {
     bootLog('whenReady: reconcilePlugins failed (non-fatal): ' + (reconcileErr.message || reconcileErr));
   }
 
-  const alreadyRunning = await isPortListening(DSH_PORT);
+  const alreadyRunning = await dshService.isPortListening();
   bootLog(`whenReady: isPortListening(${DSH_PORT}) = ${alreadyRunning}`);
 
   if (alreadyRunning) {
@@ -1901,9 +1626,9 @@ app.whenReady().then(async () => {
       // 场景：上次服务异常退出留下僵死进程，或被杀进程的 socket 未释放
       bootLog(`whenReady: port ${DSH_PORT} occupied by non-DSH, cleaning up...`);
       console.warn(`[DSH Desktop] Port ${DSH_PORT} occupied by non-DSH process, cleaning up...`);
-      await killProcessOnPort(DSH_PORT);
+      await dshService.killProcessOnPort(DSH_PORT);
       // 等待端口释放后走自启动分支
-      const released = await waitPortReleased(DSH_PORT, 10, 500);
+      const released = await dshService.waitPortReleased(DSH_PORT, 10, 500);
       if (!released) {
         errorLog.log('BOOT-003', { module: 'whenReady', msg: '端口 3080 被其他程序占用且自动清理失败', ctx: { port: DSH_PORT } });
         dialog.showErrorBox(
@@ -1920,7 +1645,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  if (!(await isPortListening(DSH_PORT))) {
+  if (!(await dshService.isPortListening())) {
     bootLog('whenReady: port free, calling startDSH()');
     // 启动 DSH 服务前应用原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
     try {
@@ -1950,7 +1675,7 @@ app.whenReady().then(async () => {
       bootLog(`whenReady: patch manifest FAILED (non-fatal): ${patchErr.message}`);
     }
     try {
-      await startDSH();
+      await dshService.start();
       bootLog('whenReady: startDSH resolved');
       console.log('[DSH Desktop] DSH process started, waiting for ready...');
     } catch (err) {
@@ -1963,7 +1688,7 @@ app.whenReady().then(async () => {
       return;
     }
 
-    const ready = await waitForDSH();
+    const ready = await dshService.waitForReady();
     bootLog(`whenReady: waitForDSH = ${ready}`);
     if (!ready) {
       // 启动超时：交给诊断引擎自动恢复（清理端口后重启，restart → kill-port → 兜底弹窗）
@@ -1973,13 +1698,13 @@ app.whenReady().then(async () => {
       if (decision && (decision.action === 'restart' || decision.action === 'kill-port')) {
         bootLog(`brain: BOOT-004 -> ${decision.action} (auto recover attempt)`);
         try {
-          if (decision.action === 'restart' && dshProcess) {
-            try { dshProcess.kill(); } catch (e) {}
+          if (decision.action === 'restart' && dshService.isRunning()) {
+            dshService.killProcess();
           }
-          await killProcessOnPort(DSH_PORT);
-          if (await waitPortReleased(DSH_PORT, 10, 500)) {
-            await startDSH();
-            autoRecovered = await waitForDSH();
+          await dshService.killProcessOnPort(DSH_PORT);
+          if (await dshService.waitPortReleased(DSH_PORT, 10, 500)) {
+            await dshService.start();
+            autoRecovered = await dshService.waitForReady();
             brain.report(bootEvent, decision.action, autoRecovered);
             bootLog(`brain: BOOT-004 -> ${decision.action} ${autoRecovered ? 'recovered' : 'failed'}`);
           } else {
@@ -2047,7 +1772,7 @@ app.on('before-quit', (e) => {
     safeMode.restore();
     bootLog('before-quit: safe mode profile restored');
   }
-  stopDSH();
+  dshService.stop();
 });
 
 app.on('window-all-closed', () => {
@@ -2055,7 +1780,7 @@ app.on('window-all-closed', () => {
   // exit handler 误弹「DSH 服务已停止」（正常退出被误报为崩溃）
   isQuitting = true;
   // 停止 DSH 并等待端口释放（防止孤儿进程）
-  stopDSH();
+  dshService.stop();
   const deadline = Date.now() + 5000;
   const checkPort = () => {
     const conn = net.connect(DSH_PORT, '127.0.0.1');
@@ -2067,7 +1792,7 @@ app.on('window-all-closed', () => {
       } else {
         // 超时：强制再次清理，然后退出
         console.log('[DSH Desktop] Port timeout, force killing...');
-        stopDSH();
+        dshService.stop();
         app.quit();
       }
     });
@@ -2090,7 +1815,7 @@ app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
     // 若 DSH 服务未运行，先启动服务
-    const running = await isPortListening(DSH_PORT);
+    const running = await dshService.isPortListening();
     if (!running) {
       try {
         // 与 whenReady 启动路径保持一致：启动前应用原生目录选择器补丁（幂等，重装 DSH 后自动修复）
@@ -2100,8 +1825,8 @@ app.on('activate', async () => {
         } catch (patchErr) {
           console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
         }
-        await startDSH();
-        const ready = await waitForDSH();
+        await dshService.start();
+        const ready = await dshService.waitForReady();
         if (!ready) {
           console.error('[DSH Desktop] DSH failed to start on activate');
           return;
