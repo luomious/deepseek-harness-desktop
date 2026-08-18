@@ -19,15 +19,12 @@ export const inject = ['webServer', 'tools']
 
 const MAX_READ_BYTES = 2 * 1024 * 1024 // 2MB：超过视为大文件，拒绝读取
 const MAX_LIST_ENTRIES = 500 // 单目录最多列 500 项，防渲染卡死
-
-function home() {
-  return homedir()
-}
+const HOME = homedir() // 缓存（homedir 开销小但每次调用浪费）
 
 /** 规范化用户输入（支持 ~ 前缀），resolve 到绝对路径。 */
 function normalizePath(input) {
   if (!input || typeof input !== 'string') return null
-  let p = input.trim().replace(/^~(\/|\\)|^~$/, home() + '$1')
+  let p = input.trim().replace(/^~(\/|\\)|^~$/, HOME + '$1')
   if (!p) return null
   return resolve(p)
 }
@@ -52,7 +49,7 @@ function kindOf(name, isDir) {
   if (isDir) return 'dir'
   const n = name.toLowerCase()
   if (n.endsWith('.js') || n.endsWith('.mjs') || n.endsWith('.cjs')) return 'js'
-  if (n.endsWith('.ts') || n.endsWith('.tsx') || n.endsWith('.d.ts')) return 'ts'
+  if (n.endsWith('.ts') || n.endsWith('.tsx')) return 'ts'
   if (n.endsWith('.jsx')) return 'jsx'
   if (n.endsWith('.py')) return 'py'
   if (n.endsWith('.json')) return 'json'
@@ -75,7 +72,7 @@ function listDir(dir, showHidden) {
   let entries = readdirSync(dir, { withFileTypes: true })
   entries = entries
     .filter((e) => showHidden || !e.name.startsWith('.'))
-    .filter((e) => e.name !== 'node_modules' || !showHidden)
+    .filter((e) => e.name !== 'node_modules')
     .slice(0, MAX_LIST_ENTRIES)
   const out = []
   for (const e of entries) {

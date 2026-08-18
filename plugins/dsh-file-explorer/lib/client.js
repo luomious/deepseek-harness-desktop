@@ -45,19 +45,28 @@ window.__ModuleLoader__.load({
 		};
 		var STRING_RE = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`|#[^\n]*|\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g;
 		var KW_RE = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+		// 预编译关键字集合（避免逐词 split）
+		var KEYWORD_SET = {};
+		for (var _k in KEYWORDS) {
+			if (Object.prototype.hasOwnProperty.call(KEYWORDS, _k)) KEYWORD_SET[_k] = new Set(KEYWORDS[_k].split("|"));
+		}
+		// 超过该大小不启用高亮（防 2MB 大文件渲染出数十万 DOM 节点卡死界面）
+		var HIGHLIGHT_LIMIT = 200 * 1024;
+		// 模块级样式/工具（避免每次渲染重建对象）
+		var fmtSize = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B"; };
+		var STYLE_ROW = { display: "flex", alignItems: "center", gap: 6, padding: "2px 8px", cursor: "pointer", borderRadius: 4, fontSize: 12, whiteSpace: "nowrap" };
+		var STYLE_DIR_ICON = { color: "#d4920a", fontSize: 11 };
+		var STYLE_FILE_ICON = { color: "#6b7686", fontSize: 11 };
+		var STYLE_INPUT = { width: "100%", boxSizing: "border-box", padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "rgba(127,127,127,0.08)", color: "#d4d4d4", fontSize: 12, outline: "none" };
+		var STYLE_BTN = { padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "transparent", color: "#d4d4d4", cursor: "pointer", fontSize: 12 };
 
 		function highlight(code, kind) {
-			var kw = KEYWORDS[kind] || "";
-			var tokens = [];
-			var last = 0;
-			var re = new RegExp("(" + STRING_RE.source + ")");
-			var m;
-			STRING_RE.lastIndex = 0;
-			re.lastIndex = 0;
+			var kwSet = KEYWORD_SET[kind] || null;
 			// 字符串/注释/正则先分片
 			var parts = [];
 			var pLast = 0;
 			STRING_RE.lastIndex = 0;
+			var m;
 			while ((m = STRING_RE.exec(code)) !== null) {
 				if (m.index > pLast) parts.push({ t: "code", v: code.slice(pLast, m.index) });
 				var val = m[0];
@@ -79,7 +88,7 @@ window.__ModuleLoader__.load({
 				while ((mm = KW_RE.exec(part.v)) !== null) {
 					if (mm.index > kwLast) out.push(createElement("span", { key: out.length }, part.v.slice(kwLast, mm.index)));
 					var word = mm[0];
-					if (kw.split("|").indexOf(word) !== -1) {
+					if (kwSet && kwSet.has(word)) {
 						out.push(createElement("span", { key: out.length, style: { color: "#569cd6" } }, word));
 					} else if (/^\d+(\.\d+)?$/.test(word)) {
 						out.push(createElement("span", { key: out.length, style: { color: "#b5cea8" } }, word));
@@ -109,52 +118,34 @@ window.__ModuleLoader__.load({
 			var error = _s5[0], setError = _s5[1];
 			var _s6 = useState(false);
 			var busy = _s6[0], setBusy = _s6[1];
+			// 子目录内容缓存：{ dirPath: entries[] }
+			var _dirCache = useState({});
+			var dirCache = _dirCache[0], setDirCache = _dirCache[1];
 
 			useEffect(function () {
-				// 鼠标侧键：下键(3)=返回文件上一级；上键(4)=仅拦截默认导航
+				// 鼠标侧键：下键(3)=返回文件上一级；默认导航拦截由 apply 级 guard 负责
 				function handler(e) {
-					var cur = window.__fe_curPath || path || "";
 					if (e.button === 3) {
 						e.preventDefault();
-						try {
-							var idx = cur.replace(/\\/g, "/").lastIndexOf("/");
-							// 盘根（如 D:\）不再上跳；否则切到上一级
-							if (idx > 0 && !/^[A-Za-z]:[\\/]$/.test(cur)) navigate(cur.slice(0, idx));
-						} catch (err) { /* 忽略：侧键处理失败不影响界面 */ }
-					} else if (e.button === 4) {
-						e.preventDefault();
+						try { goUp(); } catch (err) { /* 忽略：侧键处理失败不影响界面 */ }
 					}
 				}
 				["mousedown", "mouseup", "auxclick"].forEach(function (t) { window.addEventListener(t, handler, true); });
 				return function () { ["mousedown", "mouseup", "auxclick"].forEach(function (t) { window.removeEventListener(t, handler, true); }); };
-			}, [path]);
+			}, []);
 
 			useEffect(function () {
 				// 初始：尝试会话 cwd，失败回退 ~/（提示手动输入）
 				callApi("session-cwd").then(function (d) {
 					if (d && d.cwd) {
 						setPath(d.cwd);
-						loadDir(d.cwd);
+						navigate(d.cwd);
 					} else {
 						setPath("");
-						loadDir("~");
+						navigate("~");
 					}
-				}).catch(function () { loadDir("~"); });
+				}).catch(function () { navigate("~"); });
 			}, []);
-
-			function loadDir(dir) {
-				setBusy(true);
-				setError(null);
-				callApi("list-dir", { path: dir }).then(function (d) {
-					setTree(d);
-					setPath(d.path);
-					setOpenedDirs({});
-					setBusy(false);
-				}).catch(function (e) {
-					setError((e && e.message) || String(e));
-					setBusy(false);
-				});
-			}
 
 			function openFile(f) {
 				if (f.isDir) { toggleDirFull(f.path); return; }
@@ -183,29 +174,21 @@ window.__ModuleLoader__.load({
 				});
 			}
 
-			var rowStyle = { display: "flex", alignItems: "center", gap: 6, padding: "2px 8px", cursor: "pointer", borderRadius: 4, fontSize: 12, whiteSpace: "nowrap" };
-			var dirIcon = { color: "#d4920a", fontSize: 11 };
-			var fileIcon = { color: "#6b7686", fontSize: 11 };
-
 			function renderRow(e, depth) {
 				var isDir = e.isDir;
 				var expanded = openedDirs && openedDirs[e.path];
 				return createElement("div", { key: e.path },
 					createElement("div", {
-						style: Object.assign({}, rowStyle, { paddingLeft: 8 + depth * 14, background: file && file.path === e.path ? "rgba(86,156,214,0.15)" : "transparent" }),
+						style: Object.assign({}, STYLE_ROW, { paddingLeft: 8 + depth * 14, background: file && file.path === e.path ? "rgba(86,156,214,0.15)" : "transparent" }),
 						onClick: function () { openFile(e); },
 						title: e.path
 					},
-						createElement("span", { style: isDir ? dirIcon : fileIcon }, isDir ? (expanded ? "▾" : "▸") : "·"),
+						createElement("span", { style: isDir ? STYLE_DIR_ICON : STYLE_FILE_ICON }, isDir ? (expanded ? "▾" : "▸") : "·"),
 						createElement("span", { style: { color: isDir ? "#d7ba7d" : "#d4d4d4", overflow: "hidden", textOverflow: "ellipsis" } }, e.name)
 					),
 					isDir && expanded && treeEntriesOf(e.path).map(function (c) { return renderRow(c, depth + 1); })
 				);
 			}
-
-			// 子目录内容缓存：{ dirPath: entries[] }
-			var _dirCache = useState({});
-			var dirCache = _dirCache[0], setDirCache = _dirCache[1];
 
 			function treeEntriesOf(dirPath) {
 				return (dirCache && dirCache[dirPath]) || [];
@@ -232,15 +215,14 @@ window.__ModuleLoader__.load({
 			}
 
 			function goUp() {
-				if (!path) return;
-				var idx = path.replace(/\\/g, "/").lastIndexOf("/");
-				if (idx <= 0) return;
-				navigate(path.slice(0, idx));
+				var cur = window.__fe_curPath || path || "";
+				var idx = cur.replace(/\\/g, "/").lastIndexOf("/");
+				// 盘根（如 D:\）不再上跳；否则切到上一级
+				if (idx > 0 && !/^[A-Za-z]:[\\/]$/.test(cur)) navigate(cur.slice(0, idx));
 			}
 
-			var inputStyle = { width: "100%", boxSizing: "border-box", padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "rgba(127,127,127,0.08)", color: "#d4d4d4", fontSize: 12, outline: "none" };
-			var btnStyle = { padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "transparent", color: "#d4d4d4", cursor: "pointer", fontSize: 12 };
-			var fmtSize = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B"; };
+			var inputStyle = STYLE_INPUT;
+			var btnStyle = STYLE_BTN;
 
 			return createElement("div", { style: { display: "flex", flexDirection: "column", height: "100%" } },
 				createElement("div", { style: { display: "flex", gap: 6, padding: "8px 10px 4px" } },
@@ -253,7 +235,7 @@ window.__ModuleLoader__.load({
 					}),
 					createElement("button", { style: btnStyle, onClick: goUp, title: "上一级" }, "↑"),
 					createElement("button", { style: btnStyle, onClick: function () { navigate(path); }, title: "刷新" }, "↻"),
-					createElement("button", { style: btnStyle, onClick: function () { loadDir("~"); }, title: "用户主目录" }, "⌂")
+					createElement("button", { style: btnStyle, onClick: function () { navigate("~"); }, title: "用户主目录" }, "⌂")
 				),
 				error && createElement("div", { style: { padding: "4px 10px", color: "#f48771", fontSize: 12 } }, error),
 				busy && createElement("div", { style: { padding: "4px 10px", color: "#888", fontSize: 11 } }, "加载中…"),
@@ -267,8 +249,10 @@ window.__ModuleLoader__.load({
 						createElement("span", { style: { fontSize: 10, color: "#888", marginLeft: "auto" } }, fmtSize(file.size)),
 						createElement("button", { style: Object.assign({}, btnStyle, { padding: "1px 6px" }), onClick: function () { setFile(null); } }, "✕")
 					),
-					createElement("pre", { style: { flex: 1, overflow: "auto", margin: 0, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.5, color: "#d4d4d4", fontFamily: "Consolas, 'Courier New', monospace" } },
-						highlight(file.content, file.path.split(".").pop().toLowerCase().replace(/^d$/i, "ts").toLowerCase())
+					createElement("pre", { style: { flex: 1, overflow: "auto", margin: 0, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.5, color: "#d4d4d4", fontFamily: "Consolas, 'Courier New', monospace", whiteSpace: "pre-wrap", wordBreak: "break-all" } },
+						file.size > HIGHLIGHT_LIMIT
+							? createElement("span", {}, file.content)
+							: highlight(file.content, file.path.split(".").pop().toLowerCase().replace(/^d$/i, "ts").toLowerCase())
 					)
 				)
 			);
@@ -302,13 +286,16 @@ window.__ModuleLoader__.load({
 
 		function apply(ctx) {
 			try {
-				// 鼠标侧键（back/forward）在 SPA 中会触发历史导航破坏会话视图：全局拦截默认行为
-				var sideNavGuard = function (e) {
-					if (e.button === 3 || e.button === 4) e.preventDefault();
-				};
-				["mousedown", "mouseup", "auxclick"].forEach(function (t) {
-					window.addEventListener(t, sideNavGuard, true);
-				});
+				// 鼠标侧键（back/forward）在 SPA 中会触发历史导航破坏会话视图：全局拦截默认行为（幂等，防重复挂载）
+				if (!window.__fe_sideNavGuard) {
+					window.__fe_sideNavGuard = true;
+					var sideNavGuard = function (e) {
+						if (e.button === 3 || e.button === 4) e.preventDefault();
+					};
+					["mousedown", "mouseup", "auxclick"].forEach(function (t) {
+						window.addEventListener(t, sideNavGuard, true);
+					});
+				}
 				ctx.effect(function () {
 					return ctx.slots.inject("details", function () {
 						try {
