@@ -8,6 +8,7 @@ const os = require('os');
 const zlib = require('zlib');
 const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picker');
 const { isNewer } = require('./lib/version');
+const { Brain } = require('./lib/brain');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -50,6 +51,11 @@ function getNpmRoot() {
 let mainWindow = null;
 let dshProcess = null;
 let isQuitting = false;
+
+// 诊断决策引擎（brain）：感知错误信号 → 决策自动恢复动作（影响评估）→ 反馈学习。
+// 节流/判环/预算保证：任何故障循环最多触发有限次自动动作，最终回退到原兜底（弹窗/提示）。
+// 经验表持久化到 web profile 目录，跨启动生效。
+const brain = new Brain({ stateFile: path.join(PROFILE_DIR, '.dsh-brain.json') });
 
 // ── 启动日志（诊断用：记录启动流程每一步，便于排查「打开没反应」）──
 const LOG_FILE = path.join(os.tmpdir(), 'dsh-desktop-startup.log');
@@ -1369,6 +1375,25 @@ function createWindow() {
   });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     rendererLog('render-process-gone', `reason=${details?.reason}, exitCode=${details?.exitCode}`);
+    // 崩溃自动恢复：交给诊断引擎决策（5 秒后 reload 一次；连续崩溃由节流/判环自动停止）
+    if (!isQuitting) {
+      const crashEvent = { code: 'RENDER-001', stage: 'render', key: details?.reason || 'gone' };
+      const decision = brain.emit(crashEvent);
+      if (decision && decision.action === 'retry') {
+        bootLog('brain: RENDER-001 -> retry, auto reload in 5s');
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            brain.report(crashEvent, 'retry', true);
+            mainWindow.webContents.reload();
+          } else {
+            brain.report(crashEvent, 'retry', false);
+          }
+        }, 5000);
+      } else {
+        brain.report(crashEvent, decision ? decision.action : 'throttled', false);
+        bootLog(`brain: RENDER-001 -> no auto action (${decision ? decision.action : 'throttled'})`);
+      }
+    }
   });
   mainWindow.webContents.on('unresponsive', () => {
     rendererLog('unresponsive', 'renderer process became unresponsive');
@@ -1893,12 +1918,42 @@ app.whenReady().then(async () => {
     const ready = await waitForDSH();
     bootLog(`whenReady: waitForDSH = ${ready}`);
     if (!ready) {
-      dialog.showErrorBox(
-        '服务超时',
-        'DeepSeek Harness 服务启动超时（30秒）。请检查网络和配置后重试。'
-      );
-      app.quit();
-      return;
+      // 启动超时：交给诊断引擎自动恢复（清理端口后重启，restart → kill-port → 兜底弹窗）
+      const bootEvent = { code: 'BOOT-004', stage: 'wait' };
+      const decision = brain.emit(bootEvent);
+      let autoRecovered = false;
+      if (decision && (decision.action === 'restart' || decision.action === 'kill-port')) {
+        bootLog(`brain: BOOT-004 -> ${decision.action} (auto recover attempt)`);
+        try {
+          if (decision.action === 'restart' && dshProcess) {
+            try { dshProcess.kill(); } catch (e) {}
+          }
+          await killProcessOnPort(DSH_PORT);
+          if (await waitPortReleased(DSH_PORT, 10, 500)) {
+            await startDSH();
+            autoRecovered = await waitForDSH();
+            brain.report(bootEvent, decision.action, autoRecovered);
+            bootLog(`brain: BOOT-004 -> ${decision.action} ${autoRecovered ? 'recovered' : 'failed'}`);
+          } else {
+            brain.report(bootEvent, decision.action, false);
+            bootLog('brain: BOOT-004 -> port not released after cleanup');
+          }
+        } catch (err) {
+          brain.report(bootEvent, decision.action, false);
+          bootLog(`brain: BOOT-004 -> ${decision.action} EXCEPTION: ${err.message || err}`);
+        }
+      } else {
+        brain.report(bootEvent, decision ? decision.action : 'throttled', false);
+      }
+      if (!autoRecovered) {
+        dialog.showErrorBox(
+          '服务超时',
+          'DeepSeek Harness 服务启动超时（30秒）。请检查网络和配置后重试。'
+        );
+        app.quit();
+        return;
+      }
+      bootLog('whenReady: recovered by brain auto action');
     }
   }
 
