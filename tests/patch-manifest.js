@@ -10,6 +10,7 @@ const {
   patchModlensIndex,
   patchModlensKey,
   patchSafeDeleteKey,
+  patchCoreRemoteFlowSlots,
 } = require('../src/lib/patch-manifest.js');
 
 let pass = 0, fail = 0;
@@ -45,6 +46,20 @@ t('safe-delete 补丁内容正确', r.fixed.includes("key: 'safe-delete'"), true
 r = patchSafeDeleteKey(r.fixed);
 t('safe-delete 已补 → ok', r.status, 'ok');
 
+// core workspace client.js：children 表补 remoteFlow 声明
+const coreSample = `children: { "sidebar.workspaces.directoryFlow": {
+					kind: "single",
+					scope: "root"
+				} }`;
+r = patchCoreRemoteFlowSlots(coreSample + '|' + coreSample.replace('sidebar.workspaces', 'conversation.hero.workspace'));
+t('core 未补 → applied', r.status, 'applied');
+t('core 补丁含 sidebar remoteFlow', r.fixed.includes('"sidebar.workspaces.remoteFlow"'), true);
+t('core 补丁含 hero remoteFlow', r.fixed.includes('"conversation.hero.workspace.remoteFlow"'), true);
+r = patchCoreRemoteFlowSlots(r.fixed);
+t('core 已补 → ok(幂等)', r.status, 'ok');
+r = patchCoreRemoteFlowSlots('function x() { nothing }');
+t('core 格式意外 → failed', r.status, 'failed');
+
 // ── 清单集成 ─────────────────────────────────────────
 console.log('== 清单集成 ==');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-patchm-'));
@@ -55,21 +70,24 @@ fs.mkdirSync(safeDir, { recursive: true });
 fs.writeFileSync(path.join(modlensDir, 'index.js'), 'function x() { registerSettingsNamespace() }');
 fs.writeFileSync(path.join(modlensDir, 'client.js'), "slots.register({ id: 'modlens', order: 30 })");
 fs.writeFileSync(path.join(safeDir, 'client.js'), "slots.register({ id: 'safe-delete', order: 30 })");
+const coreClient = path.join(dir, 'core-client.js');
+fs.writeFileSync(coreClient, coreSample + '|' + coreSample.replace('sidebar.workspaces', 'conversation.hero.workspace'));
 
-let results = reconcilePatches({ profileDir: dir });
-t('3 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 3);
+let results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient });
+t('4 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 4);
 
 // 幂等：再跑一次 → 全部 ok
-results = reconcilePatches({ profileDir: dir });
-t('再跑幂等 → 全部 ok', results.filter((x) => x.status === 'ok').length, 3);
+results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient });
+t('再跑幂等 → 全部 ok', results.filter((x) => x.status === 'ok').length, 4);
 
 // 文件真实被修改
 t('index.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'index.js'), 'utf8').includes('scope.settings'), true);
 t('client.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'client.js'), 'utf8').includes("key: 'modlens'"), true);
+t('core 文件已写入补丁', fs.readFileSync(coreClient, 'utf8').includes('remoteFlow'), true);
 
 // 缺失文件 → skipped
 const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-patchm-empty-'));
-results = reconcilePatches({ profileDir: emptyDir });
+results = reconcilePatches({ profileDir: emptyDir, coreWorkspaceClient: path.join(emptyDir, 'nope.js') });
 t('缺失文件 → skipped', results.every((x) => x.status === 'skipped'), true);
 
 fs.rmSync(dir, { recursive: true, force: true });

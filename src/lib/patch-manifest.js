@@ -34,6 +34,48 @@ function patchSafeDeleteKey(content) {
   return { status: 'applied', fixed };
 }
 
+// ── dsh 核心 ui-workspace：声明 remoteFlow 洞 ──
+// 根因：@dsh-external/dsh-remote-workspace 注册 conversation.hero.workspace.remoteFlow /
+// sidebar.workspaces.remoteFlow，核心 rc.7 的 children 表只声明 directoryFlow，
+// 导致 slot 校验拒绝整个插件加载。dsh 升级会覆盖核心文件，故登记自愈。
+function patchCoreRemoteFlowSlots(content) {
+  const hasSide = content.includes('"sidebar.workspaces.remoteFlow"');
+  const hasHero = content.includes('"conversation.hero.workspace.remoteFlow"');
+  if (hasSide && hasHero) return { status: 'ok' };
+  const sidebarOld = `children: { "sidebar.workspaces.directoryFlow": {
+					kind: "single",
+					scope: "root"
+				} }`;
+  const sidebarNew = `children: { "sidebar.workspaces.directoryFlow": {
+					kind: "single",
+					scope: "root"
+				}, "sidebar.workspaces.remoteFlow": {
+					kind: "single",
+					scope: "root"
+				} }`;
+  const heroOld = `children: { "conversation.hero.workspace.directoryFlow": {
+					kind: "single",
+					scope: "root"
+				} }`;
+  const heroNew = `children: { "conversation.hero.workspace.directoryFlow": {
+					kind: "single",
+					scope: "root"
+				}, "conversation.hero.workspace.remoteFlow": {
+					kind: "single",
+					scope: "root"
+				} }`;
+  let fixed = content;
+  if (!hasSide) {
+    if (!fixed.includes(sidebarOld)) return { status: 'failed', error: '未找到 sidebar children 表' };
+    fixed = fixed.replace(sidebarOld, sidebarNew);
+  }
+  if (!hasHero) {
+    if (!fixed.includes(heroOld)) return { status: 'failed', error: '未找到 hero children 表' };
+    fixed = fixed.replace(heroOld, heroNew);
+  }
+  return { status: 'applied', fixed };
+}
+
 /** 对单个文件执行补丁：不存在 → skipped；已补 → ok；应用 → applied；失败 → failed */
 function applyFilePatch(file, patchFn) {
   try {
@@ -47,8 +89,22 @@ function applyFilePatch(file, patchFn) {
   }
 }
 
-/** 构建补丁清单（profile 目录可配，测试隔离） */
-function buildManifest(profileDir) {
+/** 构建补丁清单（profile 目录可配，测试隔离；core 文件路径可注入，默认全局 dsh 包） */
+function buildManifest(profileDir, opts = {}) {
+  const coreWorkspaceClient =
+    opts.coreWorkspaceClient ||
+    path.join(
+      process.env.APPDATA || '',
+      'npm',
+      'node_modules',
+      '@deepseek-ai',
+      'dsh',
+      'node_modules',
+      '@deepseek-ai',
+      'dsh-client-ui-workspace',
+      'lib',
+      'client.js'
+    );
   return [
     {
       id: 'modlens-settings-namespace',
@@ -65,12 +121,17 @@ function buildManifest(profileDir) {
       file: path.join(profileDir, 'node_modules', 'dsh-safe-delete', 'lib', 'client.js'),
       patch: patchSafeDeleteKey,
     },
+    {
+      id: 'dsh-core-remoteflow-slots',
+      file: coreWorkspaceClient,
+      patch: patchCoreRemoteFlowSlots,
+    },
   ];
 }
 
 /** 执行全部补丁，返回结果列表（幂等：已补的跳过） */
-function reconcilePatches({ profileDir }) {
-  return buildManifest(profileDir).map((p) => ({
+function reconcilePatches({ profileDir, coreWorkspaceClient }) {
+  return buildManifest(profileDir, { coreWorkspaceClient }).map((p) => ({
     id: p.id,
     file: p.file,
     ...applyFilePatch(p.file, p.patch),
@@ -84,4 +145,5 @@ module.exports = {
   patchModlensIndex,
   patchModlensKey,
   patchSafeDeleteKey,
+  patchCoreRemoteFlowSlots,
 };
