@@ -280,8 +280,30 @@ window.__ModuleLoader__.load({
       var displayGroups = groups ? mergeGroups(groups) : [];
       var total = groups ? groups.reduce(function (n, g) { return n + (g.models || []).length; }, 0) : 0;
       var checkedCount = current.models.length;
+      var [expanded, setExpanded] = React.useState(new Set());
+      function toggleExpanded(name) {
+        var next = new Set(expanded);
+        if (next.has(name)) next.delete(name); else next.add(name);
+        setExpanded(next);
+      }
 
       var checkboxStyle = { accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, margin: 0 };
+      var EXPAND_BTN = {
+        width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        border: '1px solid var(--dsw-alias-border-inverted)', borderRadius: 8,
+        background: 'var(--dsw-alias-bg-layer-2)', cursor: 'pointer', flexShrink: 0, padding: 0,
+        transition: 'background .15s, transform .2s',
+      };
+      var CHIP_STYLE = {
+        fontSize: 11, color: 'var(--dsw-alias-label-tertiary)',
+        background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 999,
+        padding: '1px 8px', flexShrink: 0,
+      };
+      var MODEL_ENTER = {
+        overflow: 'hidden', transition: 'max-height .3s ease, opacity .25s ease',
+        maxHeight: 0, opacity: 0,
+      };
+      var MODEL_OPEN = { maxHeight: 600, opacity: 1 };
 
       return h('div', { style: PANEL_STYLE },
         // header: title + accent bar + edit button
@@ -315,21 +337,35 @@ window.__ModuleLoader__.load({
         error !== null && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 } }, t('error') + ': ' + error),
         groups !== null && groups.length === 0 && h('div', { style: HINT_STYLE }, t('empty')),
 
-        // grouped model list
+        // grouped model list — expandable cards
         displayGroups.map(function (dg) {
+          var isOpen = expanded.has(dg.name);
           return h('div', { key: dg.name, className: 'mw-group', style: CARD_STYLE },
-            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
-              h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: ACCENT, flexShrink: 0 } }),
-              h('span', { style: GROUP_NAME_STYLE }, dg.name),
-              h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '1px 8px' } }, String(dg.entries.length))),
-            dg.entries.map(function (e) {
-              var key = modelKey(e.gid, e.model.id);
-              var checked = current.models.indexOf(key) !== -1;
-              var rowClass = 'mw-row' + (editing ? ' mw-enabled' : '') + (checked ? ' mw-checked' : '');
-              return h('label', { key: key, className: rowClass, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13, cursor: editing ? 'pointer' : 'default', opacity: !editing ? 0.7 : 1 } },
-                h('input', { type: 'checkbox', checked: checked, disabled: !editing, onChange: function () { toggleModel(key); }, style: checkboxStyle }),
-                h('span', { style: MODEL_NAME_STYLE }, e.model.name || e.model.id));
-            }));
+            h('div', {
+              style: { display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
+              onClick: function () { toggleExpanded(dg.name); },
+            },
+              // expand button with chevron
+              h('button', {
+                type: 'button',
+                style: Object.assign({}, EXPAND_BTN, { transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }),
+                'aria-label': isOpen ? 'collapse' : 'expand',
+              },
+                h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
+                  h('path', { d: 'M6 4l4 4-4 4' }))),
+              // provider name + count badge
+              h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: ACCENT, flexShrink: 0, transition: 'transform .3s' } }),
+              h('span', { style: { flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, dg.name),
+              h('span', { style: CHIP_STYLE }, String(dg.entries.length))),
+            // collapsible model list
+            h('div', { style: Object.assign({}, MODEL_ENTER, isOpen ? MODEL_OPEN : {}) },
+              dg.entries.map(function (e) {
+                var key = modelKey(e.gid, e.model.id);
+                var checked = current.models.indexOf(key) !== -1;
+                return h('label', { key: key, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px 6px 36px', fontSize: 13, cursor: editing ? 'pointer' : 'default', opacity: editing ? 1 : 0.7, transition: 'opacity .15s' } },
+                  h('input', { type: 'checkbox', checked: checked, disabled: !editing, onChange: function () { toggleModel(key); }, style: checkboxStyle }),
+                  h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, e.model.name || e.model.id));
+              })));
         }),
 
         // footer actions (edit mode only)
