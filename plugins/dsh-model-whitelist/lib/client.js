@@ -12,6 +12,12 @@
 //     toggle is enabled, nothing is filtered (the picker stays exactly as-is).
 //  3. The currently selected model is always kept visible, so an active session
 //     never loses its selection.
+//  4. Editing is draft-based: click 编辑, check models, then 确定 commits and
+//     取消 discards. Nothing is written until 确定.
+//  5. Models from the same source are grouped together (the "(modlens vision)"
+//     wrapper groups are merged back into their upstream provider group for
+//     display only; the underlying provider/model ids are kept intact so the
+//     picker and the filter keep working).
 //
 // Persistence: localStorage key "dsh.model-whitelist.v1" = { enabled, models[] }.
 // Hand-written lazy-CJS bundle; only external is react.
@@ -36,13 +42,16 @@ window.__ModuleLoader__.load({
       enableLabel: '只显示我选择的模型',
       enableHint: '开启后，会话里的模型选择器只显示下面勾选的模型（当前正在用的模型始终保留）',
       loading: '正在加载模型列表…',
-      noSession: '请先打开一个会话，再管理模型列表',
       empty: '暂无可用模型（请先在「模型」页配置厂商）',
       error: '加载失败',
       count: '已选 {n} / {total}',
       selectAll: '全选',
       clearAll: '清空',
       saved: '已保存',
+      edit: '编辑',
+      confirm: '确定',
+      cancel: '取消',
+      editHint: '点击「编辑」进入编辑模式，勾选要显示的模型后点「确定」生效；「取消」放弃本次修改',
     };
     var en = {
       title: 'Model Manager',
@@ -50,13 +59,16 @@ window.__ModuleLoader__.load({
       enableLabel: 'Only show models I select',
       enableHint: 'When enabled, the conversation model picker shows only the checked models below (the currently active model is always kept)',
       loading: 'Loading models…',
-      noSession: 'Open a conversation first to manage the model list',
       empty: 'No models available (configure a provider in the Models page first)',
       error: 'Failed to load',
       count: 'Selected {n} / {total}',
       selectAll: 'Select all',
       clearAll: 'Clear',
       saved: 'Saved',
+      edit: 'Edit',
+      confirm: 'Confirm',
+      cancel: 'Cancel',
+      editHint: 'Click "Edit" to enter edit mode, check the models to show, then "Confirm" to apply; "Cancel" discards the changes',
     };
     function t(key, vars) {
       var dict = zh[key] !== void 0 ? zh : en;
@@ -82,6 +94,28 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // ---------- tiny stylesheet (hover/transition niceties) ----------
+    var cssInjected = false;
+    function ensureCss() {
+      if (cssInjected || typeof document === 'undefined') return;
+      cssInjected = true;
+      try {
+        var style = document.createElement('style');
+        style.setAttribute('data-dsh-model-whitelist', '');
+        style.textContent = [
+          '.mw-row{transition:background-color .15s ease,opacity .15s ease;border-radius:8px}',
+          '.mw-row.mw-enabled:hover{background-color:var(--dsw-alias-interactive-bg-hover)}',
+          '.mw-row.mw-checked{background-color:var(--dsw-alias-interactive-bg-hover)}',
+          '.mw-group{transition:border-color .15s ease,box-shadow .15s ease}',
+          '.mw-group:hover{border-color:var(--dsw-alias-border-l2)}',
+          '.mw-btn{transition:filter .15s ease,background-color .15s ease,border-color .15s ease,opacity .15s ease}',
+          '.mw-btn:hover:not(:disabled){filter:brightness(1.08)}',
+          '.mw-btn:disabled{opacity:.45;cursor:default}'
+        ].join('\n');
+        document.head.appendChild(style);
+      } catch (e) { /* ignore */ }
+    }
+
     // ---------- whitelist persistence ----------
     var STORAGE_KEY = 'dsh.model-whitelist.v1';
     function readConfig() {
@@ -101,6 +135,26 @@ window.__ModuleLoader__.load({
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); } catch (e) { /* ignore */ }
     }
     function modelKey(providerId, modelId) { return providerId + '/' + modelId; }
+
+    // ---------- same-source grouping (display only) ----------
+    // The modlens plugin registers wrapper providers named "<Upstream> (modlens
+    // vision)"; merge those back into the upstream group so models from the same
+    // source sit together. Keys still use the ORIGINAL provider id.
+    function baseGroupName(name) {
+      return String(name || '').replace(/\s*\(modlens vision\)\s*$/i, '').replace(/\s+/g, ' ').trim();
+    }
+    function mergeGroups(groups) {
+      var byBase = {};
+      var order = [];
+      (groups || []).forEach(function (group) {
+        var base = baseGroupName(group.name || group.id) || group.id;
+        if (!byBase[base]) { byBase[base] = { name: base, entries: [] }; order.push(base); }
+        (group.models || []).forEach(function (model) {
+          byBase[base].entries.push({ gid: group.id, model: model });
+        });
+      });
+      return order.map(function (base) { return byBase[base]; });
+    }
 
     // ---------- filter: apply whitelist to a sessions.models value ----------
     function filterValue(value, cfg) {
@@ -123,42 +177,64 @@ window.__ModuleLoader__.load({
     // original (unfiltered) api.sessions.models, captured before patching
     var origModels = null;
 
-    // ---------- Settings panel: 模型管理 ----------
-    var PANEL_STYLE = { display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 640 };
-    var GROUP_STYLE = { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 10, padding: '8px 10px' };
-    var GROUP_NAME_STYLE = { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-secondary)', margin: '0 0 6px' };
-    var ROW_STYLE = { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 13, cursor: 'pointer' };
+    // ---------- styles ----------
+    var ACCENT = 'var(--dsw-static-deepseek-500, #4d6bfe)';
+    var PANEL_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 680 };
+    var CARD_STYLE = { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 12, padding: '12px 14px', background: 'var(--dsw-alias-bg-layer-1)' };
     var HINT_STYLE = { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' };
-    var COUNT_STYLE = { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' };
+    var GROUP_NAME_STYLE = { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' };
+    var MODEL_NAME_STYLE = { color: 'var(--dsw-alias-label-primary)', lineHeight: '18px' };
 
+    function accent() { return ACCENT; }
+    function primaryBtnStyle() {
+      return {
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        border: 'none', borderRadius: 8, padding: '6px 18px', fontSize: 13, fontWeight: 600,
+        color: '#fff', background: ACCENT, cursor: 'pointer', fontFamily: 'inherit',
+        boxShadow: '0 1px 3px rgba(0,0,0,.25)',
+      };
+    }
+    function outlineBtnStyle() {
+      return {
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        border: '1px solid var(--dsw-alias-border-inverted)', borderRadius: 8, padding: '5px 16px', fontSize: 13,
+        color: 'var(--dsw-alias-label-primary)', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+      };
+    }
+    function ghostBtnStyle(disabled) {
+      return {
+        border: 'none', background: 'transparent', borderRadius: 6, padding: '2px 10px', fontSize: 12,
+        color: disabled ? 'var(--dsw-alias-label-tertiary)' : ACCENT,
+        cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit', fontWeight: 500,
+      };
+    }
+
+    // ---------- Settings panel: 模型管理 ----------
     function ModelManager(props) {
       var connection = props.connection;
-      var sessions = props.useSessions ? props.useSessions(function (s) { return s; }) : null;
-      var sessionId = sessions && sessions.current
-        ? sessions.current
-        : (sessions && sessions.ids && sessions.ids.length > 0 ? sessions.ids[0] : null);
+
+      ensureCss();
+
       var [cfg, setCfg] = React.useState(readConfig);
+      var [draft, setDraft] = React.useState(null);       // { enabled, models } while editing
       var [groups, setGroups] = React.useState(null);
       var [loading, setLoading] = React.useState(true);
       var [error, setError] = React.useState(null);
       var [flash, setFlash] = React.useState(false);
 
-      // load the FULL (unfiltered) catalog once (session.models requires a valid sessionId)
+      var editing = draft !== null;
+      var current = editing ? draft : cfg;
+
+      // load the FULL (unfiltered) catalog via llm.models (host-scoped, no session needed)
       React.useEffect(function () {
         var cancelled = false;
-        var api = connection && connection.api && connection.api.sessions;
+        var api = connection && connection.api && connection.api.llm;
         if (!api || typeof api.models !== 'function') {
           setLoading(false);
-          setError('models api unavailable');
+          setError('llm models api unavailable');
           return;
         }
-        if (!sessionId) {
-          setLoading(false);
-          setError(t('noSession'));
-          return;
-        }
-        var fn = api.models.__dshFiltered && origModels ? origModels : api.models.bind(api);
-        fn({ sessionId: sessionId }).then(function (res) {
+        api.models({}).then(function (res) {
           if (cancelled) return;
           setLoading(false);
           if (res && res.result && res.result.ok && res.result.value && Array.isArray(res.result.value.groups)) {
@@ -171,69 +247,96 @@ window.__ModuleLoader__.load({
           if (!cancelled) { setLoading(false); setError(String((e && e.message) || e)); }
         });
         return function () { cancelled = true; };
-      }, [connection, sessionId]);
+      }, [connection]);
 
-      function commit(patch) {
-        var next = Object.assign({}, cfg, patch);
+      function commit(next) {
         setCfg(next);
         writeConfig(next);
+        setDraft(null);
         setFlash(true);
-        window.setTimeout(function () { setFlash(false); }, 1200);
+        window.setTimeout(function () { setFlash(false); }, 1400);
       }
+
+      // edit-mode mutations (draft only; nothing persists until 确定)
+      function startEdit() {
+        setDraft({ enabled: cfg.enabled, models: cfg.models.slice() });
+      }
+      function cancelEdit() { setDraft(null); }
+      function confirmEdit() { commit(draft); }
+      function patchDraft(patch) { setDraft(Object.assign({}, draft, patch)); }
+
+      function toggleEnabled() { patchDraft({ enabled: !draft.enabled }); }
       function toggleModel(key) {
-        var has = cfg.models.indexOf(key) !== -1;
-        commit({ models: has ? cfg.models.filter(function (k) { return k !== key; }) : cfg.models.concat([key]) });
+        var has = draft.models.indexOf(key) !== -1;
+        patchDraft({ models: has ? draft.models.filter(function (k) { return k !== key; }) : draft.models.concat([key]) });
       }
-      function toggleEnabled() { commit({ enabled: !cfg.enabled }); }
       function selectAll() {
         var all = [];
         (groups || []).forEach(function (g) { (g.models || []).forEach(function (m) { all.push(modelKey(g.id, m.id)); }); });
-        commit({ models: all });
+        patchDraft({ models: all });
       }
-      function clearAll() { commit({ models: [] }); }
+      function clearAll() { patchDraft({ models: [] }); }
 
+      var displayGroups = groups ? mergeGroups(groups) : [];
       var total = groups ? groups.reduce(function (n, g) { return n + (g.models || []).length; }, 0) : 0;
+      var checkedCount = current.models.length;
+
+      var checkboxStyle = { accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, margin: 0 };
 
       return h('div', { style: PANEL_STYLE },
-        h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('title')),
-        h('div', { style: HINT_STYLE }, t('flowHint')),
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 } },
-          h('input', { type: 'checkbox', checked: cfg.enabled, onChange: toggleEnabled, style: { accentColor: 'var(--dsw-static-deepseek-500, #4d6bfe)' } }),
-          h('span', null, t('enableLabel'))),
-        h('div', { style: HINT_STYLE }, t('enableHint')),
+        // header: title + accent bar + edit button
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
-          h('span', { style: COUNT_STYLE }, t('count', { n: cfg.models.length, total: total })),
-          flash && h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12 } }, t('saved')),
-          h('button', { type: 'button', disabled: !cfg.enabled, onClick: selectAll, style: buttonStyle() }, t('selectAll')),
-          h('button', { type: 'button', disabled: !cfg.enabled, onClick: clearAll, style: buttonStyle() }, t('clearAll'))),
+          h('span', { style: { width: 4, height: 20, borderRadius: 2, background: ACCENT, flexShrink: 0 } }),
+          h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('title')),
+          h('span', { style: { flex: 1 } }),
+          !editing && h('button', { type: 'button', className: 'mw-btn', onClick: startEdit, style: primaryBtnStyle() }, t('edit'))),
+
+        h('div', { style: HINT_STYLE }, t('flowHint')),
+        h('div', { style: HINT_STYLE }, t('editHint')),
+
+        // master toggle card
+        h('div', { className: 'mw-group', style: CARD_STYLE },
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: editing ? 'pointer' : 'default', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' } },
+            h('input', { type: 'checkbox', checked: current.enabled, disabled: !editing, onChange: toggleEnabled, style: checkboxStyle }),
+            h('span', null, t('enableLabel'))),
+          h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) }, t('enableHint'))),
+
+        // toolbar
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h('span', {
+            style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }
+          }, t('count', { n: checkedCount, total: total })),
+          editing && h('button', { type: 'button', className: 'mw-btn', onClick: selectAll, style: ghostBtnStyle(false) }, t('selectAll')),
+          editing && h('button', { type: 'button', className: 'mw-btn', onClick: clearAll, style: ghostBtnStyle(false) }, t('clearAll')),
+          h('span', { style: { flex: 1 } }),
+          flash && h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, fontWeight: 500 } }, t('saved'))),
+
         loading && h('div', { style: HINT_STYLE }, t('loading')),
         error !== null && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 } }, t('error') + ': ' + error),
         groups !== null && groups.length === 0 && h('div', { style: HINT_STYLE }, t('empty')),
-        groups !== null && groups.map(function (group) {
-          return h('div', { key: group.id, style: GROUP_STYLE },
-            h('div', { style: GROUP_NAME_STYLE }, group.name || group.id),
-            (group.models || []).map(function (m) {
-              var key = modelKey(group.id, m.id);
-              var checked = cfg.models.indexOf(key) !== -1;
-              return h('label', { key: key, style: Object.assign({}, ROW_STYLE, cfg.enabled ? {} : { opacity: 0.55 }) },
-                h('input', {
-                  type: 'checkbox',
-                  checked: checked,
-                  disabled: !cfg.enabled,
-                  onChange: function () { toggleModel(key); },
-                  style: { accentColor: 'var(--dsw-static-deepseek-500, #4d6bfe)' },
-                }),
-                h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, m.name || m.id));
+
+        // grouped model list
+        displayGroups.map(function (dg) {
+          return h('div', { key: dg.name, className: 'mw-group', style: CARD_STYLE },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+              h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: ACCENT, flexShrink: 0 } }),
+              h('span', { style: GROUP_NAME_STYLE }, dg.name),
+              h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '1px 8px' } }, String(dg.entries.length))),
+            dg.entries.map(function (e) {
+              var key = modelKey(e.gid, e.model.id);
+              var checked = current.models.indexOf(key) !== -1;
+              var rowClass = 'mw-row' + (editing ? ' mw-enabled' : '') + (checked ? ' mw-checked' : '');
+              return h('label', { key: key, className: rowClass, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', fontSize: 13, cursor: editing ? 'pointer' : 'default', opacity: !editing ? 0.7 : 1 } },
+                h('input', { type: 'checkbox', checked: checked, disabled: !editing, onChange: function () { toggleModel(key); }, style: checkboxStyle }),
+                h('span', { style: MODEL_NAME_STYLE }, e.model.name || e.model.id));
             }));
-        }));
-    }
-    function buttonStyle() {
-      return {
-        border: '1px solid var(--dsw-alias-border-inverted)',
-        background: 'transparent', color: 'var(--dsw-alias-label-primary)',
-        borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer',
-        fontFamily: 'inherit',
-      };
+        }),
+
+        // footer actions (edit mode only)
+        editing && h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end', paddingTop: 4 } },
+          h('button', { type: 'button', className: 'mw-btn', onClick: cancelEdit, style: outlineBtnStyle() }, t('cancel')),
+          h('button', { type: 'button', className: 'mw-btn', onClick: confirmEdit, style: primaryBtnStyle() }, t('confirm')))
+      );
     }
 
     // ---------- plugin entry ----------
