@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-external/dsh-modlens-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "ModLens 配置守卫：自动移除 cordis.patch.yml 中 modlens 的 visionProvider: false，并热重建 modlens 条目让 (modlens vision) 模型恢复；每 60s 巡查防止再次被关。",
+  "license": "MIT"
+}

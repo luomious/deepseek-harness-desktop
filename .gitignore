@@ -44,3 +44,16 @@ tools/
 
 # 本地文档/笔记（不入库）
 docs/
+
+# 外部仓库 clone（独立 repo，按各自 README 单独拉取，不入库）
+plugins/dsh-routing-suite/
+
+# 插件构建产物（tsdown/tsc 输出，不入库；源码在 src/）
+plugins/*/lib/**/*.d.ts
+plugins/*/lib/**/*.map
+
+# 插件本地测试脚本（开发自测用，可选保留）
+# plugins/*/test-*.mjs
+
+# agent-presets 本地副本（运行时用 ~/.dsh/.agent-presets，不入库）
+agent-presets/

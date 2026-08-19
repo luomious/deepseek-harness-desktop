@@ -1,0 +1,4 @@
+# Bundle layer: mount the model-picker-group plugin (host stub + client bundle).
+- insert:
+    - id: dsh-model-picker-group
+      name: '@dsh-external/dsh-model-picker-group'
