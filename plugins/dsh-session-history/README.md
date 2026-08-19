@@ -16,6 +16,7 @@ The rail mounts into the `shell.overlay` slot (root layout overlay list slot) an
 - **Live updates** — new messages add bars automatically via MutationObserver.
 - **Session switching** — bars re-enumerate for the current session; selection resets on switch.
 - **Transparent, non-intrusive** — container has no background/border, only the bars are visible; the empty area passes clicks through.
+- **Busy-queue hint** — when a subagent is running (steering/interject is disabled, so Enter will *queue* rather than interject), a small banner above the composer reminds you: "子代理运行中，回车将排队发送".
 
 ## Files
 
@@ -34,6 +35,7 @@ No build step. The client bundle is hand-written in the lazy-CJS bundle protocol
 ## Slot Registration
 
 - `shell.overlay` (list, root scope) — the rail container
+- `conversation.input.dock` (list, session scope) — the busy-queue hint banner above the composer card
 - Position: measured from the center column (`div[class*="centerCol"]`) via ResizeObserver
 - Bars read from DOM: `[data-chat-flow-kind="user"]` rows inside the chat scroll container
 

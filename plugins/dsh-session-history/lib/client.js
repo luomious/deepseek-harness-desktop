@@ -32,8 +32,8 @@ window.__ModuleLoader__.load({
 
     // ---------- locale ----------
     var NS = 'session-history';
-    var zh = { empty: '暂无消息' };
-    var en = { empty: 'No messages yet' };
+    var zh = { empty: '暂无消息', busyHint: '子代理运行中，回车将排队发送' };
+    var en = { empty: 'No messages yet', busyHint: 'Subagent running — Enter will queue' };
     function t(key) { return (zh[key] !== void 0 ? zh[key] : en[key]) || key; }
 
     // ---------- visible diagnostics (errors are swallowed silently otherwise) ----------
@@ -243,6 +243,27 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ---------- busy-queue hint (subagent active ⇒ Enter will queue, not interject) ----------
+    var HINT_STYLE = {
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      width: '100%', maxWidth: 'calc(var(--dsh-composer-card-max-width, 780px) - 16px)',
+      boxSizing: 'border-box', margin: '0 auto', padding: '3px 8px',
+      fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)',
+      background: 'var(--dsw-alias-interactive-bg-hover)',
+      borderRadius: 8, flex: 'none',
+    };
+
+    function BusyHint(props) {
+      var session = props.session;
+      var input = props.input;
+      if (!session) return null;
+      var running = session.running === true;
+      var subagentActive = session.subagent !== void 0 && session.subagent !== null;
+      var machineBusy = input && (input.phase === 'adjudicating' || input.phase === 'submitting');
+      if (!running || !subagentActive || machineBusy) return null;
+      return h('div', { style: HINT_STYLE }, t('busyHint'));
+    }
+
     // ---------- plugin entry ----------
     var inject = ['locale'];
 
@@ -263,6 +284,16 @@ window.__ModuleLoader__.load({
               order: 100,
               locale: NS,
             }, guarded(MessageStrip, 'MessageStrip'));
+          });
+
+          // input dock: queue-reminder banner above the composer card
+          scope.slots.inject('conversation.input.dock', function () {
+            return scope.slots.register({
+              name: 'conversation.input.dock',
+              id: 'session-history-busy-hint',
+              order: 5,
+              locale: NS,
+            }, guarded(BusyHint, 'BusyHint'));
           });
         });
         console.log('[dsh-session-history] client apply registered hooks');
