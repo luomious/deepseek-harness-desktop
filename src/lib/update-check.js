@@ -315,6 +315,9 @@ function createUpdateChecker(options) {
       if (choice.response === 0) {
         // 立即重启
         if (dshService.isRunning()) dshService.stop();
+        // 竞态修复：释放单实例锁，避免 relaunch 的新实例因旧实例未完全
+        // 退出而抢不到锁自杀（应用关闭后不再起来）。
+        if (typeof app.releaseSingleInstanceLock === 'function') app.releaseSingleInstanceLock();
         app.relaunch();
         app.exit(0);
       } else {

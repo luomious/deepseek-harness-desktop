@@ -540,6 +540,11 @@ function createWindowUI(options) {
       if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };
       // 先回包（invoke 的 Promise 需要送达渲染进程），再优雅重启
       setImmediate(() => {
+        // 竞态修复：必须先释放单实例锁。旧实例退出要走 before-quit →
+        // window-all-closed 轮询等端口释放（最长 5s）才真正退出释放锁；
+        // 若新实例在此窗口内启动，requestSingleInstanceLock 抢不到锁 →
+        // gotLock=false → 新实例自杀 → 应用关闭后不再起来（“卡住/不动”）。
+        if (typeof app.releaseSingleInstanceLock === 'function') app.releaseSingleInstanceLock();
         app.relaunch();
         app.quit();
       });
