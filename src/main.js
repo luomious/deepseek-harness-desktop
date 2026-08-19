@@ -467,14 +467,22 @@ await new Promise((resolve, reject) => {
 // ── 应用生命周期 ──────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // 系统通知权限：允许渲染进程（dsh web UI 及插件 bundle）用 Web Notification API 弹 toast。
-  // 仅放行 notifications，其余一律拒绝（不扩大渲染器权限面）。须在 app ready 后设置。
+  // 系统通知 + 剪贴板写权限：允许渲染进程（dsh web UI 及插件 bundle）用 Web
+  // Notification API 弹 toast，并放行 clipboard-write / clipboard-sanitized-write
+  // ——代码块"复制"按钮依赖 navigator.clipboard.writeText，此前被权限处理器拒绝，
+  // 导致点击复制无反应（静默失败）。其余权限一律拒绝（不扩大渲染器权限面）。
+  // 须在 app ready 后设置。
   // 注意：不调用 app.setAppUserModelId——设置后任务栏图标会改为从 AUMID 关联的
   // shortcut 取值（未创建快捷方式时回退到 Electron 默认图标），与 exe 图标不一致。
+  const allowedPermissions = new Set([
+    'notifications',
+    'clipboard-write',
+    'clipboard-sanitized-write',
+  ]);
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(permission === 'notifications');
+    callback(allowedPermissions.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'notifications');
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowedPermissions.has(permission));
   bootLog('whenReady: createWindow');
   windowUI.createWindow();
 
