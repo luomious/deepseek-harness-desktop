@@ -32,8 +32,8 @@ window.__ModuleLoader__.load({
 
     // ---------- locale ----------
     var NS = 'session-history';
-    var zh = { empty: '暂无消息', busyHint: '子代理运行中，回车将排队发送' };
-    var en = { empty: 'No messages yet', busyHint: 'Subagent running — Enter will queue' };
+    var zh = { empty: '暂无消息', busyHint: '子代理运行中，回车将排队发送', busyHintLocked: '智能体正在处理，输入暂时锁定，请稍候' };
+    var en = { empty: 'No messages yet', busyHint: 'Subagent running — Enter will queue', busyHintLocked: 'Agent processing — input locked, please wait' };
     function t(key) { return (zh[key] !== void 0 ? zh[key] : en[key]) || key; }
 
     // ---------- visible diagnostics (errors are swallowed silently otherwise) ----------
@@ -254,14 +254,19 @@ window.__ModuleLoader__.load({
     };
 
     function BusyHint(props) {
-      var session = props.session;
-      var input = props.input;
+      // owner-share (InputZone) preferred; standard hooks as fallback
+      var session = props.session || (props.useSession ? props.useSession(function (s) { return s; }) : null);
+      var input = props.input || (props.useInput ? props.useInput(function (s) { return s; }) : null);
       if (!session) return null;
       var running = session.running === true;
       var subagentActive = session.subagent !== void 0 && session.subagent !== null;
-      var machineBusy = input && (input.phase === 'adjudicating' || input.phase === 'submitting');
-      if (!running || !subagentActive || machineBusy) return null;
-      return h('div', { style: HINT_STYLE }, t('busyHint'));
+      var machineBusy = !!input && (input.phase === 'adjudicating' || input.phase === 'submitting');
+      if (!running) return null;
+      // input locked by an in-flight submit/adjudicate → typing is disabled right now
+      if (machineBusy) return h('div', { style: HINT_STYLE }, t('busyHintLocked'));
+      // subagent active → interject disabled, Enter will queue
+      if (subagentActive) return h('div', { style: HINT_STYLE }, t('busyHint'));
+      return null;
     }
 
     // ---------- plugin entry ----------
