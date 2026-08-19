@@ -32,10 +32,12 @@ window.__ModuleLoader__.load({
     var NS = 'model-whitelist';
     var zh = {
       title: '模型管理',
+      flowHint: '① 先在「模型」页添加/导入厂商模型 → ② 回到这里勾选要显示的模型',
       enableLabel: '只显示我选择的模型',
       enableHint: '开启后，会话里的模型选择器只显示下面勾选的模型（当前正在用的模型始终保留）',
       loading: '正在加载模型列表…',
-      empty: '暂无可用模型（请先在模型设置中配置厂商）',
+      noSession: '请先打开一个会话，再管理模型列表',
+      empty: '暂无可用模型（请先在「模型」页配置厂商）',
       error: '加载失败',
       count: '已选 {n} / {total}',
       selectAll: '全选',
@@ -44,10 +46,12 @@ window.__ModuleLoader__.load({
     };
     var en = {
       title: 'Model Manager',
+      flowHint: '① Add/import provider models in the "Models" page first → ② come back here and check the ones to show',
       enableLabel: 'Only show models I select',
       enableHint: 'When enabled, the conversation model picker shows only the checked models below (the currently active model is always kept)',
       loading: 'Loading models…',
-      empty: 'No models available (configure a provider in model settings first)',
+      noSession: 'Open a conversation first to manage the model list',
+      empty: 'No models available (configure a provider in the Models page first)',
       error: 'Failed to load',
       count: 'Selected {n} / {total}',
       selectAll: 'Select all',
@@ -129,13 +133,17 @@ window.__ModuleLoader__.load({
 
     function ModelManager(props) {
       var connection = props.connection;
+      var sessions = props.useSessions ? props.useSessions(function (s) { return s; }) : null;
+      var sessionId = sessions && sessions.current
+        ? sessions.current
+        : (sessions && sessions.ids && sessions.ids.length > 0 ? sessions.ids[0] : null);
       var [cfg, setCfg] = React.useState(readConfig);
       var [groups, setGroups] = React.useState(null);
       var [loading, setLoading] = React.useState(true);
       var [error, setError] = React.useState(null);
       var [flash, setFlash] = React.useState(false);
 
-      // load the FULL (unfiltered) catalog once
+      // load the FULL (unfiltered) catalog once (session.models requires a valid sessionId)
       React.useEffect(function () {
         var cancelled = false;
         var api = connection && connection.api && connection.api.sessions;
@@ -144,8 +152,13 @@ window.__ModuleLoader__.load({
           setError('models api unavailable');
           return;
         }
+        if (!sessionId) {
+          setLoading(false);
+          setError(t('noSession'));
+          return;
+        }
         var fn = api.models.__dshFiltered && origModels ? origModels : api.models.bind(api);
-        fn({}).then(function (res) {
+        fn({ sessionId: sessionId }).then(function (res) {
           if (cancelled) return;
           setLoading(false);
           if (res && res.result && res.result.ok && res.result.value && Array.isArray(res.result.value.groups)) {
@@ -158,7 +171,7 @@ window.__ModuleLoader__.load({
           if (!cancelled) { setLoading(false); setError(String((e && e.message) || e)); }
         });
         return function () { cancelled = true; };
-      }, [connection]);
+      }, [connection, sessionId]);
 
       function commit(patch) {
         var next = Object.assign({}, cfg, patch);
@@ -183,6 +196,7 @@ window.__ModuleLoader__.load({
 
       return h('div', { style: PANEL_STYLE },
         h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('title')),
+        h('div', { style: HINT_STYLE }, t('flowHint')),
         h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14 } },
           h('input', { type: 'checkbox', checked: cfg.enabled, onChange: toggleEnabled, style: { accentColor: 'var(--dsw-static-deepseek-500, #4d6bfe)' } }),
           h('span', null, t('enableLabel'))),
@@ -258,7 +272,7 @@ window.__ModuleLoader__.load({
             return scope.slots.register({
               name: 'settings.section',
               id: 'model-whitelist',
-              order: 50,
+              order: 11,
               label: function () { return t('title'); },
               locale: NS,
               inject: function () { return { connection: scope.connection }; },
