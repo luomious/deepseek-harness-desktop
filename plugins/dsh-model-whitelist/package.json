@@ -1,0 +1,24 @@
+{
+  "name": "@dsh-external/dsh-model-whitelist",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Model manager for DSH: whitelist which provider models appear in the conversation model picker (Settings -> 模型管理).",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "immediately": false
+    }
+  }
+}

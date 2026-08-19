@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-model-whitelist
+      name: '@dsh-external/dsh-model-whitelist'
