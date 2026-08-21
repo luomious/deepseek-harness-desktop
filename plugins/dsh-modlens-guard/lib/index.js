@@ -31,7 +31,7 @@ const SIMULATE_FILE = new URL('./.simulate-attack', import.meta.url)
 // modlens 包装的模型家族（按 id 前缀匹配）。扩展为全量，让所有纯文本模型
 // 都有 (modlens vision) 版本；modlens 的 shouldWrap 会自动排除原生视觉模型
 // （deepseek-vl/ocr、glm-*v 等）和已声明 image 输入的模型，所以加全量是安全的。
-const FIXED_FAMILIES = ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova']
+const FIXED_FAMILIES = ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova', 'gpt']
 const FAMILIES_LINE = `    families: ['${FIXED_FAMILIES.join("', '")}']`
 const GUARD_OFF = /modlens-guard\s*:\s*off/
 const CHECK_MS = 60_000

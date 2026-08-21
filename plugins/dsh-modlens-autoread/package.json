@@ -1,0 +1,18 @@
+{
+  "name": "@dsh-external/dsh-modlens-autoread",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "纯文本模型图片自动识别：选普通模型直接粘贴/发送照片时，自动判定模型模态（文本/多模态）并调用 modlens 读图，无需再手动选择 (modlens vision) 双胞胎模型。",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

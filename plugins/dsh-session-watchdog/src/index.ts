@@ -139,13 +139,15 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
   const cycle = (): void => {
     void (async () => {
       cycles += 1
+      // 空转节流：无事可做时每 20 轮（默认 10 分钟）记一条，避免日志刷屏
+      const quietLog = (msg: string): void => { if (cycles % 20 === 0) log(msg) }
       try {
         const agents = resolveAgents()
-        if (!agents) { log(`cycle=${cycles} agents-service=unresolved (skipped)`); return }
+        if (!agents) { quietLog(`cycle=${cycles} agents-service=unresolved (skipped)`); return }
         const live = agents.list()
-        if (live.length === 0) { log(`cycle=${cycles} agents=0 (no live agents)`); return }
+        if (live.length === 0) { quietLog(`cycle=${cycles} agents=0 (no live agents)`); return }
         const goals = resolveGoals()
-        if (!goals) { log(`cycle=${cycles} goals-service=unresolved (skipped)`); return }
+        if (!goals) { quietLog(`cycle=${cycles} goals-service=unresolved (skipped)`); return }
 
         let scanned = 0
         let resumed = 0
@@ -164,7 +166,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
             log(`cycle=${cycles} resumed goal="${goal.id}" phase=${goal.phase} activation=${goal.activation ?? 'n/a'} rounds=${goal.roundsStarted ?? 0}/${goal.maxGoalRounds ?? '∞'}`)
           } catch (e) { log(`cycle=${cycles} agent-scan error: ${String(e)}`) }
         }
-        if (resumed === 0) log(`cycle=${cycles} agents=${live.length} goals=${scanned} resumed=0`)
+        if (resumed === 0) quietLog(`cycle=${cycles} agents=${live.length} goals=${scanned} resumed=0`)
       } catch (e) {
         log(`cycle=${cycles} cycle error: ${String(e)}`)
       }

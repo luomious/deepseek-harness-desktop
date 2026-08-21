@@ -15,6 +15,7 @@ const {
   patchCoreChatOnlyWorkspace,
   patchCoreChatOnlyConversation,
   patchSettingsModelsSearch,
+  patchSettingsModelsFetchSearch,
 } = require('../src/lib/patch-manifest.js');
 
 let pass = 0, fail = 0;
@@ -105,12 +106,51 @@ t('cv 纯聊天 已补 → ok(幂等)', r.status, 'ok');
 r = patchCoreChatOnlyConversation('function x() { nothing }');
 t('cv 纯聊天 格式意外 → failed', r.status, 'failed');
 
-// settings-models client.js：模型目录搜索（多锚点补丁；完整转换由
-// scripts/_apply-model-search-patch.js 对 pristine 备份干跑验证）
+// settings-models client.js：模型目录搜索（11 组锚点补丁，由 buildManifest 对
+// 真实 bundle 自愈；这里仅验证缺锚点→failed / 已含标记→ok 的行为）
 r = patchSettingsModelsSearch('function x() { nothing }');
 t('settings-models 缺锚点 → failed', r.status, 'failed');
 r = patchSettingsModelsSearch('dsh-desktop patch: model-catalog search');
 t('settings-models 已含标记 → ok', r.status, 'ok');
+
+// settings-models client.js：获取可用模型弹窗搜索栏（7 组锚点补丁）
+r = patchSettingsModelsFetchSearch('function x() { nothing }');
+t('settings-models 弹窗搜索 缺锚点 → failed', r.status, 'failed');
+r = patchSettingsModelsFetchSearch('dsh-desktop patch: fetch-dialog search');
+t('settings-models 弹窗搜索 已含标记 → ok', r.status, 'ok');
+// 全锚点样本 → applied，且关键产物齐全
+const fetchSearchSample = [
+  '.zGbnIq_modelSearchClear:active{transform:scale(.9)}";',
+  '\t\t\t"modelSearchClear": "zGbnIq_modelSearchClear"\n\t\t};',
+  '\t\t\tconst [query, setQuery] = (0, react.useState)("");\n\t\t\tconst view = searchModels(models, query);',
+  '\t\t\t\t\tconst known = new Set(models.map((model) => textOf(model, "id")));\n\t\t\t\t\tsetCandidates(found);\n\t\t\t\t\tsetPicked(new Set(found.filter((model) => !known.has(model.id)).map((model) => model.id)));',
+  '\t\t\tconst closePicker = () => {\n\t\t\t\tsetCandidates(void 0);\n\t\t\t\tsetPicked(/* @__PURE__ */ new Set());\n\t\t\t};',
+  '\t\t\t\t\t\tchildren: t("fetchAdopt")',
+  '\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("ul", {\n\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateList"],\n\t\t\t\t\t\t\tchildren: (candidates ?? []).map((candidate) => (0, react_jsx_runtime.jsx)("li", {\n\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidate"],\n\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsxs)("label", {\n\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateLabel"],\n\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("input", {\n\t\t\t\t\t\t\t\t\t\ttype: "checkbox",\n\t\t\t\t\t\t\t\t\t\tchecked: picked.has(candidate.id),\n\t\t\t\t\t\t\t\t\t\tonChange: () => {\n\t\t\t\t\t\t\t\t\t\t\ttoggle(candidate.id);\n\t\t\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("span", {\n\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateId"],\n\t\t\t\t\t\t\t\t\t\tchildren: candidate.id\n\t\t\t\t\t\t\t\t\t})]\n\t\t\t\t\t\t\t\t})\n\t\t\t\t\t\t\t}, candidate.id))\n\t\t\t\t\t\t})',
+].join('\n');
+r = patchSettingsModelsFetchSearch(fetchSearchSample);
+t('settings-models 弹窗搜索 全锚点 → applied', r.status, 'applied');
+t('弹窗搜索 含 pickQuery 状态', r.fixed.includes('const [pickQuery, setPickQuery]'), true);
+t('弹窗搜索 含 fetchSearch 样式类', r.fixed.includes('zGbnIq_fetchSearch'), true);
+t('弹窗搜索 含过滤列表渲染', r.fixed.includes('pickView.items.map(({ model: candidate })'), true);
+t('弹窗搜索 含勾选数量标签', r.fixed.includes('picked.size > 0 ? `'), true);
+t('弹窗搜索 默认全不选', r.fixed.includes('\t\t\t\t\tsetPicked(/* @__PURE__ */ new Set());'), true);
+t('弹窗搜索 已移除 known 预选', !r.fixed.includes('known.has(model.id)'), true);
+r = patchSettingsModelsFetchSearch(r.fixed);
+t('settings-models 弹窗搜索 已补 → ok(幂等)', r.status, 'ok');
+
+// v1（默认全选）已应用 → 迁移为默认全不选
+const v1Applied = 'dsh-desktop patch: fetch-dialog search\n' +
+  '\t\t\t\t\tconst known = new Set(models.map((model) => textOf(model, "id")));\n' +
+  '\t\t\t\t\tsetCandidates(found);\n' +
+  '\t\t\t\t\tsetPicked(new Set(found.filter((model) => !known.has(model.id)).map((model) => model.id)));\n' +
+  '\t\t\t\t\tsetPickQuery("");';
+r = patchSettingsModelsFetchSearch(v1Applied);
+t('弹窗搜索 v1→v2 迁移 → applied', r.status, 'applied');
+t('迁移后默认全不选', r.fixed.includes('\t\t\t\t\tsetPicked(/* @__PURE__ */ new Set());'), true);
+t('迁移后移除 known 预选', !r.fixed.includes('known'), true);
+r = patchSettingsModelsFetchSearch(r.fixed);
+t('弹窗搜索 迁移后 → ok(幂等)', r.status, 'ok');
 
 // applyReplacements 通用行为
 r = applyReplacements('hello world', [['hello', 'hi']], ['hi']);
@@ -135,23 +175,23 @@ fs.writeFileSync(coreClient, coreSample + '|' + coreSample.replace('sidebar.work
 const coreConversation = path.join(dir, 'core-conversation.js');
 fs.writeFileSync(coreConversation, cvChatSample);
 const coreSettingsModels = path.join(dir, 'core-settings-models.js');
-// 真实 settings-models 补丁含 11 组锚点；测试用「已含标记」的最小样本验证清单接线
-// （补丁返回 ok，不再写入）。完整替换逻辑由 scripts/_apply-model-search-patch.js 干跑覆盖。
-fs.writeFileSync(coreSettingsModels, 'dsh-desktop patch: model-catalog search');
+// 真实 settings-models 补丁含多组锚点；测试用「已含标记」的最小样本验证清单接线
+// （补丁返回 ok，不再写入）。完整替换逻辑由 buildManifest 对真实 bundle 自愈。
+fs.writeFileSync(coreSettingsModels, 'dsh-desktop patch: model-catalog search\ndsh-desktop patch: fetch-dialog search');
 
 // dshCoreRoot 指向临时目录（不存在）→ 新增的 3 个核心补丁走 skipped 分支，
-// 不触碰真实全局 dsh 安装；清单共 11 项 = 6 项 applied + 1 项 ok + 4 项 skipped
+// 不触碰真实全局 dsh 安装；清单共 12 项 = 6 项 applied + 2 项 ok + 4 项 skipped
 // （node-pty 文件测试里未创建也 skipped）。
 const fakeCoreRoot = path.join(dir, 'dsh-core-nonexistent');
 let results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreConversationClient: coreConversation, coreSettingsModelsClient: coreSettingsModels, dshCoreRoot: fakeCoreRoot });
-t('11 项结果（6 applied + 1 ok + 4 skipped）', results.length, 11);
+t('12 项结果（6 applied + 2 ok + 4 skipped）', results.length, 12);
 t('6 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 6);
-t('1 项已含标记 → ok', results.filter((x) => x.status === 'ok').length, 1);
+t('2 项已含标记 → ok', results.filter((x) => x.status === 'ok').length, 2);
 t('4 项 skipped（3 核心 + node-pty 缺失）', results.filter((x) => x.status === 'skipped').length, 4);
 
-// 幂等：再跑一次 → 7 项 ok + 4 项 skipped
+// 幂等：再跑一次 → 8 项 ok + 4 项 skipped
 results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreConversationClient: coreConversation, coreSettingsModelsClient: coreSettingsModels, dshCoreRoot: fakeCoreRoot });
-t('再跑幂等 → 7 项 ok', results.filter((x) => x.status === 'ok').length, 7);
+t('再跑幂等 → 8 项 ok', results.filter((x) => x.status === 'ok').length, 8);
 t('再跑幂等 → 4 项仍 skipped', results.filter((x) => x.status === 'skipped').length, 4);
 
 // 文件真实被修改

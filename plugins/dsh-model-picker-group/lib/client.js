@@ -37,6 +37,8 @@ window.__ModuleLoader__.load({
       hint: '把每个厂商的 (modlens vision) 模型合并进该厂商自己的分组，紧随原版模型之后。',
       enableLabel: 'modlens 版本与厂商模型合并排版',
       enableHint: '开启后，同一厂商的模型和它的 modlens 版本放在同一个分组里；关闭则保持原顺序。',
+      hideTwinsLabel: '隐藏 (modlens vision) 双胞胎',
+      hideTwinsHint: '开启后选择器不再显示 (modlens vision) 版本（图片由 dsh-modlens-autoread 自动识别，无需手动选双胞胎）。当前正在使用的双胞胎会保留显示，切换模型后消失。',
       saved: '已保存',
     }
     var en = {
@@ -44,6 +46,8 @@ window.__ModuleLoader__.load({
       hint: 'Merge each provider (modlens vision) twin group into its own vendor group, right after the original models.',
       enableLabel: 'Merge modlens versions into the vendor group',
       enableHint: 'When on, a provider and its (modlens vision) twins sit in one group; when off, the original layout is kept.',
+      hideTwinsLabel: 'Hide (modlens vision) twins',
+      hideTwinsHint: 'When on, (modlens vision) variants disappear from the picker (images are auto-read by dsh-modlens-autoread). The twin in current use stays visible until you switch models.',
       saved: 'Saved',
     }
     function t(key, vars) {
@@ -58,10 +62,12 @@ window.__ModuleLoader__.load({
     function readConfig() {
       try {
         var raw = localStorage.getItem(STORAGE_KEY)
-        if (!raw) return { enabled: true }
+        if (!raw) return { enabled: true, hideTwins: true }
         var cfg = JSON.parse(raw)
-        return { enabled: cfg.enabled !== false }
-      } catch (e) { return { enabled: true } }
+        // hideTwins 默认开：用户已用 dsh-modlens-autoread 自动读图，选择器里
+        // 不再需要单独显示 (modlens vision) 双胞胎（旧配置没有该字段视为开）。
+        return { enabled: cfg.enabled !== false, hideTwins: cfg.hideTwins !== false }
+      } catch (e) { return { enabled: true, hideTwins: true } }
     }
     function writeConfig(cfg) {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)) } catch (e) {}
@@ -90,9 +96,17 @@ window.__ModuleLoader__.load({
     function rebuildMaps() { twinMap = {}; modlensToUpstream = {} }
 
     // 合并分组：modlens 组并入上游组；双胞胎 id 改写避免与上游同 id 撞车。
-    function mergeGroups(groups) {
+    // hideTwins=true（默认）时：去掉全部 (modlens vision) 双胞胎，选择器只剩
+    // 普通模型——图片由 dsh-modlens-autoread 自动读。唯一例外：当前正选中的
+    // 双胞胎仍保留（合并进上游组），避免会话当场丢选择；切到别的模型即消失。
+    function mergeGroups(groups, current) {
       rebuildMaps()
       if (!Array.isArray(groups) || groups.length === 0) return groups
+      var hide = readConfig().hideTwins
+      var cur = current || {}
+      var curProvider = typeof cur.provider === 'string' ? cur.provider : ''
+      var curModel = typeof cur.model === 'string' ? cur.model : ''
+      var curIsModlens = curProvider === 'deepseek-modlens' || curProvider.indexOf('modlens-') === 0
       var byId = {}
       for (var i = 0; i < groups.length; i++) { var g = groups[i]; if (g && g.id) byId[g.id] = g }
       var merged = {}
@@ -106,6 +120,7 @@ window.__ModuleLoader__.load({
         if (!g) continue
         var up = toUpstream(g.id)
         if (up && byId[up]) continue // modlens 组且上游在场 -> 留到第 2 步并入
+        if (up && hide && !(curIsModlens && curProvider === g.id)) continue // 隐藏模式：丢弃 modlens 组（保留当前选中的）
         if (!merged[g.id]) {
           var displayName = (up && !byId[up]) ? (baseName(g.name) || g.name) : g.name
           merged[g.id] = { id: g.id, name: displayName, models: (g.models || []).map(function (m) { return Object.assign({}, m) }) }
@@ -118,12 +133,15 @@ window.__ModuleLoader__.load({
         if (!g) continue
         var up = toUpstream(g.id)
         if (!up || !byId[up]) continue
+        if (hide && !(curIsModlens && curProvider === g.id)) continue
         modlensToUpstream[g.id] = up
         var target = merged[up]
         if (!target) continue
         for (var j = 0; j < (g.models || []).length; j++) {
           var m = g.models[j]
           var origId = m.id
+          // 隐藏模式下只保留当前选中的那一个双胞胎条目（其余全部丢弃）
+          if (hide && !(curModel === origId)) continue
           var newId = origId + ' (modlens vision)'
           twinMap[newId] = { provider: g.id, model: origId }
           target.models.push(Object.assign({}, m, { id: newId }))
@@ -151,7 +169,7 @@ window.__ModuleLoader__.load({
     function transformModels(value) {
       if (!value) return value
       if (Array.isArray(value.groups)) {
-        value.groups = mergeGroups(value.groups)
+        value.groups = mergeGroups(value.groups, value.current)
         rewriteCurrent(value)
       }
       return value
@@ -170,24 +188,29 @@ window.__ModuleLoader__.load({
     function GroupingCard() {
       var [cfg, setCfg] = React.useState(readConfig)
       var [flash, setFlash] = React.useState(false)
-      function toggle() {
-        var next = { enabled: !cfg.enabled }
+      function toggle(name) {
+        var next = Object.assign({}, cfg, { [name]: !cfg[name] })
         setCfg(next)
         writeConfig(next)
         setFlash(true)
         window.setTimeout(function () { setFlash(false) }, 1200)
+      }
+      function Check(label, hint, checked, onToggle) {
+        return h('div', { style: { marginTop: 10 } },
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' } },
+            h('input', { type: 'checkbox', checked: checked, onChange: onToggle, style: { accentColor: ACCENT, width: 15, height: 15 } }),
+            h('span', null, label)),
+          h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) }, hint))
       }
       return h('div', { style: CARD_STYLE },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
           h('span', { style: { width: 4, height: 20, borderRadius: 2, background: ACCENT, flexShrink: 0 } }),
           h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('title'))),
         h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) }, t('hint')),
-        h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: 'pointer', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' } },
-          h('input', { type: 'checkbox', checked: cfg.enabled, onChange: toggle, style: { accentColor: ACCENT, width: 15, height: 15 } }),
-          h('span', null, t('enableLabel'))),
-        h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) },
-          t('enableHint'),
-          flash && h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontWeight: 500, marginLeft: 8 } }, t('saved'))))
+        Check(t('enableLabel'), t('enableHint'), cfg.enabled, function () { toggle('enabled') }),
+        Check(t('hideTwinsLabel'), t('hideTwinsHint'), cfg.hideTwins, function () { toggle('hideTwins') }),
+        flash && h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) },
+          h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontWeight: 500 } }, t('saved'))))
     }
 
     // ---------- plugin entry ----------

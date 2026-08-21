@@ -57,3 +57,22 @@ plugins/*/lib/**/*.map
 
 # agent-presets 本地副本（运行时用 ~/.dsh/.agent-presets，不入库）
 agent-presets/
+
+# 涓撳畧/鐢熷懡鍛ㄦ湡鎻掍欢杩愯鏃舵暟鎹?涓嶅叆搴擄級
+dsh-stuck-loop-guard/data/
+dsh-context-lifecycle/data/
+
+# 鎶ゅ崼鎻掍欢鏋勫缓浜х墿锛堟簮鐮佸湪 src/锛?map/.d.ts 涓嶅叆搴擄級
+dsh-stuck-loop-guard/lib/**/*.map
+dsh-stuck-loop-guard/lib/**/*.d.ts
+dsh-context-lifecycle/lib/**/*.map
+dsh-context-lifecycle/lib/**/*.d.ts
+# 守护/生命周期插件运行数据（不入库）
+dsh-stuck-loop-guard/data/
+dsh-context-lifecycle/data/
+
+# 守护插件构建产物（源码在 src/，.map/.d.ts 不入库）
+dsh-stuck-loop-guard/lib/**/*.map
+dsh-stuck-loop-guard/lib/**/*.d.ts
+dsh-context-lifecycle/lib/**/*.map
+dsh-context-lifecycle/lib/**/*.d.ts

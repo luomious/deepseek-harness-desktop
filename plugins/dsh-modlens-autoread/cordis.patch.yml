@@ -1,0 +1,8 @@
+# Bundle layer: mount the modlens-autoread plugin (host-only).
+# Enables: plain text-only models auto-read pasted/sent photos via modlens —
+# no need to select a "(modlens vision)" twin. Modality-aware: models that
+# declare image input (native multimodal, or the modlens wrappers) are left
+# untouched.
+- insert:
+    - id: dsh-modlens-autoread
+      name: '@dsh-external/dsh-modlens-autoread'

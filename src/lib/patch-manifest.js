@@ -257,6 +257,163 @@ function patchFrontendStaticNoCache(content) {
   return { status: 'applied', fixed };
 }
 
+// ── dsh 设置页「获取可用模型」弹窗：候选模型搜索栏 + 默认全不选 ──
+// 根因：设置-模型 点「获取可用模型」后，弹窗（标题「选择要添加的模型」）列出
+// 提供方全部候选模型，仅按原始顺序平铺 + 勾选，模型多时找模型困难；且上游默认把
+// 目录中还没有的模型全部预勾选（一次可能上百个）。补丁在弹窗列表上方加全宽搜索栏
+// （复用 modelSearch 胶囊样式 + searchModels 相关度排序），支持按模型名/ID 过滤；
+// 无匹配显示空态；弹窗打开/关闭自动清空搜索词；**默认全不选**（仅手动勾选要加的）；
+// 底部「添加所选」按钮实时显示已勾选数量。dsh 升级会覆盖核心文件，故登记自愈。
+function patchSettingsModelsFetchSearch(content) {
+  const MARK = 'dsh-desktop patch: fetch-dialog search';
+  // 旧版（v1，默认全选）形态：迁移到默认全不选。迁移分支在 MARK 已存在时触发，
+  // 避免已打补丁的文件因锚点已被替换而无法再进入 applyReplacements。
+  const SELECT_ALL = '\t\t\t\t\tsetPicked(new Set(found.filter((model) => !known.has(model.id)).map((model) => model.id)));';
+  const SELECT_NONE = '\t\t\t\t\tsetPicked(/* @__PURE__ */ new Set());';
+  if (content.includes(MARK)) {
+    if (content.includes(SELECT_ALL)) {
+      const fixed = content
+        .replace(SELECT_ALL, SELECT_NONE)
+        // known 预选集合只服务于旧默认全选，迁移后不再使用，一并移除
+        .replace('\t\t\t\t\tconst known = new Set(models.map((model) => textOf(model, "id")));\n', '');
+      if (!fixed.includes(SELECT_ALL) && fixed.includes(SELECT_NONE)) return { status: 'applied', fixed };
+      return { status: 'failed', error: 'v1→v2 迁移替换后验证失败' };
+    }
+    return { status: 'ok' };
+  }
+  const pairs = [
+    // 0a) 弹窗搜索框样式：复用胶囊，全宽 + 与列表间距（规则追加在 css$3 尾部，覆盖 width）
+    [
+      '.zGbnIq_modelSearchClear:active{transform:scale(.9)}";',
+      '.zGbnIq_modelSearchClear:active{transform:scale(.9)}.zGbnIq_fetchSearch{width:100%;margin-bottom:8px}";',
+    ],
+    // 0b) 注册样式类名
+    [
+      '\t\t\t"modelSearchClear": "zGbnIq_modelSearchClear"\n\t\t};',
+      '\t\t\t"modelSearchClear": "zGbnIq_modelSearchClear",\n\t\t\t"fetchSearch": "zGbnIq_fetchSearch"\n\t\t};',
+    ],
+    // 1) ModelListEditor：弹窗搜索状态 + 过滤视图（复用 searchModels 相关度排序）
+    [
+      '\t\t\tconst [query, setQuery] = (0, react.useState)("");\n\t\t\tconst view = searchModels(models, query);',
+      '\t\t\tconst [query, setQuery] = (0, react.useState)("");\n\t\t\tconst view = searchModels(models, query);\n\t\t\tconst [pickQuery, setPickQuery] = (0, react.useState)(""); // ' + MARK + '\n\t\t\tconst pickView = searchModels(candidates ?? [], pickQuery);',
+    ],
+    // 2) ModelListEditor：弹窗打开时清空搜索词，默认全不选（删除 known 预选集合）
+    [
+      '\t\t\t\t\tconst known = new Set(models.map((model) => textOf(model, "id")));\n' +
+      '\t\t\t\t\tsetCandidates(found);\n' +
+      '\t\t\t\t\tsetPicked(new Set(found.filter((model) => !known.has(model.id)).map((model) => model.id)));',
+      '\t\t\t\t\tsetCandidates(found);\n' +
+      '\t\t\t\t\tsetPicked(/* @__PURE__ */ new Set());\n' +
+      '\t\t\t\t\tsetPickQuery("");',
+    ],
+    // 3) ModelListEditor：弹窗关闭时清空搜索词
+    [
+      '\t\t\tconst closePicker = () => {\n\t\t\t\tsetCandidates(void 0);\n\t\t\t\tsetPicked(/* @__PURE__ */ new Set());\n\t\t\t};',
+      '\t\t\tconst closePicker = () => {\n\t\t\t\tsetCandidates(void 0);\n\t\t\t\tsetPicked(/* @__PURE__ */ new Set());\n\t\t\t\tsetPickQuery("");\n\t\t\t};',
+    ],
+    // 4) 底部「添加所选」按钮实时显示已勾选数量
+    [
+      '\t\t\t\t\t\tchildren: t("fetchAdopt")',
+      '\t\t\t\t\t\tchildren: picked.size > 0 ? `${t("fetchAdopt")} (${picked.size})` : t("fetchAdopt")',
+    ],
+    // 5) 弹窗内容：搜索栏 + 过滤后的候选列表（无匹配显示空态）
+    [
+      '\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("ul", {\n' +
+      '\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateList"],\n' +
+      '\t\t\t\t\t\t\tchildren: (candidates ?? []).map((candidate) => (0, react_jsx_runtime.jsx)("li", {\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidate"],\n' +
+      '\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsxs)("label", {\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateLabel"],\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("input", {\n' +
+      '\t\t\t\t\t\t\t\t\t\ttype: "checkbox",\n' +
+      '\t\t\t\t\t\t\t\t\t\tchecked: picked.has(candidate.id),\n' +
+      '\t\t\t\t\t\t\t\t\t\tonChange: () => {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\ttoggle(candidate.id);\n' +
+      '\t\t\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("span", {\n' +
+      '\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateId"],\n' +
+      '\t\t\t\t\t\t\t\t\t\tchildren: candidate.id\n' +
+      '\t\t\t\t\t\t\t\t\t})]\n' +
+      '\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t}, candidate.id))\n' +
+      '\t\t\t\t\t\t})',
+      '\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsxs)("div", {\n' +
+      '\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearch"] + " " + ModelsSection_module_css_default["fetchSearch"],\n' +
+      '\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchIcon"],\n' +
+      '\t\t\t\t\t\t\t\twidth: "14",\n' +
+      '\t\t\t\t\t\t\t\theight: "14",\n' +
+      '\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\td: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.5 10.5 14 14",\n' +
+      '\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("input", {\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchField"],\n' +
+      '\t\t\t\t\t\t\t\ttype: "text",\n' +
+      '\t\t\t\t\t\t\t\tvalue: pickQuery,\n' +
+      '\t\t\t\t\t\t\t\tplaceholder: t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\t"aria-label": t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\tautoComplete: "off",\n' +
+      '\t\t\t\t\t\t\t\tspellCheck: false,\n' +
+      '\t\t\t\t\t\t\t\tonChange: (event) => {\n' +
+      '\t\t\t\t\t\t\t\t\tsetPickQuery(event.target.value);\n' +
+      '\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t}), pickQuery.length > 0 ? (0, react_jsx_runtime.jsx)("button", {\n' +
+      '\t\t\t\t\t\t\t\ttype: "button",\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchClear"],\n' +
+      '\t\t\t\t\t\t\t\t"aria-label": t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\ttitle: t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\tonClick: () => {\n' +
+      '\t\t\t\t\t\t\t\t\tsetPickQuery("");\n' +
+      '\t\t\t\t\t\t\t\t},\n' +
+      '\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\t\twidth: "12",\n' +
+      '\t\t\t\t\t\t\t\t\theight: "12",\n' +
+      '\t\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\t\td: "M4 4l8 8M12 4l-8 8",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t}) : null]\n' +
+      '\t\t\t\t\t\t}), pickView.empty && pickQuery.trim().length > 0 ? (0, react_jsx_runtime.jsx)("p", {\n' +
+      '\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelEmpty"],\n' +
+      '\t\t\t\t\t\t\tchildren: t("modelsSearchEmpty")\n' +
+      '\t\t\t\t\t\t}) : (0, react_jsx_runtime.jsx)("ul", {\n' +
+      '\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateList"],\n' +
+      '\t\t\t\t\t\t\tchildren: pickView.items.map(({ model: candidate }) => (0, react_jsx_runtime.jsx)("li", {\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidate"],\n' +
+      '\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsxs)("label", {\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateLabel"],\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("input", {\n' +
+      '\t\t\t\t\t\t\t\t\t\ttype: "checkbox",\n' +
+      '\t\t\t\t\t\t\t\t\t\tchecked: picked.has(candidate.id),\n' +
+      '\t\t\t\t\t\t\t\t\t\tonChange: () => {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\ttoggle(candidate.id);\n' +
+      '\t\t\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("span", {\n' +
+      '\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["candidateId"],\n' +
+      '\t\t\t\t\t\t\t\t\t\tchildren: candidate.id\n' +
+      '\t\t\t\t\t\t\t\t\t})]\n' +
+      '\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t}, candidate.id))\n' +
+      '\t\t\t\t\t\t})] })',
+    ],
+  ];
+  return applyReplacements(content, pairs, [MARK]);
+}
+
 // ── dsh 设置页「模型目录」搜索：按模型名/ID 搜索并按相关度重排 ──
 // 根因：设置-模型 的每个提供方编辑卡里，模型目录是纯列表（DeepSeekModelsEditor /
 // ModelListEditor），没有搜索入口；模型多时找模型困难。补丁在目录标题旁加搜索框，
@@ -265,6 +422,21 @@ function patchFrontendStaticNoCache(content) {
 function patchSettingsModelsSearch(content) {
   const MARK = 'dsh-desktop patch: model-catalog search';
   const pairs = [
+    // 0a) 搜索框样式：胶囊 + 放大镜图标 + 聚焦辉光 + 清除按钮
+    [
+      '";\n\t\tconst tagId$3 = "@deepseek-ai/dsh-client-ui-settings-models/ModelsSection.module.css";',
+      '.zGbnIq_modelSearch{position:relative;box-sizing:border-box;width:220px;max-width:100%;height:32px;align-items:center;gap:6px;padding:0 10px;display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);transition:border-color .18s ease,box-shadow .18s ease,background-color .18s ease}.zGbnIq_modelSearch:hover{border-color:var(--dsw-alias-border-l3)}.zGbnIq_modelSearch:focus-within{border-color:var(--dsw-static-deepseek-500,#4d6bfe);box-shadow:0 0 0 3px rgba(77,107,254,.14),0 10px 28px -14px rgba(77,107,254,.5);background-color:rgba(77,107,254,.06)}.zGbnIq_modelSearchIcon{flex:none;color:var(--dsw-alias-label-tertiary);transition:color .18s ease}.zGbnIq_modelSearch:focus-within .zGbnIq_modelSearchIcon{color:var(--dsw-static-deepseek-500,#4d6bfe)}.zGbnIq_modelSearchField{box-sizing:border-box;flex:1 1 auto;width:100%;min-width:0;height:100%;margin:0;padding:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px}.zGbnIq_modelSearchField::placeholder{color:var(--dsw-alias-label-tertiary)}.zGbnIq_modelSearchClear{box-sizing:border-box;flex:none;width:18px;height:18px;margin:0;padding:0;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer;transition:color .15s ease,background-color .15s ease,transform .15s ease}.zGbnIq_modelSearchClear:hover{color:var(--dsw-alias-label-primary);background-color:var(--dsw-alias-border-l3)}.zGbnIq_modelSearchClear:active{transform:scale(.9)}";\n\t\tconst tagId$3 = "@deepseek-ai/dsh-client-ui-settings-models/ModelsSection.module.css";',
+    ],
+    // 0b) 注册样式类名
+    [
+      '\t\t\t"customizedBody": "zGbnIq_customizedBody"\n\t\t};',
+      '\t\t\t"customizedBody": "zGbnIq_customizedBody",\n' +
+      '\t\t\t"modelSearch": "zGbnIq_modelSearch",\n' +
+      '\t\t\t"modelSearchIcon": "zGbnIq_modelSearchIcon",\n' +
+      '\t\t\t"modelSearchField": "zGbnIq_modelSearchField",\n' +
+      '\t\t\t"modelSearchClear": "zGbnIq_modelSearchClear"\n' +
+      '\t\t};',
+    ],
     // 1) 共享搜索/排序纯函数（锚定 modelDrafts，供两个目录编辑器复用）
     [
       '\t\t/** Convert a schema-validated catalog value into records without dropping hidden fields. */\n' +
@@ -343,17 +515,57 @@ function patchSettingsModelsSearch(content) {
       '\t\t\t\t\t\t}) : null]',
       '\t\t\t\t\t\t}), (0, react_jsx_runtime.jsxs)("div", {\n' +
       '\t\t\t\t\t\t\tstyle: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },\n' +
-      '\t\t\t\t\t\t\tchildren: [props.models.length > 0 ? (0, react_jsx_runtime.jsx)("input", {\n' +
-      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["input"],\n' +
-      '\t\t\t\t\t\t\t\ttype: "search",\n' +
-      '\t\t\t\t\t\t\t\tvalue: query,\n' +
-      '\t\t\t\t\t\t\t\tplaceholder: props.t("modelsSearch"),\n' +
-      '\t\t\t\t\t\t\t\t"aria-label": props.t("modelsSearch"),\n' +
-      '\t\t\t\t\t\t\t\tdisabled: props.disabled,\n' +
-      '\t\t\t\t\t\t\t\tstyle: { width: 180, height: 28, flexShrink: 0 },\n' +
-      '\t\t\t\t\t\t\t\tonChange: (event) => {\n' +
-      '\t\t\t\t\t\t\t\t\tsetQuery(event.target.value);\n' +
-      '\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\tchildren: [props.models.length > 0 ? (0, react_jsx_runtime.jsxs)("div", {\n' +
+      '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearch"],\n' +
+      '\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchIcon"],\n' +
+      '\t\t\t\t\t\t\t\t\twidth: "14",\n' +
+      '\t\t\t\t\t\t\t\t\theight: "14",\n' +
+      '\t\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\t\td: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.5 10.5 14 14",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("input", {\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchField"],\n' +
+      '\t\t\t\t\t\t\t\t\ttype: "text",\n' +
+      '\t\t\t\t\t\t\t\t\tvalue: query,\n' +
+      '\t\t\t\t\t\t\t\t\tplaceholder: props.t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\t\t"aria-label": props.t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\t\tdisabled: props.disabled,\n' +
+      '\t\t\t\t\t\t\t\t\tautoComplete: "off",\n' +
+      '\t\t\t\t\t\t\t\t\tspellCheck: false,\n' +
+      '\t\t\t\t\t\t\t\t\tonChange: (event) => {\n' +
+      '\t\t\t\t\t\t\t\t\t\tsetQuery(event.target.value);\n' +
+      '\t\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t\t}), query.length > 0 ? (0, react_jsx_runtime.jsx)("button", {\n' +
+      '\t\t\t\t\t\t\t\t\ttype: "button",\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchClear"],\n' +
+      '\t\t\t\t\t\t\t\t\t"aria-label": props.t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\t\ttitle: props.t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\t\tonClick: () => {\n' +
+      '\t\t\t\t\t\t\t\t\t\tsetQuery("");\n' +
+      '\t\t\t\t\t\t\t\t\t},\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\t\t\twidth: "12",\n' +
+      '\t\t\t\t\t\t\t\t\t\theight: "12",\n' +
+      '\t\t\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\td: "M4 4l8 8M12 4l-8 8",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t}) : null]\n' +
       '\t\t\t\t\t\t\t}) : null, props.overridden ? (0, react_jsx_runtime.jsx)("button", {\n' +
       '\t\t\t\t\t\t\t\ttype: "button",\n' +
       '\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["linkButton"],\n' +
@@ -412,17 +624,57 @@ function patchSettingsModelsSearch(content) {
       '\t\t\t\t\t\t\t})',
       '\t\t\t\t\t\t\t(0, react_jsx_runtime.jsxs)("div", {\n' +
       '\t\t\t\t\t\t\t\tstyle: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },\n' +
-      '\t\t\t\t\t\t\t\tchildren: [models.length > 0 ? (0, react_jsx_runtime.jsx)("input", {\n' +
-      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["input"],\n' +
-      '\t\t\t\t\t\t\t\t\ttype: "search",\n' +
-      '\t\t\t\t\t\t\t\t\tvalue: query,\n' +
-      '\t\t\t\t\t\t\t\t\tplaceholder: t("modelsSearch"),\n' +
-      '\t\t\t\t\t\t\t\t\t"aria-label": t("modelsSearch"),\n' +
-      '\t\t\t\t\t\t\t\t\tdisabled,\n' +
-      '\t\t\t\t\t\t\t\t\tstyle: { width: 180, height: 28, flexShrink: 0 },\n' +
-      '\t\t\t\t\t\t\t\t\tonChange: (event) => {\n' +
-      '\t\t\t\t\t\t\t\t\t\tsetQuery(event.target.value);\n' +
-      '\t\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t\tchildren: [models.length > 0 ? (0, react_jsx_runtime.jsxs)("div", {\n' +
+      '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearch"],\n' +
+      '\t\t\t\t\t\t\t\t\tchildren: [(0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchIcon"],\n' +
+      '\t\t\t\t\t\t\t\t\t\twidth: "14",\n' +
+      '\t\t\t\t\t\t\t\t\t\theight: "14",\n' +
+      '\t\t\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\td: "M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.5 10.5 14 14",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t\t}), (0, react_jsx_runtime.jsx)("input", {\n' +
+      '\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchField"],\n' +
+      '\t\t\t\t\t\t\t\t\t\ttype: "text",\n' +
+      '\t\t\t\t\t\t\t\t\t\tvalue: query,\n' +
+      '\t\t\t\t\t\t\t\t\t\tplaceholder: t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\t\t\t"aria-label": t("modelsSearch"),\n' +
+      '\t\t\t\t\t\t\t\t\t\tdisabled,\n' +
+      '\t\t\t\t\t\t\t\t\t\tautoComplete: "off",\n' +
+      '\t\t\t\t\t\t\t\t\t\tspellCheck: false,\n' +
+      '\t\t\t\t\t\t\t\t\t\tonChange: (event) => {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tsetQuery(event.target.value);\n' +
+      '\t\t\t\t\t\t\t\t\t\t}\n' +
+      '\t\t\t\t\t\t\t\t\t}), query.length > 0 ? (0, react_jsx_runtime.jsx)("button", {\n' +
+      '\t\t\t\t\t\t\t\t\t\ttype: "button",\n' +
+      '\t\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["modelSearchClear"],\n' +
+      '\t\t\t\t\t\t\t\t\t\t"aria-label": t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\t\t\ttitle: t("modelsSearchClear"),\n' +
+      '\t\t\t\t\t\t\t\t\t\tonClick: () => {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tsetQuery("");\n' +
+      '\t\t\t\t\t\t\t\t\t\t},\n' +
+      '\t\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("svg", {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\twidth: "12",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\theight: "12",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tviewBox: "0 0 16 16",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tfill: "none",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t"aria-hidden": true,\n' +
+      '\t\t\t\t\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("path", {\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t\td: "M4 4l8 8M12 4l-8 8",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t\tstroke: "currentColor",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t\tstrokeWidth: "1.5",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t\tstrokeLinecap: "round",\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t\tstrokeLinejoin: "round"\n' +
+      '\t\t\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t\t\t})\n' +
+      '\t\t\t\t\t\t\t\t\t}) : null]\n' +
       '\t\t\t\t\t\t\t\t}) : null, props.overridden === true && props.onReset !== void 0 ? (0, react_jsx_runtime.jsx)("button", {\n' +
       '\t\t\t\t\t\t\t\t\ttype: "button",\n' +
       '\t\t\t\t\t\t\t\t\tclassName: ModelsSection_module_css_default["linkButton"],\n' +
@@ -465,14 +717,16 @@ function patchSettingsModelsSearch(content) {
       '\t\t\tmodelsEmpty: "No models will be shown in the selector. Unlisted IDs can still be sent directly.",',
       '\t\t\tmodelsEmpty: "No models will be shown in the selector. Unlisted IDs can still be sent directly.",\n' +
       '\t\t\tmodelsSearch: "Search models…",\n' +
-      '\t\t\tmodelsSearchEmpty: "No models match your search.",',
+      '\t\t\tmodelsSearchEmpty: "No models match your search.",\n' +
+      '\t\t\tmodelsSearchClear: "Clear search",',
     ],
     // 11) 中文文案
     [
       '\t\t\tmodelsEmpty: "模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。",',
       '\t\t\tmodelsEmpty: "模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。",\n' +
       '\t\t\tmodelsSearch: "搜索模型…",\n' +
-      '\t\t\tmodelsSearchEmpty: "没有匹配的模型。",',
+      '\t\t\tmodelsSearchEmpty: "没有匹配的模型。",\n' +
+      '\t\t\tmodelsSearchClear: "清除搜索",',
     ],
   ];
   return applyReplacements(content, pairs, [MARK]);
@@ -632,6 +886,11 @@ function buildManifest(profileDir, opts = {}) {
       patch: patchSettingsModelsSearch,
     },
     {
+      id: 'dsh-core-settings-models-fetch-search',
+      file: coreSettingsModelsClient,
+      patch: patchSettingsModelsFetchSearch,
+    },
+    {
       id: 'modlens-settings-namespace',
       file: path.join(profileDir, 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js'),
       patch: patchModlensIndex,
@@ -660,9 +919,9 @@ function buildManifest(profileDir, opts = {}) {
 }
 
 /** 执行全部补丁，返回结果列表（幂等：已补的跳过；glob 条目展开为多行） */
-function reconcilePatches({ profileDir, coreWorkspaceClient, coreConversationClient, dshCoreRoot }) {
+function reconcilePatches({ profileDir, coreWorkspaceClient, coreConversationClient, coreSettingsModelsClient, dshCoreRoot }) {
   const results = [];
-  for (const p of buildManifest(profileDir, { coreWorkspaceClient, coreConversationClient, dshCoreRoot })) {
+  for (const p of buildManifest(profileDir, { coreWorkspaceClient, coreConversationClient, coreSettingsModelsClient, dshCoreRoot })) {
     if (p.dir && p.glob) {
       for (const r of applyGlobPatch(p.dir, p.glob, p.patch)) results.push({ id: p.id, ...r });
     } else {
@@ -689,4 +948,5 @@ module.exports = {
   patchClientBundleRetry,
   patchFrontendStaticNoCache,
   patchSettingsModelsSearch,
+  patchSettingsModelsFetchSearch,
 };

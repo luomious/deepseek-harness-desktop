@@ -2,6 +2,54 @@
 
 > DeepSeek Harness 桌面版版本发布记录。
 > 合并自 release_notes_v115 ~ release_notes_v130（最新版本在前）。
+> 2026-08-21：release_notes_v115~v130.md 已合并入本文档并删除原文件（git 历史仍可追溯）。
+
+---
+
+## 2026-08-21 modlens 视觉体系重构：本地引擎 + 自动读图 + 选择器精简（v1.4.0 开发中）
+
+### 背景
+`(modlens vision)` 包装模型在密集截图（如整页模型列表）上无法识别图片：
+根因是智谱 `glm-4v-flash` 输出硬上限 1024 token，密集截图的结构化 JSON 被截断
+（`finish_reason=length`），modlens 解析失败；claude-cli 兜底因额度 402 失效。
+
+### 变更
+| 模块 | 说明 |
+|------|------|
+| 本地视觉引擎 | 部署 Ollama 0.32.15 + `qwen2.5vl:7b`（模型存 `D:\ollama-models`，VBS 隐藏开机自启）；modlens `openai` 槽指向 `http://localhost:11434/v1`，`extraBody={"max_tokens":4096}` + `structuredOutput=true`（修复 7B 偶发不守 JSON schema）。实测：普通图 8s、密集截图 45s 内，4 类图全部通过 |
+| 新厂商纳入 | modlens `families` 加入 `gpt`（cordis.patch.yml + dsh-modlens-guard 同步），duoyuanx 的 gpt-5.x 获得 `(modlens vision)` 包装 |
+| 自动读图插件 | 新增 `plugins/dsh-modlens-autoread`：`agent/pre-step` 自动判定当前模型模态（`inputModalities`），纯文本/未知模型发照片时自动调 modlens 读图（支持图片块 + pasteToPath 路径两种入口），无需再选 `(modlens vision)` 双胞胎；同一图片缓存、异常 fail-open |
+| 选择器精简 | `dsh-model-picker-group` 新增「隐藏 (modlens vision) 双胞胎」开关（默认开），选择器只显示普通模型；当前正在使用的双胞胎保留显示直至切换 |
+| 文档整理 | `release_notes_v115~v130.md`（10 个）合并进 CHANGELOG 后删除；`modlens-free-engines.md` 更新为本地引擎状态与切换命令 |
+| 清理 | `.gitignore` 补 runtime 数据/构建产物规则；untrack 守护插件 `.map`/`.d.ts`/`events.jsonl`；watchdog 空转日志节流（30s→10min 一条） |
+
+### 配置速查
+- modlens：`~/.modlens/config.json`（openai → localhost:11434/v1 / qwen2.5vl:7b）
+- Ollama：`%LOCALAPPDATA%\Programs\Ollama`，模型在 `D:\ollama-models`，`OLLAMA_MODELS`/`OLLAMA_CONTEXT_LENGTH=8192`
+- 切回智谱/百炼命令见 `modlens-free-engines.md`
+
+---
+
+## 模型管理增强：获取可用模型弹窗搜索（v1.4.0 开发中 · 补丁层）
+
+> 设置 → 模型 → 提供方「获取可用模型」弹窗（「选择要添加的模型」）新增候选模型搜索栏。
+
+### 变更
+
+| 功能 | 模块 | 说明 |
+|------|------|------|
+| 弹窗搜索栏 | `patch-manifest.js`（`patchSettingsModelsFetchSearch`） | 候选列表上方全宽搜索框（复用 `modelSearch` 胶囊样式），按模型名/ID 相关度过滤并重排；无匹配显示空态 |
+| 状态管理 | 同上 | 弹窗打开/关闭自动清空搜索词；**默认全不选**（不再把目录中没有的模型全部预勾选），只勾选手动选择要添加的模型 |
+| 勾选反馈 | 同上 | 底部「添加所选」按钮实时显示已勾选数量（如「添加所选 (3)」） |
+| 自愈 | 同上 | 登记 `dsh-core-settings-models-fetch-search` 清单项，`dsh` 升级覆盖后启动自动重打 |
+
+### 测试
+
+- `tests/patch-manifest.js`：弹窗搜索补丁用例扩展到 11 条（含「默认全不选」「v1→v2 迁移」）；清单集成计数为 12 项（6 applied + 2 ok + 4 skipped，幂等后 8 ok）。共 63 条全过。
+
+### 生效方式
+
+改的是全局 client bundle，**无需重启服务**，浏览器硬刷新即可（客户端 bundle 按请求读盘 + no-cache）。
 
 ---
 
