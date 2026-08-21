@@ -1,0 +1,6 @@
+# 2026-08-20 临时禁用：插件依赖 compaction 服务（dsh-compaction + dsh-compaction-basic）
+# 未在 web profile 激活树中，激活时永远 pending → 整棵插件树加载失败 → dsh 服务 code=1 崩溃。
+# 注意：overlay patch 文件必须是顶层 YAML 数组（不能全注释/为空），否则 loader 解析报错。
+# 恢复：删除下方条目，并在 web profile 启用 compaction 服务后再重启。
+- id: dsh-context-lifecycle
+  disabled: true

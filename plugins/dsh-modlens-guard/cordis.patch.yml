@@ -1,0 +1,6 @@
+# Bundle layer: mount the modlens-guard plugin (host-only, 60s watchdog).
+# Keeps `visionProvider` enabled for modlens so every wrapped vendor keeps
+# its (modlens vision) twins — the raw data the model-picker-group merges.
+- insert:
+    - id: dsh-modlens-guard
+      name: '@dsh-external/dsh-modlens-guard'

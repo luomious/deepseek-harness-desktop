@@ -303,7 +303,7 @@ window.__ModuleLoader__.load({
         overflow: 'hidden', transition: 'max-height .3s ease, opacity .25s ease',
         maxHeight: 0, opacity: 0,
       };
-      var MODEL_OPEN = { maxHeight: 600, opacity: 1 };
+      var MODEL_OPEN = { maxHeight: 9999, opacity: 1, overflowY: 'auto' };
 
       return h('div', { style: PANEL_STYLE },
         // header: title + accent bar + edit button

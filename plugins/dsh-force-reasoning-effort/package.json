@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-external/dsh-force-reasoning-effort",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Force reasoning-effort capability on every model: pi-ai routes whose model lacks reasoning metadata (catalog non-reasoning or hand-declared without reasoningEfforts) get selectable off/low/medium/high effort levels, so the model picker shows the thinking-strength control for all models.",
+  "license": "MIT"
+}

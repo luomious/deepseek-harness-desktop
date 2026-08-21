@@ -19,7 +19,8 @@
 //  3. 拦截 api.sessions.selectModel：当选中的 model 是改写过的双胞胎 id 时，
 //     把 provider/model 改回真实的 modlens 包装渠道再提交给 host。
 // 纯显示层重写：关闭开关即原样透传，不影响其它任何东西；与模型管理白名单可
-// 组合（白名单关闭时互不干扰）。
+// 组合（白名单关闭时互不干扰）。白名单把上游原版组整组过滤掉时，modlens 组
+// 成为孤儿：展示名改回厂商名独立成组（不再像附录甩在末尾）。
 //
 // Hand-written lazy-CJS bundle protocol (window.__ModuleLoader__.load)，零依赖。
 window.__ModuleLoader__.load({
@@ -76,6 +77,11 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    // 展示名去掉尾部 "(modlens vision)" 后缀，得到厂商基础名（孤儿组改展示名用）
+    function baseName(name) {
+      return String(name || '').replace(/\s*\(modlens vision\)\s*$/i, '').replace(/\s+/g, ' ').trim()
+    }
+
     // 改写后的双胞胎 id -> { provider: 真实 modlens 渠道, model: 原始 id }
     var twinMap = {}
     // modlens 渠道 -> 上游渠道（仅当上游在当前目录里出现，即已合并）
@@ -91,14 +97,18 @@ window.__ModuleLoader__.load({
       for (var i = 0; i < groups.length; i++) { var g = groups[i]; if (g && g.id) byId[g.id] = g }
       var merged = {}
       var order = []
-      // 1) 上游组（及无关组）作为合并基底，保留原顺序
+      // 1) 上游组（及无关组）作为合并基底，保留原顺序。
+      //    孤儿 modlens 组（上游不在场——典型：白名单只勾 modlens 版本，原版组
+      //    被整组过滤）也在此成组，但展示名改回厂商名（去掉 "(modlens vision)"
+      //    后缀），看起来就是该厂商的普通分组，而不是甩在末尾的 modlens 附录。
       for (var i = 0; i < groups.length; i++) {
         var g = groups[i]
         if (!g) continue
         var up = toUpstream(g.id)
         if (up && byId[up]) continue // modlens 组且上游在场 -> 留到第 2 步并入
         if (!merged[g.id]) {
-          merged[g.id] = { id: g.id, name: g.name, models: (g.models || []).map(function (m) { return Object.assign({}, m) }) }
+          var displayName = (up && !byId[up]) ? (baseName(g.name) || g.name) : g.name
+          merged[g.id] = { id: g.id, name: displayName, models: (g.models || []).map(function (m) { return Object.assign({}, m) }) }
           order.push(g.id)
         }
       }
@@ -119,13 +129,8 @@ window.__ModuleLoader__.load({
           target.models.push(Object.assign({}, m, { id: newId }))
         }
       }
-      // 3) 孤儿 modlens 组（上游不在场）保留为独立组，原样不动（id 不改写）
-      for (var i = 0; i < groups.length; i++) {
-        var g = groups[i]
-        if (!g) continue
-        var up = toUpstream(g.id)
-        if (up && !byId[up] && !merged[g.id]) { merged[g.id] = g; order.push(g.id) }
-      }
+      // 3) 孤儿 modlens 组已在第 1 步以厂商展示名成组（id 不改写，选中仍走真实
+      //    modlens 渠道），此处无需再处理。
       return order.map(function (id) { return merged[id] })
     }
 

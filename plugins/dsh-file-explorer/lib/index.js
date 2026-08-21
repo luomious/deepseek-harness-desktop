@@ -30,7 +30,8 @@ function normalizePath(input) {
 }
 
 /** 校验路径在用户主目录内（realpath 后 startsWith，防 symlink 逃逸）。 */
-// 注：一版放宽为只读 API 不限路径（插件同源能力与 dsh RPC 等价），保留大小/二进制/隐藏过滤。
+// 注：S3 加固后默认仅允许 ~ 内路径（isPathAllowed），CSRF 由 trusted() 的 Origin 校验兜底；
+// 需浏览 home 之外时设置 DSH_FILE_EXPLORER_UNRESTRICTED=1（保留大小/二进制/隐藏过滤）。
 
 function existsPath(abs) {
   try {
@@ -121,6 +122,7 @@ async function handle(method, args) {
     if (method === 'list-dir') {
       const abs = normalizePath(p || '~')
       if (!abs) return { ok: false, error: '路径无效' }
+      if (!isPathAllowed(abs)) return { ok: false, error: '路径超出允许范围（默认仅 ~ 目录；设置 DSH_FILE_EXPLORER_UNRESTRICTED=1 可放宽）' }
       if (!existsPath(abs)) return { ok: false, error: '目录不存在' }
       if (!statSync(abs).isDirectory()) return { ok: false, error: '不是目录' }
       const showHidden = args && args.showHidden === true
@@ -129,6 +131,7 @@ async function handle(method, args) {
     if (method === 'read-file') {
       const abs = normalizePath(p || '')
       if (!abs) return { ok: false, error: '路径无效' }
+      if (!isPathAllowed(abs)) return { ok: false, error: '路径超出允许范围（默认仅 ~ 目录；设置 DSH_FILE_EXPLORER_UNRESTRICTED=1 可放宽）' }
       return { ok: true, data: readFile(abs) }
     }
     if (method === 'resolve-home') {
@@ -154,13 +157,51 @@ async function handle(method, args) {
   }
 }
 
+/** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
+function isLocalHostname(h) {
+  return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1'
+}
+
+/**
+ * 校验本地 HTTP 请求可信度（与 skills-manager / remote-workspace 保持同一实现）。
+ * 1. 对端必须为回环地址；
+ * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
+ * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
+ *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
+ * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
+ * 说明：本地进程仍可伪造全部头部，但本地进程本就拥有读取本机文件的能力，
+ * 不在本守卫的威胁模型内；本守卫解决「任意网页跨站触发本地副作用」的浏览器 CSRF。
+ */
 function trusted(req) {
-  const addr = req && req.socket && req.socket.remoteAddress
-  if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
-  const host = req && req.headers && req.headers.host
-  if (!host) return false
-  const name = String(host).split(':')[0]
-  return name === '127.0.0.1' || name === 'localhost' || name === '::1'
+  try {
+    const addr = req && req.socket && req.socket.remoteAddress
+    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
+    const rawHost = String((req.headers && req.headers.host) || '')
+    let hostname
+    try { hostname = new URL('http://' + rawHost).hostname } catch { return false }
+    if (!isLocalHostname(hostname)) return false
+    const origin = String((req.headers && req.headers.origin) || '')
+    if (!origin) return false
+    let o
+    try { o = new URL(origin) } catch { return false }
+    if (o.protocol !== 'http:') return false
+    if (!isLocalHostname(o.hostname)) return false
+    if (o.port && o.port !== '3080') return false
+    const sfs = String((req.headers && req.headers['sec-fetch-site']) || '').toLowerCase()
+    if (sfs && sfs !== 'same-origin') return false
+    return true
+  } catch { return false }
+}
+
+/**
+ * 路径允许范围（S3 加固）：默认仅允许用户主目录内。
+ * 本插件设计用于浏览项目文件，若需浏览 home 之外（如 D:\projects），
+ * 设置环境变量 DSH_FILE_EXPLORER_UNRESTRICTED=1 后重启 DSH 服务即可放宽。
+ */
+function isPathAllowed(abs) {
+  if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
+  if (abs === HOME) return true
+  return abs.startsWith(HOME + '\\') || abs.startsWith(HOME + '/')
 }
 
 export function apply(ctx) {
@@ -180,7 +221,15 @@ export function apply(ctx) {
       }
       let body = ''
       try {
-        for await (const chunk of req) body += chunk
+        for await (const chunk of req) {
+          body += chunk
+          // 请求体上限 64KB：防超大 POST 撑爆宿主内存（与 skills-manager 同款防护）
+          if (body.length > 64 * 1024) {
+            res.writeHead(413, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: '请求体过大（> 64KB）' }))
+            return
+          }
+        }
       } catch {
         res.writeHead(400)
         res.end(JSON.stringify({ ok: false, error: '请求读取失败' }))

@@ -221,12 +221,38 @@ export function apply(ctx) {
     }
   }
 
+  /** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
+  function isLocalHostname(h) {
+    return h === "127.0.0.1" || h === "localhost" || h === "[::1]" || h === "::1";
+  }
+
+  /**
+   * 校验本地 HTTP 请求可信度（与 file-explorer / remote-workspace 保持同一实现）。
+   * 1. 对端必须为回环地址；
+   * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
+   * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
+   *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
+   * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
+   */
   function trusted(req) {
-    const addr = req.socket && req.socket.remoteAddress;
-    if (addr !== "127.0.0.1" && addr !== "::1" && addr !== "::ffff:127.0.0.1") return false;
-    const raw = String((req.headers && req.headers.host) || "").toLowerCase();
-    const name = raw.startsWith("[") ? raw.slice(1, raw.indexOf("]")) : raw.split(":")[0];
-    return name === "127.0.0.1" || name === "localhost" || name === "::1";
+    try {
+      const addr = req && req.socket && req.socket.remoteAddress;
+      if (addr !== "127.0.0.1" && addr !== "::1" && addr !== "::ffff:127.0.0.1") return false;
+      const rawHost = String((req.headers && req.headers.host) || "");
+      let hostname;
+      try { hostname = new URL("http://" + rawHost).hostname; } catch { return false; }
+      if (!isLocalHostname(hostname)) return false;
+      const origin = String((req.headers && req.headers.origin) || "");
+      if (!origin) return false;
+      let o;
+      try { o = new URL(origin); } catch { return false; }
+      if (o.protocol !== "http:") return false;
+      if (!isLocalHostname(o.hostname)) return false;
+      if (o.port && o.port !== "3080") return false;
+      const sfs = String((req.headers && req.headers["sec-fetch-site"]) || "").toLowerCase();
+      if (sfs && sfs !== "same-origin") return false;
+      return true;
+    } catch { return false; }
   }
 
   ctx.effect(() => ctx.webServer.register({

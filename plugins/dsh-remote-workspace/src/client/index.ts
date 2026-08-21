@@ -16,9 +16,10 @@ import type { SlotsService } from '@deepseek-ai/dsh-client-ui-slots'
 
 type ClientContext = {
   slots: SlotsService
+  workspaces?: { startSession(id: string): void }
 }
 
-export const inject = ['slots']
+export const inject = ['slots', 'workspaces']
 
 // ═══════════════ host API ═══════════════
 
@@ -63,7 +64,7 @@ type RemoteWorkspace = {
 
 type View = 'main' | 'pick' | 'config' | 'browse'
 
-function RemoteWorkspacePanel() {
+function RemoteWorkspacePanel(props: { startSession?: (nativeId: string) => void; onClose?: () => void } = {}) {
   const react = { createElement }
   const [view, setView] = useState<View>('main')
   const [data, setData] = useState<{ connections: Connection[]; workspaces: RemoteWorkspace[]; targets: { wsl: string[]; docker: string[] } } | null>(null)
@@ -179,6 +180,20 @@ function RemoteWorkspacePanel() {
     callApi('delete-workspace', { id: wsId }).then(() => load()).catch((e) => setError('删除失败：' + String((e && e.message) || e)))
   }
 
+  /** 打开远程工作区 = 确保原生注册后，直接像「创建本地工作区 + 新对话」一样开启新会话。 */
+  function onOpenWorkspace(w: RemoteWorkspace) {
+    if (busy) return
+    setBusy(true); setError(null); setMsg(null)
+    callApi('open', { id: w.id }).then((r) => {
+      const d = r as { workspace: RemoteWorkspace }
+      const nativeId = d.workspace.nativeId
+      if (!nativeId) throw new Error('未注册到本地工作区（请检查远端可达性后重试）')
+      props.onClose?.()
+      if (props.startSession) props.startSession(nativeId)
+      else setMsg('已注册到本地工作区，可从工作区列表进入：' + d.workspace.title)
+    }).catch((e) => { setError('打开失败：' + String((e && e.message) || e)) }).then(() => setBusy(false))
+  }
+
   // 主视图
   const conns = data ? data.connections : []
   const wss = data ? data.workspaces : []
@@ -192,6 +207,7 @@ function RemoteWorkspacePanel() {
       react.createElement('button', { onClick: load, disabled: busy, style: btnStyle }, '刷新'),
       react.createElement('button', { onClick: openPick, disabled: busy, style: Object.assign({}, btnStyle, { background: 'var(--dsw-specific-sidebar-nav-item-active)' }) }, '＋ 新建远程连接'),
     ),
+    react.createElement('div', { style: { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)', marginBottom: '8px' } }, '已创建的远程工作区会自动注册到 DSH 原生工作区，出现在「添加工作区」上方的本地工作区列表里，点击即可像普通工作区一样开始新对话；也可以在这里直接点「新对话」。'),
     error ? react.createElement('div', { style: errStyle }, error) : null,
     msg ? react.createElement('div', { style: msgStyle }, msg) : null,
     !data ? react.createElement('div', { style: { color: 'var(--dsw-alias-label-secondary)' } }, '加载中…') :
@@ -209,12 +225,13 @@ function RemoteWorkspacePanel() {
             ),
           )),
         react.createElement('div', { style: { fontWeight: 600, margin: '14px 0 4px' } }, '远程工作区（' + wss.length + '）'),
-        wss.length === 0 ? react.createElement('div', { style: mutedStyle }, '暂无远程工作区。选择连接 → 浏览远程目录 → 创建。') :
+        wss.length === 0 ? react.createElement('div', { style: mutedStyle }, '暂无远程工作区。选择连接 → 浏览远程目录 → 创建；创建后即出现在工作区列表中。') :
           wss.map((w) => react.createElement('div', { key: w.id, style: cardStyle },
             react.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } },
               react.createElement('span', { style: badgeStyle }, kindLabel(w.kind)),
               react.createElement('span', { style: { fontWeight: 600 } }, w.title),
               react.createElement('span', { style: { flex: 1 } }),
+              react.createElement('button', { onClick: () => onOpenWorkspace(w), disabled: busy, style: Object.assign({}, btnStyle, { background: 'var(--dsw-specific-sidebar-nav-item-active)' }) }, busy ? '…' : '新对话'),
               react.createElement('button', { onClick: () => onDelete(w.id), style: Object.assign({}, btnStyle, { color: 'var(--dsw-alias-state-error-primary)' }) }, '删除'),
             ),
             react.createElement('div', { style: mutedStyle }, w.uri),
@@ -358,8 +375,8 @@ const msgStyle: Record<string, string> = { fontSize: '12px', color: 'var(--dsw-a
  * 远程连接流程面板（模态弹层）：由工作区选择流程（remoteFlow 洞）渲染。
  * 核心渲染 remoteFlow 洞时传入 { open, onClose }；open 为 false 时不渲染。
  */
-function RemoteFlowPanel(props: { open?: boolean; onClose?: () => void }): unknown {
-  const { open, onClose } = props
+function RemoteFlowPanel(props: { open?: boolean; onClose?: () => void; startSession?: (nativeId: string) => void }): unknown {
+  const { open, onClose, startSession } = props
   if (!open) return null
   return createElement(
     'div',
@@ -388,32 +405,48 @@ function RemoteFlowPanel(props: { open?: boolean; onClose?: () => void }): unkno
         createElement('span', { style: { flex: 1 } }),
         createElement('button', { onClick: onClose, style: Object.assign({}, btnStyle, { background: 'transparent', border: 'none' }), 'aria-label': '关闭' }, '✕'),
       ),
-      createElement(RemoteWorkspacePanel, {}),
+      createElement(RemoteWorkspacePanel, { startSession, onClose }),
     ),
   )
 }
 
 export function apply(ctx: ClientContext): void {
   const slots = ctx.slots
-  ctx.effect(() => slots.inject('conversation.hero.workspace', () => {
+  const startSession = (nativeId: string, attempt = 0) => {
+    try {
+      ctx.workspaces?.startSession(nativeId)
+    } catch (e) {
+      const msg = String((e as Error)?.message || e)
+      // 原生工作区刚注册，客户端 store 可能还没收到投影 → 稍后重试一次
+      if (attempt < 2 && msg.includes('unknown workspace')) {
+        window.setTimeout(() => startSession(nativeId, attempt + 1), 600)
+        return
+      }
+      console.warn('[dsh-remote-workspace] 启动新对话失败：', msg)
+    }
+  }
+  const RemoteFlowEntry = (props: { open?: boolean; onClose?: () => void }): unknown =>
+    createElement(RemoteFlowPanel, Object.assign({}, props, { startSession }))
+  // 直接挂在 remoteFlow 子洞上（等核心声明并渲染该洞后再注册，避免与 picker/browser 抢占单例父洞）
+  ctx.effect(() => slots.inject('conversation.hero.workspace.remoteFlow', () => {
     try {
       return slots.register({
         name: 'conversation.hero.workspace.remoteFlow',
         kind: 'single',
         scope: 'root',
-      }, RemoteFlowPanel)
+      }, RemoteFlowEntry)
     } catch (e) {
       console.warn('[dsh-remote-workspace] hero remoteFlow slot unavailable, skipped:', (e as Error)?.message || e)
       return null
     }
   }), '@dsh-external/dsh-remote-workspace: remote flow (hero)')
-  ctx.effect(() => slots.inject('sidebar.workspaces', () => {
+  ctx.effect(() => slots.inject('sidebar.workspaces.remoteFlow', () => {
     try {
       return slots.register({
         name: 'sidebar.workspaces.remoteFlow',
         kind: 'single',
         scope: 'root',
-      }, RemoteFlowPanel)
+      }, RemoteFlowEntry)
     } catch (e) {
       console.warn('[dsh-remote-workspace] sidebar remoteFlow slot unavailable, skipped:', (e as Error)?.message || e)
       return null

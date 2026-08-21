@@ -128,4 +128,27 @@ if (!r2.result.value.groups.some((g) => g.id === 'modlens-tokenrhythm')) {
 }
 console.log('PASS: toggle off passes original groups through')
 
+// —— 5) 孤儿组（上游被白名单过滤掉）-> 展示名改回厂商名，model id 保持原样 ——
+const orphanGroups = [
+  { id: 'tokenrhythm', name: 'tokenrhythm', models: [{ id: 'glm-5', name: 'glm-5' }] },
+  { id: 'modlens-xiaomi-token-plan-cn', name: 'xiaomi-token-plan-cn (modlens vision)', models: [{ id: 'mimo-v2-pro', name: 'MiMo-V2-Pro (modlens vision)' }] },
+  { id: 'deepseek-modlens', name: 'DeepSeek (modlens vision)', models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (modlens vision)' }] },
+]
+const om = mod.mergeGroups(orphanGroups)
+const og = om.find((g) => g.id === 'modlens-xiaomi-token-plan-cn')
+const od = om.find((g) => g.id === 'deepseek-modlens')
+if (!og || og.name !== 'xiaomi-token-plan-cn') {
+  console.error('FAIL orphan rename:', og && og.name)
+  process.exit(1)
+}
+if (!od || od.name !== 'DeepSeek') {
+  console.error('FAIL deepseek orphan rename:', od && od.name)
+  process.exit(1)
+}
+if (og.models[0].id !== 'mimo-v2-pro') {
+  console.error('FAIL orphan model id should stay original (selection channel unchanged)')
+  process.exit(1)
+}
+console.log('PASS: orphan modlens groups renamed to vendor names, ids untouched')
+
 console.log('\nALL TESTS PASSED')

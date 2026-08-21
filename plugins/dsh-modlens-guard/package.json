@@ -9,5 +9,10 @@
     "./package.json": "./package.json"
   },
   "description": "ModLens 配置守卫：自动移除 cordis.patch.yml 中 modlens 的 visionProvider: false，并热重建 modlens 条目让 (modlens vision) 模型恢复；每 60s 巡查防止再次被关。",
-  "license": "MIT"
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
 }

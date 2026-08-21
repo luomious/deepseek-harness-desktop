@@ -27,7 +27,9 @@ xiaomi-token-plan-cn (modlens vision)
 - 与 `dsh-model-whitelist`（模型管理过滤）可任意先后组合：两者都只转换
   `value.groups` 且都保留原始 id，键不受影响；
 - `deepseek-modlens` → 上游 `deepseek-official`；`modlens-<X>` → 上游 `<X>`；
-  上游缺失的孤儿 modlens 组追加在末尾。
+- 上游缺失的孤儿 modlens 组（典型：白名单只勾了 modlens 版本，原版组被整组
+  过滤）展示名改回厂商名（去掉 "(modlens vision)" 后缀）独立成组，看起来就是
+  该厂商的普通分组；id 不改写，选中仍走真实 modlens 渠道。
 
 ## 操作
 

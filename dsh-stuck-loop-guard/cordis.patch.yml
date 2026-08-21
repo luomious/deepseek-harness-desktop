@@ -1,0 +1,6 @@
+# Loader insertion for persistent installs (`dsh plugin add` / profile bundles).
+# Runtime injection via dev_inject_plugin bypasses this patch (loader.create direct).
+- insert:
+    - id: dsh-stuck-loop-guard
+      name: '@dsh-external/dsh-stuck-loop-guard'
+      config: {}

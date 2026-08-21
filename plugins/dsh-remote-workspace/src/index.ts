@@ -10,8 +10,8 @@
  *   5. 旁路远程工作区注册表（不触碰 dsh-workspace 核心域表）
  *   6. remote_bash 工具：会话 cwd 为远程 URI 时自动路由到远程执行
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs'
+import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -32,6 +32,7 @@ type RemoteWorkspace = {
   title: string
   uri: string         // wsl://… / ssh://… / docker://…（远程标识 + 远端路径）
   cwd: string         // 会话 cwd（WSL=UNC 绝对路径；SSH/Docker=本地锚目录）
+  nativeId?: string   // 已注册的 DSH 原生工作区 id（注册成功后回填）
   kind: 'wsl' | 'ssh' | 'docker'
   createdAt: string
 }
@@ -49,7 +50,13 @@ function storeRoot() {
 function readJson<T>(file: string, fallback: T): T {
   try {
     if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
-  } catch { /* 损坏则回退 */ }
+  } catch {
+    // 损坏则保留现场：改名 .corrupt-<ts>，避免静默覆盖丢用户数据
+    try {
+      const corrupt = `${file}.corrupt-${Date.now()}`
+      if (existsSync(file)) renameSync(file, corrupt)
+    } catch { /* 改名失败忽略 */ }
+  }
   return fallback
 }
 
@@ -61,7 +68,21 @@ function writeJson(file: string, value: unknown) {
 function connectionsFile() { return join(storeRoot(), 'connections.json') }
 function workspacesFile() { return join(storeRoot(), 'workspaces.json') }
 
-function loadConnections(): Connection[] { return readJson<Connection[]>(connectionsFile(), []) }
+function loadConnections(): Connection[] {
+  const list = readJson<Connection[]>(connectionsFile(), [])
+  // 迁移：历史版本可能落过明文密码，读取时剔除并回写，防止明文继续留在磁盘
+  if (Array.isArray(list)) {
+    let changed = false
+    for (const c of list) {
+      if (c && typeof c === 'object' && 'password' in c) {
+        delete (c as Record<string, unknown>).password
+        changed = true
+      }
+    }
+    if (changed) saveConnections(list)
+  }
+  return list
+}
 function saveConnections(list: Connection[]) { writeJson(connectionsFile(), list) }
 function loadWorkspaces(): RemoteWorkspace[] { return readJson<RemoteWorkspace[]>(workspacesFile(), []) }
 function saveWorkspaces(list: RemoteWorkspace[]) { writeJson(workspacesFile(), list) }
@@ -96,7 +117,7 @@ function parseRemoteUri(uri: string): { kind: 'wsl' | 'ssh' | 'docker'; target: 
     if (!m) return null
     return {
       kind: 'ssh',
-      target: { id: 'inline', kind: 'ssh', host: m[2], port: m[3] ? Number(m[3]) : 22, user: m[1] || '', auth: 'key' },
+      target: { id: 'inline', kind: 'ssh', host: m[2], port: m[3] ? Number(m[3]) : 22, user: m[1] || '', auth: 'key', resourceMode: 'upload' },
     }
   }
   if (u.startsWith('docker://')) {
@@ -118,6 +139,15 @@ function remoteUri(conn: Connection, path: string): string {
 }
 
 /**
+ * 把远程 URI 转成 Windows 合法的锚目录名：仅保留 [A-Za-z0-9_.-]，
+ * 其余（: / @ ~ 等）一律替换为 _。旧版直接把 URI 当目录名（含 : 等非法
+ * 字符）导致 mkdir 失败、锚目录从未建成。
+ */
+function anchorName(uri: string): string {
+  return uri.replace(/[^\w.-]/g, '_')
+}
+
+/**
  * 会话 cwd：
  *  - WSL：返回 `\\wsl$\<distro>\<path>` UNC（Windows 绝对路径，可 realpath、可被 fs 工具直读）。
  *  - SSH/Docker：返回本地锚目录 `~/.dsh/remote-workspace/anchors/<hash>`（isAbsolute 通过、
@@ -129,7 +159,7 @@ function sessionCwdFor(conn: Connection, path: string): string {
     const mapped = path.replace(/^\//, '').replace(/\//g, '\\')
     return `\\\\wsl$\\${distro}\\${mapped}`
   }
-  const anchor = join(storeRoot(), 'anchors', remoteUri(conn, path).replace(/[^\w.:/@-]/g, '_'))
+  const anchor = join(storeRoot(), 'anchors', anchorName(remoteUri(conn, path)))
   try { mkdirSync(anchor, { recursive: true }) } catch { /* 已存在或失败 */ }
   return anchor
 }
@@ -146,8 +176,9 @@ function uriFromCwd(cwd: string): string | null {
     return `wsl://${distro}${p}`
   }
   const esc = cwd.replace(/\\/g, '/')
-  // 本地锚目录 → 反查旁路注册表
-  const ws = loadWorkspaces().find((w) => w.cwd === cwd)
+  // 本地锚目录 → 反查旁路注册表（兼容 realpath 规范化后的路径差异）
+  const resolved = resolve(cwd)
+  const ws = loadWorkspaces().find((w) => w.cwd === cwd || resolve(w.cwd) === resolved)
   if (ws) return ws.uri
   return null
 }
@@ -166,8 +197,48 @@ function remotePathOf(uri: string): string {
   return m && m[1] ? m[1] : '/'
 }
 
+/** 人类可读的远程目标描述（SSH 主机 / WSL 发行版 / Docker 容器）。 */
+function describeTarget(target: Connection): string {
+  if (target.kind === 'ssh') {
+    const userHost = target.user ? `${target.user}@${target.host}` : target.host
+    return `SSH ${userHost}:${target.port ?? 22}`
+  }
+  if (target.kind === 'wsl') return `WSL ${target.distro || '默认发行版'}`
+  return `Docker ${target.container}`
+}
+
+/**
+ * 渲染"远程工作区"运行时上下文：让模型明确知道当前会话在远程环境、
+ * 正在控制哪个远程文件夹，以及标准文件工具与 remote_bash 的分工。
+ * 非远程 cwd 返回空字符串（不贡献上下文）。
+ */
+function renderRemoteContext(uri: string): string {
+  const parsed = parseRemoteUri(uri)
+  if (!parsed) return ''
+  const remotePath = remotePathOf(uri)
+  const targetText = describeTarget(parsed.target)
+  if (parsed.target.kind === 'wsl') {
+    // WSL 的会话 cwd 是 \\wsl$ UNC，标准 fs 工具可直接访问
+    return [
+      '当前会话位于远程工作区（WSL）。',
+      `- 远程环境：${targetText}；远程工作目录：${remotePath}（会话 cwd 为 \\\\wsl$ UNC 路径，标准文件工具可直接读写）。`,
+      '- remote_bash 用于在 WSL 内执行命令，默认工作目录即该远程目录，可用 workdir 切换。',
+    ].join('\n')
+  }
+  // SSH / Docker：会话 cwd 只是本地锚目录，标准文件工具看不到远程文件
+  return [
+    '当前会话位于远程工作区。',
+    `- 远程环境：${targetText}；远程工作目录：${remotePath}。`,
+    '- 查看/编辑/搜索远程文件必须使用 remote_bash 工具（如 ls、cat、sed -i、find、grep 等）；标准 read/write/edit/glob/grep 工具只能访问本地锚目录，其中不含远程文件。',
+    '- remote_bash 命令默认在该远程工作目录执行；可用 workdir 参数切换到其他远程目录。',
+  ].join('\n')
+}
+
 /** 运行子进程并收集输出（Promise 包装）。 */
-function run(argv: string[], opts: { cwd?: string; timeoutMs?: number; input?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+// 输出缓冲上限：远程命令（如 cat 大文件）输出无上限累积会撑爆宿主内存。
+// 每路流最多保留 1MB，超出即 kill 子进程并截断（防 CPU/带宽持续消耗）。
+const MAX_STREAM_BYTES = 1024 * 1024
+function run(argv: string[], opts: { cwd?: string; timeoutMs?: number; input?: string } = {}): Promise<{ code: number; stdout: string; stderr: string; truncated?: boolean }> {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
       windowsHide: true,
@@ -177,19 +248,37 @@ function run(argv: string[], opts: { cwd?: string; timeoutMs?: number; input?: s
     })
     let stdout = ''
     let stderr = ''
+    let outTruncated = false
+    let errTruncated = false
     const timer = opts.timeoutMs ? setTimeout(() => { try { child.kill() } catch { /* */ } }, opts.timeoutMs) : undefined
-    child.stdout.on('data', (d) => { stdout += d })
-    child.stderr.on('data', (d) => { stderr += d })
-    child.on('error', (e) => { if (timer) clearTimeout(timer); resolve({ code: -1, stdout, stderr: stderr || String(e.message) }) })
-    child.on('close', (code) => { if (timer) clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr }) })
+    child.stdout.on('data', (d) => {
+      if (outTruncated) return
+      stdout += d
+      if (Buffer.byteLength(stdout) > MAX_STREAM_BYTES) {
+        outTruncated = true
+        try { child.kill() } catch { /* */ }
+        stdout = stdout.slice(0, MAX_STREAM_BYTES)
+      }
+    })
+    child.stderr.on('data', (d) => {
+      if (errTruncated) return
+      stderr += d
+      if (Buffer.byteLength(stderr) > MAX_STREAM_BYTES) {
+        errTruncated = true
+        try { child.kill() } catch { /* */ }
+        stderr = stderr.slice(0, MAX_STREAM_BYTES)
+      }
+    })
+    child.on('error', (e) => { if (timer) clearTimeout(timer); resolve({ code: -1, stdout, stderr: stderr || String(e.message), truncated: outTruncated || errTruncated }) })
+    child.on('close', (code) => { if (timer) clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr, truncated: outTruncated || errTruncated }) })
     if (opts.input) child.stdin.write(opts.input)
     child.stdin.end()
   })
 }
 
-/** 把远端路径转成远端 shell 可用的裸字符串。 */
+/** 把远端路径转成远端 shell 单引号字符串（含引号，内部 ' 用 '\'' 转义）。 */
 function sq(p: string): string {
-  return String(p).replace(/'/g, `'\\''`)
+  return `'${String(p).replace(/'/g, `'\\''`)}'`
 }
 
 /**
@@ -197,19 +286,34 @@ function sq(p: string): string {
  * 返回 [argv, {workdirHandled: boolean}]：workdirHandled=true 表示 argv 已包含 cd 逻辑，
  * 调用方不需要再设本地 cwd。
  */
+/** 构造 cd 命令：~ 开头的路径不加引号（让 shell 展开波浪号），其他路径用 sq 转义。 */
+function cdTo(wd: string): string {
+  if (!wd) return ''
+  if (wd === '~') return 'cd ~'
+  if (wd.startsWith('~/')) return `cd ~/${sq(wd.slice(2))}`
+  return `cd -- ${sq(wd)}`
+}
+/** WSL 参数：distro/user 为空时省略对应 flag（--distribution '' 会让 wsl.exe 报错）。 */
+function wslArgs(conn: Extract<Connection, { kind: 'wsl' }>): string[] {
+  const args = ['wsl.exe']
+  if (conn.distro) args.push('--distribution', conn.distro)
+  if (conn.user) args.push('--user', conn.user)
+  args.push('--')
+  return args
+}
 function remoteArgv(conn: Connection, workdir: string | undefined, command: string): { argv: string[]; workdirHandled: boolean } {
   const wd = workdir || ''
   if (conn.kind === 'wsl') {
-    const args = ['wsl.exe', '--distribution', conn.distro || '', '--user', conn.user || '', '--']
+    const args = wslArgs(conn)
     // 用 bash -c "cd '<wd>' && <command>" 语义
-    const inner = wd ? `cd -- '${sq(wd)}' && ${command}` : command
+    const inner = wd ? `${cdTo(wd)} && ${command}` : command
     return { argv: [...args, 'bash', '-c', inner], workdirHandled: true }
   }
   if (conn.kind === 'ssh') {
     const userHost = conn.user ? `${conn.user}@${conn.host}` : conn.host
     const args = ['ssh', '-p', String(conn.port ?? 22), '-o', 'BatchMode=no', '-o', 'ConnectTimeout=15']
     if (conn.auth === 'key' && conn.keyPath) args.push('-i', conn.keyPath)
-    const inner = `cd -- '${sq(wd)}' && ${command}`
+    const inner = wd ? `${cdTo(wd)} && ${command}` : command
     return { argv: [...args, userHost, inner], workdirHandled: true }
   }
   if (conn.kind === 'docker') {
@@ -225,10 +329,13 @@ function remoteArgv(conn: Connection, workdir: string | undefined, command: stri
 async function testConnection(conn: Connection): Promise<{ ok: boolean; message: string }> {
   try {
     if (conn.kind === 'wsl') {
-      const r = await run(['wsl.exe', '--distribution', conn.distro || '', '--user', conn.user || '', '--', 'echo', 'WSL_OK'])
+      const r = await run([...wslArgs(conn), 'echo', 'WSL_OK'])
       return r.code === 0 ? { ok: true, message: r.stdout.trim() || 'WSL 连接成功' } : { ok: false, message: `WSL 命令失败（exit ${r.code}）：${r.stderr.trim().slice(0, 300) || r.stdout.trim().slice(0, 300)}` }
     }
     if (conn.kind === 'ssh') {
+      if (conn.auth === 'password') {
+        return { ok: false, message: 'SSH 密码认证不支持非交互式执行（spawn 无 TTY 且密码不落盘），请改用密钥认证（配置 keyPath）。' }
+      }
       const userHost = conn.user ? `${conn.user}@${conn.host}` : conn.host
       const args = ['ssh', '-p', String(conn.port ?? 22), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
       if (conn.auth === 'key' && conn.keyPath) args.push('-i', conn.keyPath)
@@ -271,6 +378,9 @@ async function listRemoteDir(conn: Connection, path: string | undefined): Promis
       return { ok: true, data: { path: p, entries } }
     }
     // SSH / Docker：远程 ls
+    if (conn.kind === 'ssh' && conn.auth === 'password') {
+      return { ok: false, error: 'SSH 密码认证不支持，请改用密钥认证（keyPath）。' }
+    }
     const cmd = `if [ -d "${sq(p)}" ]; then cd -- '${sq(p)}'; else echo "__REMOTE_ERR__: no such dir"; exit 1; fi; for e in ./* ./.[!.]*; do [ -e "$e" ] || continue; if [ -d "$e" ]; then printf 'D\\t%s\\n' "$(basename -- "$e")"; else printf 'F\\t%s\\n' "$(basename -- "$e")"; fi; done`
     const { argv } = remoteArgv(conn, p, cmd)
     const r = await run(argv, { timeoutMs: 20000 })
@@ -309,11 +419,50 @@ async function listTargets(kind: 'wsl' | 'docker'): Promise<string[]> {
 
 // ═══════════════════ host API ═══════════════════
 
-async function handle(method: string, args: Record<string, unknown>): Promise<{ ok: boolean; error?: string; data?: unknown }> {
+/**
+ * 确保远程工作区的本地会话 cwd 存在并注册到 DSH 原生工作区：
+ *  - 旧版锚目录名含 Windows 非法字符（: / 等）导致从未建成 → 用新规则重建 cwd 并持久化；
+ *  - workspaceRegistry.create(path, title) 幂等（同 canonical 路径返回既有实体）；
+ *  - 原生注册失败不阻断（旁路注册表仍可用），成功时回填 nativeId。
+ */
+async function ensureNative(ctx: any, ws: RemoteWorkspace): Promise<{ workspace: RemoteWorkspace; nativeId?: string }> {
+  let cwd = ws.cwd
+  if (!existsSync(cwd)) {
+    const conn = loadConnections().find((c) => c.id === ws.connectionId)
+    if (conn) {
+      try {
+        const recomputed = sessionCwdFor(conn, ws.path)
+        if (existsSync(recomputed)) cwd = recomputed
+      } catch { /* 保持原 cwd */ }
+    }
+  }
+  let nativeId = ws.nativeId
+  try {
+    const native = await ctx.workspaceRegistry.create(cwd, ws.title)
+    nativeId = native.id
+  } catch (e) {
+    ctx.logger?.warn?.('[remote-workspace] 原生工作区注册失败：' + String((e as Error)?.message || e))
+  }
+  if (cwd !== ws.cwd || (nativeId && nativeId !== ws.nativeId)) {
+    const updated: RemoteWorkspace = { ...ws, cwd, ...(nativeId ? { nativeId } : {}) }
+    saveWorkspaces(loadWorkspaces().map((w) => (w.id === ws.id ? updated : w)))
+    return { workspace: updated, nativeId }
+  }
+  return { workspace: ws, nativeId }
+}
+
+async function handle(method: string, args: Record<string, unknown>, ctx: any): Promise<{ ok: boolean; error?: string; data?: unknown }> {
   try {
     switch (method) {
       case 'list': {
-        return { ok: true, data: { connections: loadConnections(), workspaces: loadWorkspaces(), targets: { wsl: await listTargets('wsl'), docker: await listTargets('docker') } } }
+        // 顺带做一次性迁移：重建缺失的锚目录、注册原生工作区并回填 nativeId
+        const workspaces = loadWorkspaces()
+        const migrated: RemoteWorkspace[] = []
+        for (const ws of workspaces) {
+          const r = await ensureNative(ctx, ws)
+          migrated.push(r.workspace)
+        }
+        return { ok: true, data: { connections: loadConnections(), workspaces: migrated, targets: { wsl: await listTargets('wsl'), docker: await listTargets('docker') } } }
       }
       case 'save': {
         const raw = args && args.connection ? args.connection as Record<string, unknown> : null
@@ -332,7 +481,8 @@ async function handle(method: string, args: Record<string, unknown>): Promise<{ 
             port: Number(raw.port || 22),
             user: String(raw.user || ''),
             auth: raw.auth === 'password' ? 'password' : 'key',
-            password: raw.password ? String(raw.password) : undefined,
+            // 安全：SSH 密码绝不落盘（connections.json 是明文文件）。密码认证在
+            // 非交互式执行中本就不支持（spawn 无 TTY），统一改为密钥认证。
             keyPath: raw.keyPath ? String(raw.keyPath) : undefined,
             resourceMode: raw.resourceMode === 'remote' ? 'remote' : 'upload',
           }
@@ -347,8 +497,7 @@ async function handle(method: string, args: Record<string, unknown>): Promise<{ 
         if (idx === -1) list.push(conn)
         else list[idx] = conn
         saveConnections(list)
-        // 密码不应写死到磁盘明文：host 侧仅作运行时映射——本实现存明文到本地文件
-        // （后续可换 dsh-credentials-local 加密存储）。
+        // 密码不持久化（SSH 密码认证不支持非交互式执行，见 save 分支注释）。
         return { ok: true, data: { connection: conn } }
       }
       case 'remove': {
@@ -384,19 +533,26 @@ async function handle(method: string, args: Record<string, unknown>): Promise<{ 
         list.unshift(ws)
         saveWorkspaces(list)
         // 同步注册到 DSH 原生工作区（cwd 是本地可 realpath 的 UNC/锚目录）
-        let nativeId: string | undefined
-        try {
-          const native = await ctx.workspaceRegistry.create(cwd, title)
-          nativeId = native.id
-        } catch (e) {
-          // 原生注册失败不阻断：旁路注册表仍可用
-          ctx.logger?.warn?.('[remote-workspace] 原生工作区注册失败：' + String((e as Error)?.message || e))
-        }
-        return { ok: true, data: { workspace: ws, cwd, nativeId } }
+        const r = await ensureNative(ctx, ws)
+        return { ok: true, data: { workspace: r.workspace, cwd: r.workspace.cwd, nativeId: r.nativeId } }
+      }
+      case 'open': {
+        // 打开远程工作区 = 确保本地锚目录 + 原生注册，返回 nativeId 供客户端 startSession
+        const id = args && args.id ? String(args.id) : ''
+        const ws = loadWorkspaces().find((w) => w.id === id)
+        if (!ws) return { ok: false, error: '远程工作区不存在' }
+        const r = await ensureNative(ctx, ws)
+        return { ok: true, data: { workspace: r.workspace, nativeId: r.nativeId } }
       }
       case 'delete-workspace': {
         const id = args && args.id ? String(args.id) : ''
+        const target = loadWorkspaces().find((w) => w.id === id)
         saveWorkspaces(loadWorkspaces().filter((w) => w.id !== id))
+        if (target?.nativeId) {
+          try { await ctx.workspaceRegistry.delete(target.nativeId) } catch (e) {
+            ctx.logger?.warn?.('[remote-workspace] 原生工作区注销失败：' + String((e as Error)?.message || e))
+          }
+        }
         return { ok: true, data: null }
       }
       default:
@@ -407,12 +563,38 @@ async function handle(method: string, args: Record<string, unknown>): Promise<{ 
   }
 }
 
+/** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
+function isLocalHostname(h: string): boolean {
+  return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1'
+}
+
+/**
+ * 校验本地 HTTP 请求可信度（与 file-explorer / skills-manager 保持同一实现）。
+ * 1. 对端必须为回环地址；
+ * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
+ * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
+ *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
+ * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
+ */
 function trusted(req: { socket?: { remoteAddress?: string }; headers?: Record<string, string | string[] | undefined> }): boolean {
-  const addr = req.socket && req.socket.remoteAddress
-  if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
-  const raw = String((req.headers && (req.headers.host as string)) || '').toLowerCase()
-  const name = raw.startsWith('[') ? raw.slice(1, raw.indexOf(']')) : raw.split(':')[0]
-  return name === '127.0.0.1' || name === 'localhost' || name === '::1'
+  try {
+    const addr = req.socket && req.socket.remoteAddress
+    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
+    const rawHost = String((req.headers && (req.headers.host as string)) || '')
+    let hostname: string
+    try { hostname = new URL('http://' + rawHost).hostname } catch { return false }
+    if (!isLocalHostname(hostname)) return false
+    const origin = String((req.headers && (req.headers.origin as string)) || '')
+    if (!origin) return false
+    let o: URL
+    try { o = new URL(origin) } catch { return false }
+    if (o.protocol !== 'http:') return false
+    if (!isLocalHostname(o.hostname)) return false
+    if (o.port && o.port !== '3080') return false
+    const sfs = String((req.headers && (req.headers['sec-fetch-site'] as string)) || '').toLowerCase()
+    if (sfs && sfs !== 'same-origin') return false
+    return true
+  } catch { return false }
 }
 
 /** remote_bash 工具：会话 cwd 为远程 URI 时路由远程执行。 */
@@ -422,6 +604,7 @@ function registerRemoteBash(ctx: any) {
     description: [
       '在远程工作区环境（SSH 远程主机 / WSL 子系统 / Docker 容器）中执行 bash 命令。',
       '* 当前会话位于远程工作区（cwd 为 \\\\wsl$ UNC 或本地远程锚目录）时使用本工具；本地工作区请用 bash。',
+      '* SSH/Docker 远程工作区中，标准文件工具（read/write/edit/glob/grep）只能访问本地锚目录、看不到远程文件；查看/编辑/搜索远程文件请用本工具（ls / cat / sed -i / find / grep 等）。',
       '* 命令在远程 shell 内以远端 cwd 执行；每条命令独立进程，状态不跨调用保留。',
       '* 远端工作目录默认取会话远程路径；可用 workdir 覆盖（远端绝对路径）。',
       '* 远程执行权限与本地同权：请勿执行破坏性操作，命令记录会出现在会话轨迹中。',
@@ -449,6 +632,9 @@ function registerRemoteBash(ctx: any) {
       }
       const parsed = parseRemoteUri(uri)
       if (!parsed) return { text: `无法解析远程 cwd：${cwd}` }
+      if (parsed.target.kind === 'ssh' && parsed.target.auth === 'password') {
+        return { text: 'SSH 密码认证不支持非交互式执行（spawn 无 TTY 且密码不落盘），请改用密钥认证。' }
+      }
       // 2) 确定远端工作目录：显式 workdir 优先；否则从 cwd 推导
       let remoteWd = remotePathOf(uri)
       if (args.workdir && args.workdir.startsWith('/')) remoteWd = args.workdir
@@ -457,10 +643,12 @@ function registerRemoteBash(ctx: any) {
       const r = await run(argv, { timeoutMs: 120000 })
       const out = [r.stdout, r.stderr].filter((s) => s.length > 0).join('\n')
       const tail = out.length > 0 ? out : `exit code: ${r.code} (no output)`
+      // 输出头部附带远程目标，让模型每一轮都明确当前正在控制的远程环境与目录
+      const banner = `[remote:${parsed.target.kind}] ${describeTarget(parsed.target)}:${remoteWd}`
       if (r.code !== 0) {
-        return { text: `${tail}\n[exit code: ${r.code}]` }
+        return { text: `${banner}\n${tail}\n[exit code: ${r.code}]` }
       }
-      return { text: tail }
+      return { text: `${banner}\n${tail}` }
     },
   }
   try {
@@ -470,8 +658,36 @@ function registerRemoteBash(ctx: any) {
   }
 }
 
+/**
+ * 注册 systemPrompt 运行时上下文：会话 cwd 是远程工作区（WSL UNC 或 SSH/Docker
+ * 本地锚目录）时，向模型注入"当前在远程环境 + 正在控制哪个远程文件夹"的说明，
+ * 并明确标准文件工具与 remote_bash 的分工。非远程会话贡献空文本。
+ */
+function registerRemoteContext(ctx: any) {
+  try {
+    ctx.inject(['systemPrompt'], (scope: any) => {
+      scope.systemPrompt.context({
+        name: 'remote:workspace',
+        order: 120,
+        text: (context: any) => {
+          const session = context?.agent?.session
+          if (!session) return ''
+          const cwd = session.header?.cwd as string | undefined
+          if (!cwd) return ''
+          const uri = uriFromCwd(cwd)
+          if (!uri) return ''
+          return renderRemoteContext(uri)
+        },
+      })
+    })
+  } catch (e) {
+    ctx.logger?.warn?.('[remote-workspace] 远程环境上下文注册失败：' + String((e as Error)?.message || e))
+  }
+}
+
 export function apply(ctx: any) {
   registerRemoteBash(ctx)
+  registerRemoteContext(ctx)
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
@@ -489,7 +705,15 @@ export function apply(ctx: any) {
       }
       let body = ''
       try {
-        for await (const chunk of req) body += chunk
+        for await (const chunk of req) {
+          body += chunk
+          // 请求体上限 64KB：防超大 POST 撑爆宿主内存（与 file-explorer/skills-manager 同款防护）
+          if (body.length > 64 * 1024) {
+            res.writeHead(413, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ ok: false, error: '请求体过大（> 64KB）' }))
+            return
+          }
+        }
       } catch {
         res.writeHead(400)
         res.end(JSON.stringify({ ok: false, error: '请求读取失败' }))
@@ -503,11 +727,11 @@ export function apply(ctx: any) {
         res.end(JSON.stringify({ ok: false, error: '请求体不是合法 JSON' }))
         return
       }
-      const result = await handle(payload && payload.method ? String(payload.method) : '', payload && payload.args ? payload.args : {})
+      const result = await handle(payload && payload.method ? String(payload.method) : ``, payload && payload.args ? payload.args : {}, ctx)
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(result))
     },
   }), 'dsh-remote-workspace: /remote-ws api route')
 
-  ctx.logger?.info?.('[remote-workspace] host 已就绪：/remote-ws/api + remote_bash 工具')
+  ctx.logger?.info?.('[remote-workspace] host 已就绪：/remote-ws/api + remote_bash 工具 + 远程环境上下文')
 }

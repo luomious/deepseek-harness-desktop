@@ -1,0 +1,23 @@
+# dsh-model-tier-router — 同源模型自动分级路由
+# 同一 provider 下配置高/低两个模型；简单任务走 low，复杂任务走 high。
+# 注：运行时 dev_inject_plugin 注入时 config={}，会使用代码内 DEFAULTS；
+#     重启后（bundles 装配）由本文件的 config 接管并覆盖 DEFAULTS。
+- insert:
+    - id: dsh-model-tier-router
+      name: '@dsh-external/dsh-model-tier-router'
+      config:
+        enabled: true
+        # bidirectional: 高低双向切换；downgrade: 只降级不升级；upgrade: 只升级不降级
+        direction: bidirectional
+        # 分类不明确（无关键词且长度不足）时用哪个：high 保守 / low 省钱
+        ambiguous: high
+        # 任务文本长度 >= 该值时判定为复杂任务
+        minComplexLength: 140
+        # 同源高/低模型映射（provider 必须与模型选择器里显示的一致）
+        routes:
+          - provider: modlens-tokenrhythm01
+            high: deepseek-v4-pro-0813
+            low: deepseek-v4-flash
+          - provider: modlens-xiaomi-token-plan-cn
+            high: mimo-v2.5-pro
+            low: deepseek-v4-flash
