@@ -5,6 +5,84 @@
 
 ---
 
+## 插件中心（v1.4.0 开发中 · 源码层，未打包）
+
+> 借鉴 `fufankeji/deepseek-harness-studio` 的插件发现/热点/推荐能力，以「不引入上游源码、不破坏现有鲁棒性工程」为前提落地。方案见 `docs/plugin-center-proposal.md`。
+
+### 新增功能
+
+| 功能 | 模块 | 说明 |
+|------|------|------|
+| 插件目录/发现 | `src/lib/plugin-catalog.js` | npm registry 搜索（keywords:dsh-plugin），归一化 + 人气/近期排序 + 内存缓存(TTL) + 优雅降级（任何失败返回空列表/旧缓存，绝不抛异常） |
+| 一键安装 | `src/lib/window-ui.js` | 「发现插件」标签页：浏览/搜索/一键安装，复用既有安全安装（无 shell + 包名白名单） |
+| 热点推送 | 同上 | 「人气 / 最新」排序切换 |
+| 规则版推荐 | `recommendByRule` | 基于已装插件关键词的同类推荐 |
+| 需求式推荐 | `recommendByQuery` | 「一句话帮我推荐」：本地关键词匹配（含中文→英文映射），零 LLM 依赖、零 API 额度消耗 |
+| 目录失败诊断 | `src/lib/error-codes.js` | 新增 `PLG-004` 错误码 |
+
+### 安全约束（沿用既有基线）
+
+- 网络请求只在主进程；渲染层 CSP `default-src 'none'` 不放开。
+- 目录/推荐 IPC 只读且仅插件管理窗口可调（`isPluginManagerSender` 校验）。
+- 远程数据双层防御：渲染前 `esc()` 转义 + 安装前 `validateArg('pkg')` 白名单。
+
+### 测试
+
+- `tests/plugin-catalog.js`：40 条用例（网络失败/缓存/降级/排序/推荐，全部不抛异常）。
+- `tests/window-ui.js`：92 条用例（IPC 来源校验 + 新增 catalog/recommend 授权）。
+
+### ⚠️ 未打包
+
+本条目改动均为 `src/` 源码 + 测试，**尚未重打 app.asar**。桌面 exe 要看到效果，需执行 `build-app.ps1` 并完全退出旧实例后重启（见 PROJECT_README.md）。
+
+---
+
+## 故障排查记录：dsh 服务反复崩溃 / 界面打不开 / "Failed to load plugins"（2026-08-20）
+
+### 现象
+应用打不开：`%TEMP%\dsh-service.log` 与 `%TEMP%\dsh-desktop-error.log` 反复出现
+`BOOT-002 dsh 进程运行中意外退出 code=1`（自动重启 3 次用尽后弹窗），前端控制台报
+`Failed to load plugins / failed to import loader entry (@deepseek-ai/dsh-session-log-export):
+client-modules: bundle script /plugins/@deepseek-ai/dsh-session-log-export/client.js?rev=... failed to load`。
+
+### 根因（两层问题叠加）
+
+**第一层（致命，导致 dsh 崩溃）：`@dsh-external/dsh-context-lifecycle` 激活失败拖垮整棵插件树**
+- 该插件由 super-injector 以 junction 链接注入 profile
+  （`web\node_modules\@dsh-external\dsh-context-lifecycle` → `D:\Deepseek-Harness\dsh-context-lifecycle`），
+  其 `cordis.patch.yml` 插入自身条目，`inject` 声明依赖
+  `['agents', 'compaction', 'tokenMeter', 'webServer']`；
+- 但 **compaction 服务未在 web profile 激活树中**：`dsh-compaction`（抽象接口）+ `dsh-compaction-basic`（实现）
+  均不在 web 依赖/激活列表（`dsh-web-app` / `dsh-base` 都不依赖它）→ 插件永远
+  `pending (waiting for service: compaction)` → dsh-app-boot 判定
+  `1 entry did not activate` → **整个插件树加载失败 → dsh 进程 code=1 退出**。
+
+**第二层（连带，前端报错）：`@deepseek-ai/dsh-session-log-export` 孤儿包 bundle 404**
+- 该包是根级 `profiles\node_modules\@deepseek-ai\` 下的非 pnpm 安装残留（`.pnpm` 中无对应），
+  却被 loader 扫到生成 entry → 因插件树崩溃导致 `/plugins/` 服务未建立 → 前端加载其
+  client.js 得到 404 → 渲染端报 "Failed to load plugins"。
+
+### 排查过程中的坑（避免重蹈）
+1. **`disabled` 条目 id 必须精确匹配 insert 条目的 id**：context-lifecycle 的 insert id 是
+   `dsh-context-lifecycle`（无 `@` 前缀），写成 `@dsh-external/dsh-context-lifecycle` 不匹配 → 禁用无效。
+2. **junction 改名 `.disabled` 无效**：loader 按包内 `package.json` 的 `name` 字段识别并扫描，
+   不按目录名；改目录名不会阻止扫描。
+3. **删 junction 会被 super-injector 重建**：super-injector 运行时维护仓库插件注入，删除后数秒内
+   自动重建链接 → 单纯删链接不能解决问题。
+4. **compaction 是接口不是实现**：只装 `@deepseek-ai/dsh-compaction`（抽象 seam）不够，
+   还需 `dsh-compaction-basic` 提供实现且二者都进入激活树。
+
+### 修复（当前已生效，应用可正常打开）
+1. `~/.dsh/profiles/web/cordis.patch.yml`：修正 disabled 条目 id 为 `dsh-context-lifecycle`
+   （匹配 insert 条目），使该开发中插件跳过激活 → 插件树加载成功。
+2. `profiles\node_modules\@deepseek-ai\dsh-session-log-export` 改名
+   `.disabled`（非 pnpm 孤儿包，loader 不再生成 entry）。
+3. 若后续要**真正启用** dsh-context-lifecycle：移除 disabled 条目，并在 web profile 启用
+   `dsh-compaction` + `dsh-compaction-basic`（加入激活树），且确认二者在激活列表中
+   （注意 super-injector 会重建链接，删除无用）。
+
+---
+
 ## DeepSeek Harness 桌面端 v1.3.0 发布说明
 
 ## 新功能（鲁棒性改造：报错可定位 / 不致命 / 不重复）

@@ -1,0 +1,8 @@
+{
+  "name": "deepseek-harness-desktop",
+  "private": true,
+  "description": "DeepSeek Harness Desktop — Windows 桌面封装应用（测试入口）",
+  "scripts": {
+    "test": "node tests/run-all.js"
+  }
+}

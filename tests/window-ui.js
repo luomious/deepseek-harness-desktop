@@ -33,6 +33,7 @@ function makeWebContents() {
     setWindowOpenHandler: () => {},
     reload: () => { reloadCount++; },
     openDevTools: () => {},
+    isDestroyed: () => false,
   };
   return wc;
 }
@@ -132,6 +133,7 @@ function makeEnv(overrides = {}) {
     isDSHOrigin: (url) => { state.isDSHOriginCalls.push(url); return url.startsWith('http://127.0.0.1:3080'); },
     isDev: false,
     pluginManager: state.pluginManager,
+    pluginCatalog: { browse: async () => ({ ok: true, items: [] }), recommend: async () => [] },
     updateChecker: state.updateChecker,
     exportDiagnostics: state.exportDiagnostics,
     getAppVersion: () => '1.3.0',
@@ -163,8 +165,8 @@ function setupWindows() {
   {
     const { ui, state } = makeEnv();
     ui.initIpc();
-    const expect = ['plugin:install', 'plugin:uninstall', 'plugin:installLocal', 'plugin:list', 'plugin:setEnabled', 'dialog:selectFolder', 'app:restart', 'app:checkUpdate', 'app:getVersion'];
-    t('注册 9 个 handler', state.handleCalls.length, 9);
+    const expect = ['plugin:install', 'plugin:uninstall', 'plugin:installLocal', 'plugin:list', 'plugin:catalog', 'plugin:recommend', 'plugin:setEnabled', 'dialog:selectFolder', 'app:restart', 'app:checkUpdate', 'app:getVersion'];
+    t('注册 11 个 handler', state.handleCalls.length, 11);
     t('channel 顺序正确', JSON.stringify(state.handleCalls), JSON.stringify(expect));
   }
   {
@@ -172,7 +174,7 @@ function setupWindows() {
     ui.initIpc();
     const { ui: ui2 } = makeEnv();
     ui2.initIpc();
-    t('重复 initIpc 不覆盖（幂等调用侧为 main.js 责任）', state.handleCalls.length, 9);
+    t('重复 initIpc 不覆盖（幂等调用侧为 main.js 责任）', state.handleCalls.length, 11);
   }
   {
     // 非受信 sender（伪造 webContents 对象，非主窗口/插件窗口）
@@ -193,6 +195,11 @@ function setupWindows() {
     const r6 = await state.handles['app:restart'](fake);
     t('app:restart 非受信拒绝', r6.success, false);
     t('app:restart 非受信不重启', (state.relaunchCalls || 0) + (state.quitCalls || 0), 0);
+    const r7 = await state.handles['plugin:catalog'](fake, 'theme');
+    t('plugin:catalog 非受信拒绝', r7.ok, false);
+    t('plugin:catalog 非受信错误文案', r7.error, '未授权的调用来源');
+    const r8 = await state.handles['plugin:recommend'](fake);
+    t('plugin:recommend 非受信返回空', r8.length, 0);
   }
   {
     // 受信来源：主窗口 + 插件管理窗口
@@ -210,6 +217,10 @@ function setupWindows() {
     t('app:checkUpdate 主窗口授权透传', r4.local, '1.0.0');
     const r5 = await state.handles['app:getVersion'](mainEv);
     t('app:getVersion 主窗口授权', r5, '0.1.0-rc.7');
+    const r6 = await state.handles['plugin:catalog'](pmEv, 'theme');
+    t('plugin:catalog 插件窗口授权透传', r6.ok, true);
+    const r7 = await state.handles['plugin:recommend'](pmEv);
+    t('plugin:recommend 插件窗口授权透传', Array.isArray(r7), true);
   }
   {
     // app:restart 授权路径：插件窗口 → relaunch + quit；主窗口被拒
@@ -336,13 +347,12 @@ function setupWindows() {
       wc.handlers['render-process-gone'](null, { reason: 'crashed', exitCode: 3 });
       t('崩溃记录 RENDER-001', state.errorEntries[0].code, 'RENDER-001');
       t('崩溃 ctx 记录 reason', state.errorEntries[0].ev.ctx.reason, 'crashed');
-      t('brain.emit 收到崩溃事件', state.reports.length, 0);
+      t('retry 分支先按失败记账 report(retry,false)', state.reports[0].action + ',' + state.reports[0].ok, 'retry,false');
       t('注册 5s 定时器', fakeTimers.length, 1);
       t('定时器延迟 5000ms', fakeTimers[0].ms, 5000);
       const mainWc = state.windows[0].webContents;
       fakeTimers[0].fn();
       t('5s 后 reload 主窗口', mainWc.reloadCount(), 1);
-      t('report(retry, true)', state.reports[0].action + ',' + state.reports[0].ok, 'retry,true');
       t('bootLog 记录自动恢复', state.bootLogs.some((m) => m.includes('RENDER-001 -> retry')), true);
     } finally { global.setTimeout = savedSetTimeout; }
   }

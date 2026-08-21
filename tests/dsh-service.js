@@ -17,7 +17,7 @@ Module._load = function (request, parent, isMain) {
   return origLoad.apply(this, arguments);
 };
 
-const { createDshService, findDshBin, DSH_PORT } = require('../src/lib/dsh-service.js');
+const { createDshService, findDshBin, DSH_PORT, waitForReady, isDSHListening, isPortListening, findPidOnPort } = require('../src/lib/dsh-service.js');
 
 let pass = 0, fail = 0;
 function t(name, actual, expected) {
@@ -110,6 +110,49 @@ const svc = createDshService({ errorLog: makeErrorLog(), logger: () => {} });
   svc2.stop();
   await new Promise((r) => setTimeout(r, 500));
   t('stop 后 isRunning=false', svc2.isRunning(), false);
+
+  // ── start 防重入（阶段4）────────────────────────────
+  console.log('== start re-entrancy ==');
+  const svcR = createDshService({ errorLog: makeErrorLog(), logger: () => {}, findDshBin: () => ({ node: process.execPath, bin: sleepJs }) });
+  const p1 = svcR.start();
+  const p2 = svcR.start();
+  t('并发 start 复用同一 promise', p1 === p2, true);
+  await p1;
+  t('并发 start 后 isRunning=true', svcR.isRunning(), true);
+  const p3 = svcR.start();
+  t('结算后新 start 是新 promise（可重启）', p3 !== p1, true);
+  svcR.stop();
+  await new Promise((r) => setTimeout(r, 500));
+
+  // ── isDSHListening / waitForReady 验证（阶段4）───────
+  console.log('== isDSHListening ==');
+  const httpSrv = require('http').createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<html>__DSH_BOOT__ boot manifest</html>');
+  });
+  const nonDsh = require('http').createServer((req, res) => { res.writeHead(200); res.end('hello'); });
+  const portA = 49881, portB = 49882;
+  await new Promise((r) => httpSrv.listen(portA, '127.0.0.1', r));
+  await new Promise((r) => nonDsh.listen(portB, '127.0.0.1', r));
+  t('含 __DSH_BOOT__ 判定为 DSH', await isDSHListening(portA), true);
+  t('不含 __DSH_BOOT__ 判定非 DSH', await isDSHListening(portB), false);
+  t('未监听端口判定非 DSH', await isDSHListening(49890), false);
+  // 模块级 waitForReady 支持端口注入（service 包装器固定用 DSH_PORT）
+  const readyNonDsh = await waitForReady(portB, 2, 50);
+  t('waitForReady 对陌生服务返回 false', readyNonDsh, false);
+  const readyDsh = await waitForReady(portA, 2, 50);
+  t('waitForReady 对 DSH 服务返回 true', readyDsh, true);
+  httpSrv.close();
+  nonDsh.close();
+
+  // ── stop 幂等（阶段3 防误杀改造后不抛错）─────────────
+  console.log('== stop ==');
+  const svcStop = createDshService({ errorLog: makeErrorLog(), logger: () => {}, findDshBin: () => ({ node: process.execPath, bin: sleepJs }) });
+  await svcStop.start();
+  t('stop 前 isRunning', svcStop.isRunning(), true);
+  svcStop.stop();
+  svcStop.stop(); // 幂等
+  t('stop 幂等不抛错', true, true);
 
   // 清理
   try { fs.unlinkSync(sleepJs); fs.unlinkSync(exitJs); } catch (e) {}

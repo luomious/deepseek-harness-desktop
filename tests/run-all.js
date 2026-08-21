@@ -1,8 +1,9 @@
-// 统一测试入口：顺序运行全部单测文件，汇总结果。
+// 统一测试入口：顺序运行全部单测文件。
+// 修复（Item6）：原实现用 spawnSync 捕获 stdout，在 DSH 沙箱内因管道 EPERM 全红；
+// 改为 async spawn + stdio:'inherit'（沙箱允许 inherit/ignore，禁止 pipe 捕获），
+// 按子进程退出码判 PASS/FAIL。
 // 用法：node tests/run-all.js
-// 每个文件非零退出码视为失败；汇总后整体退出码反映全绿与否。
-
-const { spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const path = require('path');
 
 const files = [
@@ -13,30 +14,34 @@ const files = [
   'smoke-v119-logic.js',
   'dsh-service.js',
   'update-check.js',
+  'plugin-catalog.js',
   'plugin-manager.js',
   'window-ui.js',
+  'icon-guard.js',
+  'build-lock.test.js',
+  'http-guard.js',
+  'safe-mode-blocks.js',
 ];
 
-let totalPass = 0;
-let totalFail = 0;
-let failedFiles = [];
+function runFile(f) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(__dirname, f)], { stdio: 'inherit' });
+    child.on('close', (code) => resolve(code === 0));
+    child.on('error', (e) => { console.error(`  ERR 无法启动 ${f}: ${e.message}`); resolve(false); });
+  });
+}
 
-for (const f of files) {
-  const p = path.join(__dirname, f);
-  const r = spawnSync(process.execPath, [p], { encoding: 'utf8' });
-  const last = (r.stdout || '').trim().split('\n').filter((l) => l.includes('passed')).pop() || '';
-  const m = last.match(/(\d+) passed, (\d+) failed/);
-  if (m) {
-    totalPass += Number(m[1]);
-    totalFail += Number(m[2]);
+(async () => {
+  let ok = 0;
+  const failed = [];
+  for (const f of files) {
+    const passed = await runFile(f);
+    if (passed) { ok++; console.log(`PASS ${f}`); }
+    else { failed.push(f); console.log(`FAIL ${f}`); }
   }
-  if (r.status !== 0) failedFiles.push(f);
-  process.stdout.write(`  ${r.status === 0 ? 'PASS' : 'FAIL'} ${f}  ${last}\n`);
-}
-
-console.log('');
-console.log(`TOTAL: ${totalPass} passed, ${totalFail} failed, ${files.length - failedFiles.length}/${files.length} files OK`);
-if (failedFiles.length > 0) {
-  console.log('FAILED FILES: ' + failedFiles.join(', '));
-  process.exit(1);
-}
+  console.log(`\nTOTAL: ${ok}/${files.length} files OK`);
+  if (failed.length > 0) {
+    console.log('FAILED FILES: ' + failed.join(', '));
+    process.exit(1);
+  }
+})();
