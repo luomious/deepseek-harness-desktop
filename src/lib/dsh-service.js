@@ -5,6 +5,8 @@
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const net = require('net');
+const http = require('http');
+const zlib = require('zlib');
 const os = require('os');
 const path = require('path');
 const { app } = require('electron');
@@ -124,6 +126,80 @@ function isPortListening(port) {
 }
 
 /**
+ * 验证端口上是真正的 DSH 服务（HTTP GET 根路径，检查 __DSH_BOOT__ boot manifest）。
+ * 防竞态：waitForReady 只探测端口会被陌生进程误导；带 isDSH 校验后，
+ * 「端口在听但内容不对」不会被误判为就绪。容错 gzip（内容损坏回退原始字节）。
+ */
+function isDSHListening(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
+      const chunks = [];
+      res.on('data', (d) => {
+        chunks.push(d);
+        if (Buffer.concat(chunks).length > 65536) req.destroy();
+      });
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        let body;
+        try {
+          body = (res.headers['content-encoding'] || '').toLowerCase() === 'gzip'
+            ? zlib.gunzipSync(buf).toString()
+            : buf.toString();
+        } catch (e) {
+          // 声称 gzip 但内容损坏：回退原始字节，避免 promise 永不结算
+          body = buf.toString();
+        }
+        resolve(body.includes('__DSH_BOOT__'));
+      });
+    });
+    req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+/**
+ * 解析监听指定端口的进程 pid（Windows: netstat -ano；其他平台暂不支持返回 null）。
+ * 精确匹配 ":<port> "（后跟空白），避免 :3080 误匹配 :30800 等端口。
+ */
+function findPidOnPort(port) {
+  return new Promise((resolve) => {
+    try {
+      if (process.platform !== 'win32') { resolve(null); return; }
+      const lines = execSync('netstat -ano', { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).split(/\r?\n/);
+      const portRe = new RegExp(':' + port + '\\s');
+      for (const line of lines) {
+        if (portRe.test(line) && line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (/^\d+$/.test(pid)) { resolve(Number(pid)); return; }
+        }
+      }
+    } catch (e) {}
+    resolve(null);
+  });
+}
+
+/** 查询进程名（Windows tasklist；失败返回空串） */
+function processNameOf(pid) {
+  try {
+    const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
+    const m = /^"([^"]+)"/.exec(out.trim());
+    return m ? m[1].toLowerCase() : '';
+  } catch (e) { return ''; }
+}
+
+/** 强杀整棵进程树（Windows taskkill /T /F；POSIX SIGTERM）。异步，不等待。 */
+function treeKill(pid) {
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/f', '/t'], { stdio: 'ignore', shell: false });
+    } else {
+      process.kill(pid, 'SIGTERM');
+    }
+  } catch (e) {}
+}
+
+/**
  * 强制清理占用指定端口的进程（Windows: taskkill；macOS/Linux: fuser -k）
  * 用于端口被僵死/非 DSH 进程占用时，自愈式清理后重新拉起服务。
  * 防误杀：Windows 下先解析占用进程名，仅当进程名属于 node/electron 类
@@ -133,43 +209,28 @@ function killProcessOnPort(port) {
   return new Promise((resolve) => {
     try {
       if (process.platform === 'win32') {
-        let pid = null;
-        try {
-          const lines = execSync('netstat -ano', { encoding: 'utf-8', windowsHide: true, timeout: 5000 }).split(/\r?\n/);
-          // 精确匹配 ":<port> "（后跟空白），避免 :3080 误匹配 :30800 等其它端口
-          const portRe = new RegExp(':' + port + '\\s');
-          for (const line of lines) {
-            if (portRe.test(line) && line.includes('LISTENING')) {
-              const parts = line.trim().split(/\s+/);
-              pid = parts[parts.length - 1];
-              break;
+        findPidOnPort(port).then((pid) => {
+          if (pid) {
+            // 进程名白名单：仅清理 node/electron 类进程（DSH 是 node 服务）。
+            // 避免误杀用户业务程序（如 python 等也监听 3080 的情况）。
+            const pname = processNameOf(pid);
+            const allowed = pname === '' || ['node.exe', 'electron.exe', 'dsh.exe'].some((n) => pname.endsWith(n) || pname === n);
+            if (!allowed) {
+              console.log(`[DSH Desktop] Port ${port} held by non-node process "${pname}" (pid ${pid}), NOT killing it`);
+              resolve(false);
+              return;
             }
+            treeKill(pid);
+            console.log(`[DSH Desktop] Killed process ${pid} holding port ${port}`);
           }
-        } catch (e) {}
-        if (pid) {
-          // 进程名白名单：仅清理 node/electron 类进程（DSH 是 node 服务）。
-          // 避免误杀用户业务程序（如 python 等也监听 3080 的情况）。
-          let pname = '';
-          try {
-            const out = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, { encoding: 'utf-8', windowsHide: true, timeout: 5000 });
-            const m = /^"([^"]+)"/.exec(out.trim());
-            if (m) pname = m[1].toLowerCase();
-          } catch (e) {}
-          const allowed = pname === '' || ['node.exe', 'electron.exe', 'dsh.exe'].some((n) => pname.endsWith(n) || pname === n);
-          if (!allowed) {
-            console.log(`[DSH Desktop] Port ${port} held by non-node process "${pname}" (pid ${pid}), NOT killing it`);
-            resolve(false);
-            return;
-          }
-          spawn('taskkill', ['/pid', pid, '/f', '/t'], { stdio: 'ignore', shell: false });
-          console.log(`[DSH Desktop] Killed process ${pid} holding port ${port}`);
-        }
-      } else {
-        spawn('fuser', ['-k', `${port}/tcp`], { stdio: 'ignore', shell: false });
+          // 不等待 taskkill 完成（异步清理），resolve 后由调用方轮询端口
+          resolve(true);
+        }).catch(() => resolve(true));
+        return;
       }
-    } catch (e) {}
-    // 不等待 taskkill 完成（异步清理），resolve 后由调用方轮询端口
-    resolve(true);
+      spawn('fuser', ['-k', `${port}/tcp`], { stdio: 'ignore', shell: false });
+      resolve(true);
+    } catch (e) { resolve(true); }
   });
 }
 
@@ -183,10 +244,10 @@ async function waitPortReleased(port, maxRetries = 10, interval = 500) {
   return false;
 }
 
-/** 等 DSH 服务就绪（最大 30 秒） */
+/** 等 DSH 服务就绪（最大 30 秒）：端口在听且是真正的 DSH（__DSH_BOOT__）才算就绪 */
 async function waitForReady(port, maxRetries = 60, interval = 500) {
   for (let i = 0; i < maxRetries; i++) {
-    if (await isPortListening(port)) return true;
+    if (await isDSHListening(port)) return true;
     await new Promise((r) => setTimeout(r, interval));
   }
   return false;
@@ -207,6 +268,10 @@ function createDshService(options) {
 
   let dshProcess = null;
   let onUnexpectedExit = null;
+  /** 本次会话 spawn 过的 DSH 进程 pid（stop 时只杀自己的进程树，防误杀其他程序） */
+  const ownedPids = new Set();
+  /** 进行中的 start promise（防重入：并发 start 复用同一 promise，避免双 spawn） */
+  let startPromise = null;
 
   function appendServiceLog(line) {
     try {
@@ -218,9 +283,11 @@ function createDshService(options) {
    * 启动 DSH Web 服务（node + bin.js 绝对路径，无 shell，不依赖 PATH）。
    * resolve 表示"进程已成功 spawn"（就绪检测由 waitForReady 负责）；
    * spawn 后立即退出会 reject 并附带 stderr；运行中意外退出触发 onUnexpectedExit。
+   * 防重入：whenReady / second-instance / activate 可能并发调用，进行中复用同一 promise。
    */
   function start() {
-    return new Promise((resolve, reject) => {
+    if (startPromise) return startPromise;
+    startPromise = new Promise((resolve, reject) => {
       const dshArgs = ['web'];
       const dsh = findBin();
       if (!dsh) {
@@ -231,21 +298,24 @@ function createDshService(options) {
 
       console.log(`[DSH Desktop] Starting: ${dsh.node} ${dsh.bin} ${dshArgs.join(' ')}`);
 
-      dshProcess = spawn(dsh.node, [dsh.bin, ...dshArgs], {
+      const child = spawn(dsh.node, [dsh.bin, ...dshArgs], {
         cwd: app.getPath('home'),
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
         windowsHide: true,
         env: buildDshEnv(),
       });
+      dshProcess = child;
 
       // settled：promise 是否已结算（spawn 成功即 resolve，之后 exit 视为"运行中退出"）
       // 不依赖 stdout 文本（DSH 输出格式可能变化），避免 started 标志永不置位导致崩溃无提示
       let settled = false;
       // 收集 stderr，启动早期退出时带进错误信息，便于用户/开发者排查具体原因
       let stderrBuf = '';
+      // 注意：事件处理器一律引用局部 child（不能引用共享变量 dshProcess——
+      // stop() 会置空它、后续 start 会替换它，异步事件触发时会读错/读到 null）
 
-      dshProcess.stdout.on('data', (data) => {
+      child.stdout.on('data', (data) => {
         const text = data.toString().trim();
         if (text) {
           console.log(`[DSH] ${text}`);
@@ -253,7 +323,7 @@ function createDshService(options) {
         }
       });
 
-      dshProcess.stderr.on('data', (data) => {
+      child.stderr.on('data', (data) => {
         const text = data.toString().trim();
         if (text) {
           console.error(`[DSH ERR] ${text}`);
@@ -263,16 +333,18 @@ function createDshService(options) {
         }
       });
 
-      dshProcess.on('error', (err) => {
+      child.on('error', (err) => {
         console.error(`[DSH Desktop] Failed to start dsh:`, err);
+        ownedPids.delete(child.pid);
         if (!settled) reject(err);
       });
 
-      dshProcess.on('exit', (code, signal) => {
+      child.on('exit', (code, signal) => {
         console.log(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}`);
         const exitDetail = stderrBuf.trim() ? `\nstderr:\n${stderrBuf.trim().slice(-4096)}` : '';
         logger(`[DSH Desktop] dsh process exited: code=${code} signal=${signal}${exitDetail}`);
-        dshProcess = null;
+        ownedPids.delete(child.pid);
+        if (dshProcess === child) dshProcess = null;
         // 启动早期退出（promise 未结算，即 spawn 成功前就退出）：视为启动失败，
         // 立即 reject 而不是等 30s 超时；附带 stderr 便于排查
         if (!settled) {
@@ -288,45 +360,34 @@ function createDshService(options) {
       });
 
       // 等待进程成功 spawn（避免 spawn 同步错误被吞）
-      dshProcess.once('spawn', () => {
+      child.once('spawn', () => {
         settled = true;
+        ownedPids.add(child.pid);
         resolve();
       });
     });
+    // 结算后清空 startPromise，允许下一次 start
+    startPromise.then(() => { startPromise = null; }, () => { startPromise = null; });
+    return startPromise;
   }
 
-  /** 停止 DSH Web 服务（强制清理，确保无孤儿进程） */
+  /** 停止 DSH Web 服务（只清理本次会话 spawn 的进程，防误杀用户其他程序） */
   function stop() {
     console.log('[DSH Desktop] Stopping dsh process...');
 
-    // 1. 先尝试关闭已知子进程树
-    if (dshProcess) {
-      if (process.platform === 'win32') {
-        try {
-          // taskkill 是原生 exe，无需 shell；参数全部为内部生成的 pid，无注入面
-          spawn('taskkill', ['/pid', String(dshProcess.pid), '/f', '/t'], {
-            stdio: 'ignore', shell: false,
-          });
-        } catch (e) {}
-      } else {
-        try { dshProcess.kill('SIGTERM'); } catch (e) {}
-      }
+    // 1. 先杀已知子进程树（精确 pid，taskkill /T 覆盖整棵树）
+    if (dshProcess && dshProcess.pid) {
+      treeKill(dshProcess.pid);
+      ownedPids.delete(dshProcess.pid);
     }
 
-    // 2. 无论是否有子进程引用，直接按端口强制清理（最可靠，避免孤儿进程）
+    // 2. 端口兜底：仅当监听者是我们本次会话 spawn 过的 pid 才清理。
+    //    不再无条件按端口强杀（此前会误杀用户占用 3080 的其他程序）；
+    //    非本会话的占用者交给启动期 killProcessOnPort（进程名白名单）处理。
     if (process.platform === 'win32') {
-      try {
-        // powershell 为原生 exe，-Command 整串作为单个参数传入，无 shell 拼接
-        spawn('powershell', [
-          '-NoProfile', '-Command',
-          `Get-NetTCPConnection -LocalPort ${DSH_PORT} -State Listen -ErrorAction SilentlyContinue | ForEach-Object { ` +
-          `try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {} }`,
-        ], { stdio: 'ignore', shell: false });
-      } catch (e) {}
-    } else {
-      try {
-        spawn('fuser', ['-k', `${DSH_PORT}/tcp`], { stdio: 'ignore', shell: false });
-      } catch (e) {}
+      findPidOnPort(DSH_PORT).then((pid) => {
+        if (pid && ownedPids.has(pid)) treeKill(pid);
+      }).catch(() => {});
     }
 
     dshProcess = null;
@@ -351,6 +412,7 @@ function createDshService(options) {
     killProcess,
     isRunning,
     isPortListening: (port) => isPortListening(port || DSH_PORT),
+    isDSHListening: (port) => isDSHListening(port || DSH_PORT),
     waitForReady: (maxRetries, interval) => waitForReady(DSH_PORT, maxRetries, interval),
     killProcessOnPort,
     waitPortReleased,
@@ -359,4 +421,4 @@ function createDshService(options) {
   };
 }
 
-module.exports = { createDshService, findDshBin, DSH_PORT };
+module.exports = { createDshService, findDshBin, DSH_PORT, waitForReady, isDSHListening, isPortListening, findPidOnPort };

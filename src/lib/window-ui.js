@@ -16,6 +16,7 @@ function createWindowUI(options) {
   const isDSHOrigin = options.isDSHOrigin;
   const isDev = options.isDev;
   const pluginManager = options.pluginManager;
+  const pluginCatalog = options.pluginCatalog;
   const updateChecker = options.updateChecker;
   const exportDiagnostics = options.exportDiagnostics;
   const getAppVersion = options.getAppVersion;
@@ -53,6 +54,10 @@ function createWindowUI(options) {
 
     setMainWindow(win);
 
+    // 渲染崩溃自愈的「待确认」事件：retry 先按失败记账，等 reload 后页面真正
+    // 加载成功（did-finish-load 确认 boot 正常）才 report(true) 清零节流。
+    let pendingRenderRecovery = null;
+
     win.loadFile(path.join(__dirname, 'renderer', 'loading.html')).catch((err) => {
       // 本地文件加载失败几乎不会发生，但避免 unhandled rejection
       console.error('[DSH Desktop] Failed to load loading page:', err);
@@ -87,19 +92,21 @@ function createWindowUI(options) {
     win.webContents.on('render-process-gone', (_event, details) => {
       rendererLog('render-process-gone', `reason=${details?.reason}, exitCode=${details?.exitCode}`);
       errorLog.log('RENDER-001', { module: 'renderer', msg: `reason=${details?.reason}, exitCode=${details?.exitCode}`, ctx: { reason: details?.reason, exitCode: details?.exitCode } });
-      // 崩溃自动恢复：交给诊断引擎决策（5 秒后 reload 一次；连续崩溃由节流/判环自动停止）
+      // 崩溃自动恢复：交给诊断引擎决策（5 秒后 reload 一次；连续崩溃由节流/判环自动停止）。
+      // 关键：retry 先按「失败」记账，等 reload 后页面真正加载成功（did-finish-load
+      // 确认 boot 正常）才 report(true) 清零。若在 reload 前就记成功，确定性崩溃会
+      // 「崩溃->retry记成功->节流清零->再崩->再retry」无限循环，违背判环设计。
       if (!isQuitting()) {
         const crashEvent = { code: 'RENDER-001', stage: 'render', key: details?.reason || 'gone' };
         const decision = brain.emit(crashEvent);
         if (decision && decision.action === 'retry') {
+          try { brain.report(crashEvent, 'retry', false); } catch (e) {}
+          pendingRenderRecovery = crashEvent;
           bootLog('brain: RENDER-001 -> retry, auto reload in 5s');
           setTimeout(() => {
             const w = getMainWindow();
-            if (w && !w.isDestroyed()) {
-              brain.report(crashEvent, 'retry', true);
+            if (w && !w.isDestroyed() && !w.webContents.isDestroyed()) {
               w.webContents.reload();
-            } else {
-              brain.report(crashEvent, 'retry', false);
             }
           }, 5000);
         } else {
@@ -131,6 +138,50 @@ function createWindowUI(options) {
       if (!isDSHOrigin(url)) {
         event.preventDefault();
       }
+    });
+
+    // ── Boot 失败自动恢复（boot-guard）──
+    // 根因：loadURL 成功（HTTP 200）但 JS boot 内部失败（"Failed to load plugins"），
+    // 页面卡在 HARNESS 白屏。典型触发：并发构建窗口内 bundle 404。
+    // 策略：did-finish-load 后等 8s 让 boot 沉淀，检测 DOM 是否含失败标志；
+    // 若是则自动 reload（最多 3 次，间隔递增 3/6/9s）；检测到 boot 成功则重置计数。
+    // 注意：不能用 did-navigate 重置——reload 本身触发导航，会造成无限重试。
+    let bootRetryCount = 0;
+    const BOOT_RETRY_MAX = 3;
+    const BOOT_CHECK_DELAY_MS = 8000;
+    win.webContents.on('did-finish-load', () => {
+      // 只对 DSH 主页面检测（排除 loading.html / 插件管理窗口等）
+      const url = win.webContents.getURL();
+      if (!isDSHOrigin(url)) return;
+      setTimeout(() => {
+        if (win.isDestroyed()) return;
+        win.webContents.executeJavaScript(
+          `!!(document.body && document.body.innerText.indexOf('Failed to load plugins') >= 0)`,
+          true
+        ).then((isFailed) => {
+          if (win.isDestroyed()) return;
+          if (!isFailed) {
+            bootRetryCount = 0; // boot 正常 → 重置计数
+            // 渲染崩溃自愈确认：页面真正加载成功才把 retry 记为成功（清零节流）
+            if (pendingRenderRecovery) {
+              try { brain.report(pendingRenderRecovery, 'retry', true); } catch (e) {}
+              bootLog('brain: RENDER-001 -> recovery confirmed (page boot OK)');
+              pendingRenderRecovery = null;
+            }
+            return;
+          }
+          bootRetryCount++;
+          if (bootRetryCount > BOOT_RETRY_MAX) {
+            bootLog(`boot-guard: exceeded ${BOOT_RETRY_MAX} retries, giving up`);
+            return;
+          }
+          const delay = bootRetryCount * 3000;
+          bootLog(`boot-guard: detected "Failed to load plugins", retry ${bootRetryCount}/${BOOT_RETRY_MAX} in ${delay / 1000}s`);
+          setTimeout(() => {
+            if (!win.isDestroyed()) win.webContents.reload();
+          }, delay);
+        }).catch(() => { /* page navigated away, ignore */ });
+      }, BOOT_CHECK_DELAY_MS);
     });
 
     if (isDev) win.webContents.openDevTools();
@@ -212,6 +263,11 @@ function createWindowUI(options) {
   .plugin-name { font-size: 13px; font-weight: 500; }
   .plugin-ver { font-size: 12px; color: #888; margin-left: 8px; }
   .empty { color: #666; font-size: 13px; padding: 12px; text-align: center; }
+  .plugin-desc { font-size: 12px; color: #999; margin-top: 2px; max-width: 460px; overflow-wrap: break-word; }
+  .plugin-meta { font-size: 11px; color: #666; margin-top: 2px; }
+  .discover-main { flex: 1; min-width: 0; }
+  .discover-item { align-items: flex-start; }
+  .btn-toggle.active { background: #4a9eff; color: white; border-color: #4a9eff; }
   .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #333; }
   .tab { padding: 8px 16px; cursor: pointer; font-size: 13px; color: #888; border-bottom: 2px solid transparent; transition: all 0.2s; }
   .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
@@ -232,6 +288,7 @@ function createWindowUI(options) {
     <div class="tab active" onclick="switchTab('installed')">已安装</div>
     <div class="tab" onclick="switchTab('remote')">安装远程插件</div>
     <div class="tab" onclick="switchTab('local')">安装本地插件</div>
+    <div class="tab" onclick="switchTab('discover')">发现插件</div>
   </div>
 
   <div id="tab-installed" class="tab-content active">
@@ -273,6 +330,35 @@ function createWindowUI(options) {
     </div>
   </div>
 
+  <div id="tab-discover" class="tab-content">
+    <div class="section">
+      <div class="section-title">发现插件（npm 社区目录）</div>
+      <div class="input-row">
+        <input id="discover-search" placeholder="搜索插件，例如 web-search / theme / memory" onkeydown="if(event.key==='Enter')searchDiscover()" />
+        <button class="btn-primary" onclick="searchDiscover()">搜索</button>
+        <button class="btn-secondary" onclick="refreshDiscover()">刷新</button>
+        <button class="btn-toggle active" id="sort-pop" onclick="setSort('popularity')">人气</button>
+        <button class="btn-toggle" id="sort-recent" onclick="setSort('recent')">最新</button>
+      </div>
+      <div class="section-title" style="margin-top:8px">猜你喜欢（按已装插件 / 需求描述推荐）</div>
+      <div class="input-row">
+        <input id="recommend-query" placeholder="或用一句话描述需求，例如：能搜索网页 / 记住会话 / 换主题" onkeydown="if(event.key==='Enter')recommendByNeed()" />
+        <button class="btn-primary" onclick="recommendByNeed()">帮我推荐</button>
+      </div>
+      <ul class="plugin-list" id="recommend-list">
+        <div class="empty">加载中...</div>
+      </ul>
+      <div class="section-title" style="margin-top:8px">全部插件</div>
+      <ul class="plugin-list" id="discover-list">
+        <div class="empty">加载中...</div>
+      </ul>
+      <div class="hint">
+        目录来自 npm registry（关键词 dsh-plugin）。安装复用现有安全流程（无 shell、包名白名单校验）。<br>
+        目录拉取失败会自动降级，不影响「已安装 / 远程 / 本地」标签页。
+      </div>
+    </div>
+  </div>
+
   <div id="status" class="status"></div>
 
 <script>
@@ -287,11 +373,12 @@ function createWindowUI(options) {
 
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
-      t.classList.toggle('active', ['installed','remote','local'][i] === name);
+      t.classList.toggle('active', ['installed','remote','local','discover'][i] === name);
     });
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
     hideStatus();
+    if (name === 'discover') maybeLoadDiscover();
   }
 
   function showStatus(msg, type) {
@@ -409,6 +496,121 @@ function createWindowUI(options) {
     });
   }
 
+  // ── 发现插件（目录浏览/搜索/一键安装/热点/推荐）──
+  let discoverLoaded = false;
+  let discoverSort = 'popularity';
+  function maybeLoadDiscover() {
+    if (discoverLoaded) return;
+    discoverLoaded = true;
+    refreshDiscover();
+    refreshRecommend();
+  }
+
+  // 渲染目录条目。目录数据来自远程、不可信：所有字段渲染前 esc() 转义；
+  // 安装动作不把包名拼进内联 onclick，改用 data-install 事件委托（见下方）。
+  function renderCatalogItems(wrapId, items, installedSet, emptyMsg) {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return;
+    if (!Array.isArray(items) || items.length === 0) {
+      wrap.innerHTML = '<div class="empty">' + esc(emptyMsg || '暂无可用插件') + '</div>';
+      return;
+    }
+    wrap.innerHTML = items.map(function (p) {
+      const isInstalled = installedSet.has(p.name);
+      const ver = p.version ? '<span class="plugin-ver">' + esc(p.version) + '</span>' : '';
+      const pop = (p.popularity == null) ? '' : ' · 人气 ' + Math.round(p.popularity * 100) + '%';
+      const desc = p.description ? '<div class="plugin-desc">' + esc(p.description) + '</div>' : '';
+      const meta = (p.date || pop) ? '<div class="plugin-meta">' + esc(String(p.date || '').slice(0, 10)) + pop + '</div>' : '';
+      const action = isInstalled
+        ? '<button class="btn-secondary" disabled>已安装</button>'
+        : '<button class="btn-primary" data-install="' + esc(p.name) + '">安装</button>';
+      return '<li class="plugin-item discover-item">' +
+        '<div class="discover-main">' +
+          '<div><span class="plugin-name">' + esc(p.name) + '</span>' + ver +
+            (isInstalled ? '<span class="tag-active">已安装</span>' : '') + '</div>' +
+          desc + meta +
+        '</div>' +
+        '<div class="actions">' + action + '</div>' +
+      '</li>';
+    }).join('');
+  }
+
+  function refreshDiscover(query, sort) {
+    const searchBox = document.getElementById('discover-search');
+    const q = (typeof query === 'string') ? query : (searchBox ? searchBox.value.trim() : '');
+    const s = (typeof sort === 'string') ? sort : discoverSort;
+    renderCatalogItems('discover-list', [], new Set(), '正在加载插件目录...');
+    window.electronAPI.listCatalog(q, s).then(function (r) {
+      return window.electronAPI.listPlugins().then(function (installed) {
+        const installedSet = new Set((installed || []).map(function (p) { return p.name; }));
+        if (!r || !r.ok || !Array.isArray(r.items) || r.items.length === 0) {
+          const msg = (r && r.error) ? r.error : '目录为空或暂时不可用，可切换到「安装远程插件」手动输入包名。';
+          renderCatalogItems('discover-list', [], installedSet, msg);
+          return;
+        }
+        renderCatalogItems('discover-list', r.items, installedSet, '');
+      });
+    }).catch(function () {
+      renderCatalogItems('discover-list', [], new Set(), '加载插件目录失败，请检查网络后重试；可切到「安装远程插件」手动安装。');
+    });
+  }
+
+  // 推荐：主进程按「需求描述关键词」或「已装插件关键词」匹配，返回未安装候选
+  function refreshRecommend(query) {
+    renderCatalogItems('recommend-list', [], new Set(), '正在生成推荐...');
+    window.electronAPI.recommendPlugins(query || '').then(function (items) {
+      return window.electronAPI.listPlugins().then(function (installed) {
+        const installedSet = new Set((installed || []).map(function (p) { return p.name; }));
+        renderCatalogItems('recommend-list', items, installedSet, '暂无推荐（安装更多插件或输入需求描述后可获得推荐）');
+      });
+    }).catch(function () {
+      renderCatalogItems('recommend-list', [], new Set(), '推荐暂不可用');
+    });
+  }
+
+  function recommendByNeed() {
+    const q = document.getElementById('recommend-query').value.trim();
+    refreshRecommend(q);
+  }
+
+  function setSort(s) {
+    discoverSort = (s === 'recent') ? 'recent' : 'popularity';
+    const popBtn = document.getElementById('sort-pop');
+    const recentBtn = document.getElementById('sort-recent');
+    if (popBtn) popBtn.classList.toggle('active', discoverSort === 'popularity');
+    if (recentBtn) recentBtn.classList.toggle('active', discoverSort === 'recent');
+    refreshDiscover(undefined, discoverSort);
+  }
+
+  function searchDiscover() {
+    const q = document.getElementById('discover-search').value.trim();
+    refreshDiscover(q);
+  }
+
+  function installFromDiscover(name) {
+    if (!name) return;
+    showStatus('正在安装 ' + name + ' ...', 'success');
+    window.electronAPI.installPlugin(name).then(function (r) {
+      if (r.success) {
+        refreshInstalled();
+        refreshDiscover();
+        refreshRecommend();
+        const tip = r.warning ? '（' + r.warning + '）' : '';
+        showStatus('插件 ' + r.name + ' 安装成功！' + tip + ' 请重启应用生效。', 'success');
+      } else {
+        showStatus('安装失败: ' + r.error, 'error');
+      }
+    });
+  }
+
+  // 事件委托：发现列表的安装按钮（插件名来自远程目录，不拼进内联 onclick）
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-install]');
+    if (!btn) return;
+    const name = btn.getAttribute('data-install');
+    if (name != null) installFromDiscover(name);
+  });
+
   // 窗口加载完成后拉取一次已安装列表
   refreshInstalled();
 </script>
@@ -521,6 +723,31 @@ function createWindowUI(options) {
       // 插件列表只读，不涉及高危操作；仍限制为插件管理窗口调用（防远程内容枚举）
       if (!isPluginManagerSender(event)) return [];
       return pluginManager.getInstalledPlugins();
+    });
+    ipcMain.handle('plugin:catalog', async (event, query, sort) => {
+      // 目录只读，仍限制插件管理窗口调用；数据来自远程，返回前已在数据层归一化，
+      // 展示层 esc 转义 + 安装层 validateArg('pkg') 白名单，双层防御。
+      if (!isPluginManagerSender(event)) return { ok: false, items: [], error: '未授权的调用来源' };
+      if (!pluginCatalog) return { ok: false, items: [], error: '目录服务未初始化' };
+      try {
+        return await pluginCatalog.browse({
+          query: typeof query === 'string' ? query : '',
+          sort: sort === 'recent' ? 'recent' : 'popularity',
+        });
+      } catch (e) {
+        return { ok: false, items: [], error: '目录服务异常' };
+      }
+    });
+    ipcMain.handle('plugin:recommend', async (event, query) => {
+      // 推荐只读，仅插件管理窗口可调；返回候选条目（仍经安装层白名单二次校验）
+      if (!isPluginManagerSender(event)) return [];
+      if (!pluginCatalog) return [];
+      try {
+        const installed = (pluginManager.getInstalledPlugins() || []).map((p) => p.name);
+        return await pluginCatalog.recommend(installed, { size: 5, query: typeof query === 'string' ? query : '' });
+      } catch (e) {
+        return [];
+      }
     });
     ipcMain.handle('plugin:setEnabled', async (event, name, enabled) => {
       if (!isPluginManagerSender(event)) return { success: false, error: '未授权的调用来源' };

@@ -22,6 +22,46 @@ class SafeMode {
     this.backupFile = path.join(profileDir, backupName);
   }
 
+  // ── cordis.patch.yml 轻量块解析（与 plugin-manager 同语义，自实现避免循环依赖）──
+
+  readProfilePatch(file) {
+    if (!fs.existsSync(file)) return { header: [], items: [] };
+    const lines = fs.readFileSync(file, 'utf-8').split(/\r?\n/);
+    const header = [];
+    const items = [];
+    let i = 0;
+    while (i < lines.length && !lines[i].trim().startsWith('- ')) { header.push(lines[i]); i++; }
+    while (i < lines.length) {
+      const block = [lines[i]];
+      let j = i + 1;
+      while (j < lines.length && (lines[j].trim() === '' || lines[j].startsWith(' ') || lines[j].startsWith('\t'))) { block.push(lines[j]); j++; }
+      items.push(block);
+      i = j;
+    }
+    return { header, items };
+  }
+
+  writeProfilePatch(file, header, items) {
+    const headerPart = header.filter((l) => l.trim() !== '[]').reduce((acc, l) => {
+      if (l.trim() === '') { if (acc.length && acc[acc.length - 1].trim() !== '') acc.push(l); }
+      else acc.push(l);
+      return acc;
+    }, []);
+    const body = items.length ? [...headerPart, ...items.flatMap((b) => b)] : [...headerPart, '[]'];
+    fs.writeFileSync(file, body.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n');
+  }
+
+  /** 块是否为 insert 挂载块；是则返回其 name 值，否则 null */
+  itemMountedName(item) {
+    const t0 = (item[0] || '').trim();
+    if (!t0.startsWith('- insert:')) return null;
+    for (const l of item) {
+      const t = l.trim();
+      if (t.startsWith('name:')) return t.slice('name:'.length).trim().replace(/^['"]/, '').replace(/['"]$/, '');
+    }
+    return null;
+  }
+
   /**
    * 是否应进入安全模式：brain.throttle 中指定错误码前缀的失败次数
    * 在窗口内累计 >= threshold。
@@ -42,6 +82,8 @@ class SafeMode {
 
   /**
    * 应用安全模式：备份当前配置并移除第三方 bundle。
+   * 同时备份并移除 cordis.patch.yml 中第三方纯前端插件的 insert 挂载块
+   * （否则崩溃源若是纯前端插件，安全模式照样崩）。
    * @returns {{removed:string[]}|null} 移除的第三方 bundle；无第三方或失败返回 null
    */
   apply() {
@@ -55,10 +97,22 @@ class SafeMode {
       const thirdParty = bundles.filter((b) => !this.coreDeps.has(b));
       if (thirdParty.length === 0) return null; // 无第三方插件可隔离
 
-      fs.writeFileSync(this.backupFile, JSON.stringify({ pkg }, null, 2));
+      // 同步备份/移除第三方 insert 挂载块
+      const patchFile = path.join(this.profileDir, 'cordis.patch.yml');
+      const { header, items } = this.readProfilePatch(patchFile);
+      const removedBlocks = [];
+      const kept = [];
+      for (const block of items) {
+        const mounted = this.itemMountedName(block);
+        if (mounted !== null && !this.coreDeps.has(mounted)) removedBlocks.push(block);
+        else kept.push(block);
+      }
+
+      fs.writeFileSync(this.backupFile, JSON.stringify({ pkg, patchHeader: header, patchBlocks: removedBlocks }, null, 2));
       pkg.dsh = { ...pkg.dsh, profile: { ...(pkg.dsh.profile || {}), bundles: bundles.filter((b) => this.coreDeps.has(b)) } };
       fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + '\n');
-      return { removed: thirdParty };
+      if (removedBlocks.length > 0) this.writeProfilePatch(patchFile, header, kept);
+      return { removed: thirdParty, removedClientBlocks: removedBlocks.length };
     } catch (e) {
       return null;
     }
@@ -71,6 +125,14 @@ class SafeMode {
       const backup = JSON.parse(fs.readFileSync(this.backupFile, 'utf-8'));
       if (backup && backup.pkg) {
         fs.writeFileSync(path.join(this.profileDir, 'package.json'), JSON.stringify(backup.pkg, null, 2) + '\n');
+      }
+      // 还原被移除的 insert 挂载块（去重：已存在的块不重复追加）
+      if (backup && Array.isArray(backup.patchBlocks) && backup.patchBlocks.length > 0) {
+        const patchFile = path.join(this.profileDir, 'cordis.patch.yml');
+        const { header, items } = this.readProfilePatch(patchFile);
+        const existing = new Set(items.map((b) => this.itemMountedName(b)).filter(Boolean));
+        const toRestore = backup.patchBlocks.filter((b) => !existing.has(this.itemMountedName(b)));
+        if (toRestore.length > 0) this.writeProfilePatch(patchFile, backup.patchHeader || header, [...items, ...toRestore]);
       }
       fs.unlinkSync(this.backupFile);
       return true;

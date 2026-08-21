@@ -13,6 +13,7 @@ const ERROR_CODES = {
   'PLG-001': { title: '插件加载失败（slot key 缺失）', hint: '按插件开发规范为 keyed slot 补 key' },
   'PLG-002': { title: '插件注册了未声明 slot', hint: '检查核心包 children 表声明' },
   'PLG-003': { title: '插件被安全模式跳过', hint: '逐插件启用定位问题插件' },
+  'PLG-004': { title: '插件目录拉取失败', hint: '已降级为空列表/旧缓存；检查网络后重试' },
   'NPM-001': { title: 'pnpm 安装失败（网络问题）', hint: '检查网络后重试' },
   'NPM-002': { title: 'pnpm 安装失败（权限/占用）', hint: '关闭占用程序后重试' },
   'NPM-003': { title: 'npm 查询挂起已强制终止', hint: '已自动降级静态路径' },

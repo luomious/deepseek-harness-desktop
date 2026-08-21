@@ -90,6 +90,15 @@ try {
 }
 Pop-Location
 
+# 4.5 (re)apply desktop exe icon (idempotent; skips when stamp proves it is current).
+#     Runs here so the smoke test below launches the fully-finalized exe.
+Write-Host ''
+Write-Host '==== exe icon ====' -ForegroundColor Cyan
+& (Join-Path $root 'apply-icon.ps1')
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'WARN: apply-icon.ps1 failed (icon may be missing on the exe)' -ForegroundColor Yellow
+}
+
 # 5. verify
 Write-Host ''
 Write-Host '==== packed, verify ====' -ForegroundColor Green

@@ -1,11 +1,9 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain, session } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
-const http = require('http');
 const net = require('net');
 const fs = require('fs');
 const os = require('os');
-const zlib = require('zlib');
 const { applyPatch: applyNativePickerPatch } = require('./patch-dsh-native-picker');
 const { isNewer } = require('./lib/version');
 const { Brain } = require('./lib/brain');
@@ -13,10 +11,13 @@ const npmPaths = require('./lib/npm-paths');
 const { ErrorLog } = require('./lib/error-log');
 const { SafeMode } = require('./lib/safe-mode');
 const { reconcilePatches } = require('./lib/patch-manifest');
+const { withBuildLock } = require('./lib/build-lock');
 const { createDshService } = require('./lib/dsh-service');
 const { createUpdateChecker } = require('./lib/update-check');
 const { createPluginManager } = require('./lib/plugin-manager');
+const { createPluginCatalog } = require('./lib/plugin-catalog');
 const { createWindowUI } = require('./lib/window-ui');
+const { createIconGuard } = require('./lib/icon-guard');
 
 // ── 配置 ──────────────────────────────────────────────
 const DSH_PORT = 3080;
@@ -74,11 +75,13 @@ process.on('uncaughtException', (err) => {
   app.exit(1);
 });
 // unhandledRejection 不退出进程（Node/Electron 默认仅告警），但必须记录现场
+// 并同步落盘 brain 经验表（否则失败记录丢失，影响安全模式判定）
 process.on('unhandledRejection', (reason) => {
   try {
     const msg = String((reason && reason.message) || reason);
     errorLog.log('APP-001', { module: 'main', msg, ctx: { stack: reason && reason.stack, rejection: true } });
     bootLog('FATAL unhandledRejection: ' + msg);
+    brain.save();
   } catch (e) {}
 });
 
@@ -96,6 +99,10 @@ let dshRestartTimes = [];
 dshService.setOnUnexpectedExit((code, signal) => {
   if (isQuitting || !mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
   errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
+  // 崩溃计入诊断引擎经验表：1 小时内累计 >=3 次 BOOT-002，下次启动进安全模式
+  // （移出第三方 bundle），打断「坏配置 -> 每次启动必崩 -> 自动重启也必崩」死循环
+  // （2026-08-20 的 context-lifecycle 缺 compaction 服务崩溃即此形态，当时安全模式未介入）
+  try { brain.report({ code: 'BOOT-002', stage: 'unexpected-exit' }, 'restart', false); } catch (e) {}
   const now = Date.now();
   dshRestartTimes = dshRestartTimes.filter((t) => now - t < AUTO_RESTART_WINDOW_MS);
   if (dshRestartTimes.length >= AUTO_RESTART_MAX) {
@@ -126,6 +133,9 @@ dshService.setOnUnexpectedExit((code, signal) => {
         }
         dshRestartTimes = [];
         bootLog(`BOOT-002 -> auto restart recovered (attempt ${attempt})`);
+        // 自愈成功：清除该指纹的崩溃计数，瞬时崩溃（恢复成功）不累积进安全模式判定；
+        // 只有「崩溃且自动恢复也失败」才累计，精准命中坏配置死循环形态
+        try { brain.report({ code: 'BOOT-002', stage: 'unexpected-exit' }, 'restart', true); } catch (e) {}
         console.log('[DSH Desktop] DSH auto-restarted successfully');
       } catch (err) {
         bootLog(`BOOT-002 -> auto restart attempt ${attempt} FAILED: ${(err && err.message) || err}`);
@@ -356,6 +366,12 @@ const pluginManager = createPluginManager({
   logger: (msg) => console.log(msg),
 });
 
+// 插件目录数据层（npm 搜索 + 热点 + 缓存 + 优雅降级，唯一实现见 lib/plugin-catalog.js）
+const pluginCatalog = createPluginCatalog({
+  errorLog,
+  logger: (msg) => console.log(msg),
+});
+
 // 窗口/菜单/IPC（唯一实现见 lib/window-ui.js）；mainWindow 由本文件持有
 const windowUI = createWindowUI({
   electron: { BrowserWindow, Menu, dialog, shell, app, ipcMain },
@@ -369,6 +385,7 @@ const windowUI = createWindowUI({
   isDSHOrigin,
   isDev,
   pluginManager,
+  pluginCatalog,
   updateChecker,
   exportDiagnostics,
   getAppVersion,
@@ -377,6 +394,11 @@ const windowUI = createWindowUI({
   __dirname,
 });
 windowUI.initIpc();
+
+// 桌面图标守卫：启动时检测 exe 内嵌图标是否丢失（exe 被替换/重装），
+// 丢失则挂后台脚本在本进程退出后自动重刷 rcedit 图标（见 lib/icon-guard.js）。
+// 运行中的 exe 被系统锁定无法就地改资源，因此修复动作延迟到退出之后执行。
+const iconGuard = createIconGuard({ app, logger: (msg) => bootLog(msg) });
 
 // ── 诊断报告 ──────────────────────────────────────────
 
@@ -486,13 +508,21 @@ app.whenReady().then(async () => {
   bootLog('whenReady: createWindow');
   windowUI.createWindow();
 
+  // 图标守卫尽早跑：detached 修复脚本要尽早挂上（强杀场景也能在退出后修复）
+  try {
+    const iconState = iconGuard.runOnStartup();
+    bootLog(`whenReady: icon guard ${iconState.healthy ? `healthy (${iconState.reason})` : `UNHEALTHY (${iconState.reason}) -> repair scheduled`}`);
+  } catch (iconErr) {
+    bootLog(`whenReady: icon guard FAILED (non-fatal): ${iconErr.message || iconErr}`);
+  }
+
   // 熔断/安全模式：连续启动失败（BOOT-004 自动恢复也失败）≥3 次 → 跳过第三方 bundle
   if (safeMode.hasBackup()) {
     // 上次安全模式会话异常退出（强杀）：先恢复配置，避免配置停留在安全模式
     safeMode.restore();
     bootLog('whenReady: restored safe-mode backup (previous session interrupted)');
   }
-  if (safeMode.shouldEnter(brain.throttle, ['BOOT-004|'])) {
+  if (safeMode.shouldEnter(brain.throttle, ['BOOT-004|', 'BOOT-002|'])) {
     const applied = safeMode.apply();
     if (applied) {
       inSafeMode = true;
@@ -520,28 +550,8 @@ app.whenReady().then(async () => {
 
   if (alreadyRunning) {
     // 端口被占用：验证是否真的是 DSH 服务（避免加载其他程序的页面并暴露 preload 权限）
-    const isDSH = await new Promise((resolve) => {
-      const req = http.get(DSH_URL, (res) => {
-        const chunks = [];
-        res.on('data', (d) => { chunks.push(d); if (Buffer.concat(chunks).length > 65536) req.destroy(); });
-        res.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          let body;
-          try {
-            body = (res.headers['content-encoding'] || '').toLowerCase() === 'gzip'
-              ? zlib.gunzipSync(buf).toString()
-              : buf.toString();
-          } catch (e) {
-            // 声称 gzip 但内容损坏：回退原始字节，避免 promise 永不结算导致应用卡死
-            body = buf.toString();
-          }
-          // DSH Web UI 根路径必然包含 __DSH_BOOT__ boot manifest（React SPA 入口）
-          resolve(body.includes('__DSH_BOOT__'));
-        });
-      });
-      req.setTimeout(3000, () => { req.destroy(); resolve(false); });
-      req.on('error', () => resolve(false));
-    });
+    // 实现收敛到 lib/dsh-service.js 的 isDSHListening（含 gzip 容错与 3s 超时）
+    const isDSH = await dshService.isDSHListening(DSH_PORT);
     if (!isDSH) {
       // 端口被非 DSH 进程占用：不直接退出，先清理占位进程再自启动（自愈）
       // 场景：上次服务异常退出留下僵死进程，或被杀进程的 socket 未释放
@@ -578,8 +588,13 @@ app.whenReady().then(async () => {
       console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
     }
     // 补丁自愈清单：modlens / safe-delete 的 node_modules 补丁（升级覆盖后自动重打）
+    // 与插件安装/build 共用 build-lock：补丁写 node_modules 期间不与其他写者竞争
     try {
-      const patchResults = reconcilePatches({ profileDir: PROFILE_DIR });
+      const patchResults = await withBuildLock(
+        'desktop: reconcilePatches (startup)',
+        () => reconcilePatches({ profileDir: PROFILE_DIR }),
+        { waitMs: 60 * 1000 }
+      );
       for (const pr of patchResults) {
         if (pr.status === 'applied') {
           bootLog(`whenReady: patch ${pr.id} applied`);

@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
+const { withBuildLock } = require('./build-lock.js');
 
 function createPluginManager(options) {
   const profileDir = options.profileDir;
@@ -275,7 +276,10 @@ function createPluginManager(options) {
     const dsh = getNodeExe();
     if (!dsh || !dsh.node) throw new Error('未找到 node 运行时，请确认 Node.js 安装正常');
     const nodeExe = dsh.node;
-    return new Promise((resolve, reject) => {
+    // 构建互斥锁：pnpm add/remove 会瞬间改写 profile node_modules，与外部 agent
+    // 的并发构建/安装竞争时运行中的 dsh 前端会读到 404。持锁串行执行（排队等待，
+    // 不是失败）；锁协议见 lib/build-lock.js。
+    return withBuildLock(`desktop: pnpm ${action} ${finalTarget}`, () => new Promise((resolve, reject) => {
       const child = spawn(nodeExe, [pnpmBin, ...args], {
         cwd: cwd || os.homedir(),
         windowsHide: true,
@@ -284,7 +288,18 @@ function createPluginManager(options) {
       let stdout = '', stderr = '';
       let settled = false;
       const timer = setTimeout(() => {
-        if (!settled) { settled = true; try { child.kill(); } catch (e) {} reject(new Error(`命令超时: ${action} ${target}`)); }
+        if (!settled) {
+          settled = true;
+          // 超时：Windows 上 child.kill() 只杀父进程，pnpm 派生的子进程可能残留
+          // （占住 pnpm store 锁），用 taskkill /T /F 整树强杀（幂等，与 execNode 一致）
+          if (process.platform === 'win32') {
+            try {
+              require('child_process').execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 3000 });
+            } catch (e) {}
+          }
+          try { child.kill(); } catch (e) {}
+          reject(new Error(`命令超时: ${action} ${target}`));
+        }
       }, 60000);
       child.stdout.on('data', (d) => { stdout += d.toString(); });
       child.stderr.on('data', (d) => { stderr += d.toString(); });
@@ -298,7 +313,7 @@ function createPluginManager(options) {
         if (code === 0) resolve(out);
         else reject(new Error(out || stderr.trim() || `exit code ${code}`));
       });
-    });
+    }));
   }
 
   /** 解析 pnpm 常见错误，转成用户可读的中文提示 */
@@ -347,7 +362,8 @@ function createPluginManager(options) {
       // pnpm add <pkg> --dir <profile>（node 直接执行 pnpm.cjs，无 shell）
       const output = await pnpmCmd('add', pluginName, profileDir);
       // 同步 bundles 层：声明 dsh.bundle 的插件（皮肤等）自动加入 dsh.profile.bundles
-      reconcilePlugins();
+      // （与 pnpmCmd 同一把 build-lock，避免与外部 agent 的构建/安装竞争改写 profile）
+      await withBuildLock('desktop: reconcile (install)', () => { reconcilePlugins(); });
       return { success: true, output, name: pluginName };
     } catch (e) {
       const errMsg = friendlyPnpmError(e.message || e);
@@ -372,8 +388,8 @@ function createPluginManager(options) {
       }
 
       const output = await pnpmCmd('remove', pluginName, profileDir);
-      // 从 bundles 层移除（若该插件声明过 dsh.bundle）
-      reconcilePlugins();
+      // 从 bundles 层移除（若该插件声明过 dsh.bundle）；与 pnpmCmd 同一把 build-lock
+      await withBuildLock('desktop: reconcile (uninstall)', () => { reconcilePlugins(); });
       return { success: true, output, name: pluginName };
     } catch (e) {
       return { success: false, error: friendlyPnpmError(e.message || e), name: pluginName };
@@ -401,8 +417,8 @@ function createPluginManager(options) {
 
       // 使用 file: 协议安装（pnpm 原生，无 shell）
       const output = await pnpmCmd('add', `file:${pluginPath}`, profileDir);
-      // 同步 bundles 层
-      reconcilePlugins();
+      // 同步 bundles 层；与 pnpmCmd 同一把 build-lock
+      await withBuildLock('desktop: reconcile (installLocal)', () => { reconcilePlugins(); });
       return { success: true, output, name: pluginName };
     } catch (e) {
       return { success: false, error: e.message || String(e), name: pluginPath };
