@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-external/dsh-vision-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "description": "图片识别模型配置中心：多配置切换（本地 Ollama / API 预设）、测试识别、额度监控与用量统计。",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "immediately": false
+    }
+  }
+}

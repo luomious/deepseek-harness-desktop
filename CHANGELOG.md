@@ -6,6 +6,88 @@
 
 ---
 
+## 2026-08-22 dsh 0.1.1-rc.2 升级后遗症修复：modlens 粘贴路径 + 启动自愈前移 + 核心补丁适配
+
+### 现象
+- 「继续版本更新」（npm 全局 dsh 0.1.0-rc.6 → **0.1.1-rc.2**，registry 最新）后，modlens 再次出现「粘贴只显示图像路径」；
+- 点击桌面 exe 时桌面窗口与浏览器网页版同时在场；
+- npm view / npm install 报 EPERM（写缓存目录被拒）。
+
+### 根因（三层叠加）
+1. **modlens 无缝接管补丁丢失**：`~/.dsh/profiles/web/node_modules/@liustack/modlens/dsh/index.js`
+   的 `pasteTakeoverVerdict` 被重装覆盖（`dsh-vision-engine 无缝接管补丁` 标记消失）；且该清单项
+   （`modlens-takeover-verdict`）只存在于工作区源码——**运行中的 app.asar（08-21 17:06 打包）根本不含此清单项**，
+   即使启动时跑自愈也不会打上。
+2. **自愈被端口占用跳过**：main.js 里 `reconcilePatches` 原先只在「端口空闲 → 自启服务」分支执行；
+   3080 已被占用（网页版/残留进程）时整段跳过 → 升级覆盖的文件永远不会重打。
+3. **实证**：`GET /modlens/paste?model=deepseek-v4-flash-0731` 返回 `{"takeover":true}`
+   （纯文本模型被误判接管 → 客户端把粘贴转成路径文本）；`mimo-v2.5`/`glm-4v-flash` 返回 false。
+
+### 修复
+| 模块 | 说明 |
+|------|------|
+| modlens 补丁落盘 | 运行 `reconcilePatches` 成功打上 `modlens-takeover-verdict`（幂等验证 ok） |
+| `src/main.js` | 原生目录选择器补丁 + `reconcilePatches` 移到端口检查**之前**，空闲与否都执行（幂等），根治「升级后补丁永不重打」 |
+| patch-manifest 适配 0.1.1-rc.2 | `dsh-core-frontend-static-nocache` 锚点更新（`MIME[...] ?? ...` 已收敛为 `type` 变量，writeHead 行唯一）；`dsh-core-client-bundle-retry` 自动退役（前端改为 Vite modulepreload + 动态 import / `vite:preloadError`，旧 `<script>` 加载器已移除；瞬态 404 由服务端 `dsh-core-serve-bundle-retry` 兜底） |
+| `src/lib/window-ui.js` | `setWindowOpenHandler`：DSH 自身 URL 的 `window.open` 改为主窗口内打开，杜绝「点链接又弹一个浏览器网页版」的双开表象 |
+| second-instance | 唤起时补齐 `show()`（隐藏/最小化窗口也能被重新唤起） |
+| 测试 | `tests/patch-manifest.js` 清单计数 12→13（新增 takeover 项）、临时样本补新锚点 → **64 项全绿** |
+| npm EPERM | 确认为 DSH 沙箱（workspace-write）拦截所致，非缓存损坏；完整权限下 `npm view` 正常（最新 0.1.1-rc.2） |
+| 待跟进（非致命） | `dsh-core-settings-models-search / fetch-search` 两补丁锚点在 0.1.1-rc.2 已重构（CSS 键改字母序、弹窗新增全选/取消全选按钮），当前报 PATCH-001 但不影响功能；需对新 bundle 重新推导约 18 组锚点后更新（本次未动，避免在无回归验证下盲改压缩产物） |
+
+### 「同时打开桌面版和网页版」结论（初判有误，以补充章节为准）
+- 初判：桌面壳代码里没有 `openExternal` 直开浏览器的路径（全仓仅菜单/外部导航/弹窗三处），
+  开机启动项（Startup + 注册表 Run）也无 dsh/网页版条目，因此曾归结为"浏览器标签已存在 + 3080 服务共享"。
+- **此结论不完整**：真正的元凶是 `dsh web` 启动时默认 `openBrowser: true` 会**自动打开默认浏览器**，
+  桌面壳 spawn 时未传 `--no-open`。详见下节「补充（同日二次排查）」。修正后：`dsh-service.js` 已传
+  `--no-open`，点 exe 不再自动弹网页版；单实例锁仍只约束桌面实例。
+
+### 生效方式
+modlens 是服务端插件，**必须完全退出桌面应用后重新打开**（禁止 `dev_reload_package` 热重载）。
+重启后验证：`GET /modlens/paste?model=deepseek-v4-flash-0731` 应返回 `{"takeover":false}`，粘贴直接显示图片。
+
+### 补充（同日二次排查）：双开真因 = dsh web 自动开浏览器；粘贴"路径"为旧文本残留
+- **双开真因**：`dsh web` 启动默认 `openBrowser: true`（dsh-web-app `startup.js`，日志明示
+  "opening the default browser; pass --no-open to disable"），桌面壳 spawn `node bin.js web` 时
+  **未传 `--no-open`** → 每次点 exe 启动服务都会自动打开浏览器网页版。修复：`src/lib/dsh-service.js`
+  `start()` 改为 `['web', '--no-open']`（桌面版自带窗口，不再外弹浏览器；想用网页版可手动开
+  `http://127.0.0.1:3080`）。`dsh web --help` 实测确认该参数存在。
+- **粘贴"还是路径"实证**：重启后（02:37）`GET /modlens/paste?model=deepseek-v4-flash-0731` 已返回
+  `{"takeover":false}`，且 `C:\Temp\modlens-dsh-paste` 重启后**没有任何新目录**（最新 `p-e1qmID`
+  创建于 02:36:59，即旧实例被杀前 6 秒）→ modlens 已不再把粘贴转路径。用户看到的"路径"是
+  **旧路径文本残留在输入框/历史消息里**（02:18 与 02:36:59 两次旧代码转换的产物）。vision-engine
+  粘贴预览（focusin/input/900ms 轮询 + `/vision-engine/paste-img` 回源 200）会在输入框聚焦时把
+  路径渲染成图片卡；历史消息里的裸路径文本属正常显示（消息区不做回源）。
+- **窗口区分**：`window-ui.js` 桌面窗口标题追加「（桌面版）」后缀，与浏览器网页版一目了然。
+
+---
+
+## 2026-08-22 更新兼容性机制：更新前评估风险 / 更新后自检 / 一键回滚（v1.4.0 开发中）
+
+> 起因：0.1.0-rc.6 → 0.1.1-rc.2 升级后 modlens 失效、粘贴显示路径复发。为「防止再次出现更新后无法正常使用」，
+> 给检查更新流程加了完整的安全网。更新检查现在分三步：**先评估 → 再安装 → 后自检（可回滚）**。
+
+### 新机制
+| 阶段 | 模块 | 说明 |
+|------|------|------|
+| 更新前评估 | `src/lib/update-compat.js`（新增）+ `update-check.js` | 用户点「立即更新」后先弹「更新前兼容性检查」：版本跨度（主/次/rc→正式版）、当前补丁自愈健康度（`probeManifest` 只读探测，不写盘）、新版本 Node 引擎要求（registry 尽力而为）、磁盘空间；结论分 通过/有注意事项/高风险，高风险默认按钮为「取消」 |
+| 补丁只读探测 | `patch-manifest.js` 新增 `probeManifest` | 与 `reconcilePatches` 同清单、只读不写盘，评估与自检共用 |
+| 更新后自检 | `update-check.js` + `update-compat.js` | 安装并校验版本后自动跑自检：补丁健康 + 服务就绪（端口/`__DSH_BOOT__`）；异常弹窗提示，可**一键回滚到旧版本**（`npm install -g @deepseek-ai/dsh@<旧版>` + 重启服务 + 重载 UI）；「稍后重启」路径在服务重启后再补跑一次含 HTTP 的自检（UPD-002 记录） |
+| 注入方式 | `main.js` | `createUpdateCompat({ profileDir, execNode, findNpmCli, dshService, errorLog })` 注入 `assessCompatibility / postUpdateSelfTest / rollback`；未注入时 update-check 默认跳过，原流程完全兼容（测试全走默认路径验证） |
+| 错误码 | `UPD-003`（回滚）、`UPD-002`（重启后自检异常） | 与既有 UPD-001 一起进诊断日志 |
+
+### 测试
+- `tests/update-compat.js`（新增）：parseVersion / satisfiesNode / assessUpdate 9 类场景（补丁级 ok、次版本 warn、主版本 block、rc→正式版 warn、补丁失效 warn、Node 不满足 block、磁盘过小 block/偏少 warn、引擎缺失 skip）/ probeManifest 只读不写盘 / rollback 参数 → 30 项全绿。
+- `tests/update-check.js` 扩展 4 个分支：兼容性高风险取消、兼容性通过继续更新、自检异常继续使用、自检异常一键回滚 → 42 项全绿。
+- `tests/run-all.js` 纳入 update-compat → **15/15 文件全绿**。
+
+### 使用体验
+- 更新前：弹窗展示风险清单（如「次版本升级，自愈补丁需重新验证」「磁盘不足」「Node 版本不满足」），用户可「仍然更新 / 取消」；
+- 更新后：自检发现异常时弹窗给出「继续使用新版本 / 回滚到 <旧版本>」，回滚全自动完成；
+- 静默检查（启动时）不弹窗，仅系统通知，行为不变。
+
+---
+
 ## 2026-08-21 modlens 视觉体系重构：本地引擎 + 自动读图 + 选择器精简（v1.4.0 开发中）
 
 ### 背景
@@ -22,6 +104,67 @@
 | 选择器精简 | `dsh-model-picker-group` 新增「隐藏 (modlens vision) 双胞胎」开关（默认开），选择器只显示普通模型；当前正在使用的双胞胎保留显示直至切换 |
 | 文档整理 | `release_notes_v115~v130.md`（10 个）合并进 CHANGELOG 后删除；`modlens-free-engines.md` 更新为本地引擎状态与切换命令 |
 | 清理 | `.gitignore` 补 runtime 数据/构建产物规则；untrack 守护插件 `.map`/`.d.ts`/`events.jsonl`；watchdog 空转日志节流（30s→10min 一条） |
+
+### 模型管理列表隐藏 modlens 双胞胎（同 08-21 精简方向）
+
+- 现象：设置 → 模型 → 模型管理（`dsh-model-whitelist`）里仍列出全部 `(modlens vision)` 双胞胎（如 duoyuanx 的 gpt-5.x 双胞胎），与选择器「隐藏双胞胎」（默认开）不一致。
+- 根因：模型管理面板走 `llm.models` 读**全量原始目录**（未过 `api.sessions.models` 的 picker 包装层），其 `mergeGroups` 只做同源合并、从不过滤双胞胎条目；“隐藏双胞胎”逻辑只存在于 `dsh-model-picker-group`（仅包 `sessions.models`）。modlens 因 `dsh-modlens-guard` 保持启用，双胞胎持续注册。
+- 修复（`plugins/dsh-model-whitelist/lib/client.js`，浏览器硬刷新生效，无需重启服务）：
+  - `mergeGroups` 按 `model.name` 含 `(modlens vision)` 过滤双胞胎，并丢弃过滤后为空的纯包装分组；
+  - 「全选」/总数/「已选」计数只统计可见条目；
+  - 「确定」提交时仅剔除存储里残留的双胞胎 key（目录暂缺的厂商 key 原样保留）。
+
+### 图片识别模型设置面板（`@dsh-external/dsh-vision-engine`，v1.4.0 开发中）
+
+- 新增插件 `plugins/dsh-vision-engine`：设置 → 「图片识别模型」面板（order 13），解决「想换识别引擎只能手改配置/敲命令」的痛点，并回答「粘贴为什么显示路径」。
+- 功能：
+  - **多配置管理**：本地 Ollama / API 预设（智谱 GLM-4V / 阿里百炼 Qwen-VL / 硅基流动 / Gemini / 自定义 OpenAI 兼容），增删改 + 一键「设为当前」；切换即写 `~/.modlens/config.json` 对应 provider 槽（读-改-写保留 extraBody/structuredOutput），下一次识别立即生效（CLI 每次读配置）；
+  - **测试识别**：拖图/选图 → host 跑 modlens CLI → 显示耗时/摘要/OCR 预览，并记账；
+  - **额度监控**：渠道余额尽力而为（硅基 /user/info、智谱 balance、百炼 /api/v1/token，失败降级显示「渠道未提供公开额度接口」；本地显示「本地推理，无 API 额度」）+ 本机用量统计（今日/近7天/累计，按配置分组，数字滚动动画）；用量由面板测试 + `dsh-modlens-autoread`（新增受保护动态导入 `recordUsage`，缺失时静默跳过）记账；
+  - **粘贴模式说明**：展示当前 `pasteToPath` 状态并解释「粘贴显示路径」原因；
+  - **特效 UI**：渐变发光激活卡、状态点脉冲、测试 shimmer、卡片浮入、hover 上浮、数字滚动（纯 CSS + rAF，无性能风险）。
+- 安全：apiKey 只在 host 侧读写，浏览器只见「已保存/未设置」；额度/测试请求全部 host 发起；写配置前重读文件防与 modlens 自带卡互覆盖。
+- 生效：host 路由已热挂载（`/vision-engine/config|test|usage|balance|ollama`）；**client 面板需完全退出桌面应用重开（新插件进 boot graph 必须重启）后硬刷新**。
+
+### 图片识别模型 v2：图形化监控 + 免费模型配置 + 粘贴图片预览（同 08-21）
+
+- **额度/用量图形化**：渠道余额大数字 + 今日成功率环形仪表（SVG 渐变圆环动画）、近 14 天识别量柱状图（成功绿/失败红，逐根生长动画）、按配置横向进度条（失败红色段），数字全部滚动动画；数据来自 `/vision-engine/usage` 新增的 `series` 日序列。
+- **预置免费多模态模型配置**（已写入 `~/.modlens/vision-engine.json` 并激活其一，同步写入 modlens 配置）：
+  - `qwen3.7-flash-2026-07-15`（用户提供 key，已激活，接口地址按硅基流动）
+  - 硅基流动免费视觉：`Qwen/Qwen2.5-VL-7B-Instruct`、`Qwen/Qwen2.5-VL-3B-Instruct`、`Qwen/Qwen2-VL-7B-Instruct`、`THUDM/GLM-4V-9B`（同一 key）
+  - 智谱 `glm-4v-flash`（免费，模板，留空待填自己的 key）
+  - 本地 Ollama（当前收编，可一键切回）
+  - ⚠️ 接口地址按硅基流动假设，若 key 属其他渠道，在面板「编辑」改 baseUrl 或反馈后调整。
+- **粘贴图片预览**：composer 出现 `modlens-dsh-paste` 路径时，在输入框上方渲染原图缩略卡（host 新增 `GET /vision-engine/paste-img`，仅允许读 paste 根目录防任意文件读取；卡上 × 可移除并同步清路径文本）。路径文本仍保留（它是自动读图的触发信号），但视觉上看到的是图片。
+
+### 图片识别模型 v3：修复与增强（同 08-21）
+
+- **修复配置名乱码**：此前 PowerShell 5.1 发送 JSON 用非 UTF-8 编码导致中文配置名落盘损坏；改为 UTF-8 字节体重写 9 个配置，已逐项验证落盘中文正确。
+- **key 渠道探测（结论）**：用服务端网络对用户 key 实测——硅基流动 `/user/info` HTTP 401、智谱 balance HTTP 401、百炼 token HTTP 404 → **该 key 不属于这三家或已失效**。当前引擎切回本地 Ollama 保底；修复需用户提供正确渠道/baseUrl 或有效 key（面板「测试识别」验证）。
+- **粘贴预览可点击放大**：点击缩略卡弹出全屏灯箱（点击/Esc 关闭），不再“点不开”。
+- **配置列表按厂商分组**：同一厂商一个卡片（栏），栏内下拉直接切换该厂商的其它模型（立即设为当前），每模型行保留 编辑/删除；激活组带发光动画。
+- **新增免费渠道模板**：智谱 `glm-4v-flash`（免费）、Google Gemini 2.5 Flash（免费额度，AI Studio 领 key）、OpenRouter `meta-llama/llama-3.2-11b-vision-instruct:free`（OpenRouter 领 key）；硅基 4 个免费视觉模型保留。key 留空待用户填写。
+
+### 模型选择器「无缝接管」：默认 modlens 版本，粘贴即图片（同 08-21）
+
+- 背景：粘贴显示路径的根本原因是当前对话模型未声明图片输入（DSH 服务端准入硬拦图片块）。modlens 的 `pasteToPath`（路径文本 + 自动读图）是纯文本模型的唯一通道；`(modlens vision)` 双胞胎声明了图片输入所以粘贴显示原生图片。
+- 改造 `plugins/dsh-model-picker-group`（浏览器硬刷新生效，无需重启）：
+  - **选择器只显示普通模型一个版本**（不再显示 `xxx (modlens vision)` 双胞胎条目，也删除「隐藏双胞胎」开关与旧丢弃逻辑）；
+  - **无缝接管**：选中任何普通模型时，`selectModel` 静默改写为它的 modlens 渠道（`plainMap` 按 provider+model 命中）→ 会话模型 = modlens 版本（声明图片输入）→ **粘贴直接显示图片**（原生缩略图，可点开），发送时 modlens 自动读图；
+  - `current` 改写到上游坐标（无 `(modlens vision)` 后缀），选择器高亮/标签显示普通名；
+  - 孤儿 modlens 组（上游不在场，如白名单只勾 modlens 版本）仍以厂商名独立成组可正常选中；`enabled` 总开关保留（关闭即恢复原始列表）。
+- 验证：mock 加载 bundle 断言通过（分组无双胞胎条目、current 改写无后缀、孤儿组正常）。
+
+### 无缝接管·实战修复与教训（同 08-21）
+
+- **现象**：接管后（选择器显示普通名、会话已切到 modlens 包装）粘贴**仍是路径**；MiMo-V2.5 却能原生贴图。
+- **根因链（三层）**：
+  1. modlens 只包装 **DeepSeek/GLM 家族的纯文本模型**（其 README 明文）——MiMo-V2.5 是**原生视觉模型**（xiaomi 渠道，DSH 准入直接放行图片），根本不在接管范围内；
+  2. 接管成功后会话模型 = `modlens-<provider>`（声明 `image` 输入，DSH 准入放行图片块）✓，但 modlens **浏览器端**的粘贴判定按**选择器 label（模型名）**走 `GET /modlens/paste?model=<label>` → host `pasteTakeoverVerdict`：label 无 `(modlens vision)` 后缀 → 扫描普通 provider 匹配到同名纯文本模型 → `takeover:true` → **客户端把粘贴转成路径**；
+  3. **补丁**：modlens `dsh/index.js` `pasteTakeoverVerdict` 开头增加——label 中的模型名若命中 modlens 自己包装 provider（`ownProviders`）里的模型，直接 `return false`（原生粘贴）；已登记 patch-manifest 自愈条目 **`modlens-takeover-verdict`**（dsh 升级覆盖后自动重打）。
+- **坑 1（本次卡死根因）**：对 `@liustack/modlens` 执行 `dev_reload_package` 热重载会**丢失 adapter 注册** → 会话切到 `modlens-xxx` 时报 `no adapter registered for provider "modlens-tokenrhythm01"` → 服务卡死。**modlens 是服务端插件，代码改动一律重启应用，禁止热重载**。
+- **坑 2**：原生视觉模型（MiMo-V2.5 等）贴图正常≠接管生效，排查时勿混淆。
+- **新增诊断设施**：picker-group 每次处理模型目录/切换模型时自动上报到 `~/.modlens/picker-diag.log`（POST /vision-engine/diag，host 落盘），无需用户抄控制台；日志含 groups 列表、modlens 组、接管映射条数、select 命中/未命中。
 
 ### 配置速查
 - modlens：`~/.modlens/config.json`（openai → localhost:11434/v1 / qwen2.5vl:7b）

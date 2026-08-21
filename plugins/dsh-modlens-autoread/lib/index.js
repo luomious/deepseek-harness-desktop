@@ -63,6 +63,21 @@ function log(...parts) {
   try { console.log(`[modlens-autoread] ${parts.join(' ')}`) } catch { /* ignore */ }
 }
 
+// 用量上报（可选依赖 dsh-vision-engine）：自动读图成功/失败时记一笔，供
+// 「图片识别模型」面板的用量监控统计。加载失败/未安装时静默跳过，绝不影响读图。
+let visionReporter = null
+let visionReporterTried = false
+async function reportVisionUsage(ok) {
+  try {
+    if (!visionReporterTried) {
+      visionReporterTried = true
+      const mod = await import('@dsh-external/dsh-vision-engine/lib/index.js')
+      visionReporter = typeof mod.recordUsage === 'function' ? mod.recordUsage : null
+    }
+    if (visionReporter) visionReporter({ source: 'autoread', ok })
+  } catch { /* 可选依赖缺失或加载失败：忽略 */ }
+}
+
 function run(command, args, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -146,11 +161,13 @@ async function readImageBlock(ctx, block, signal) {
       )
       if (code !== 0) throw new Error((stderr || stdout).trim().slice(0, 300))
       const parsed = JSON.parse(stdout)
+      void reportVisionUsage(true)
       return { ok: true, block: { type: 'text', text: evidenceText(parsed.result) } }
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {})
     }
   } catch (error) {
+    void reportVisionUsage(false)
     return {
       ok: false,
       block: {
@@ -171,8 +188,10 @@ async function readPath(ctx, path, signal) {
     )
     if (code !== 0) throw new Error((stderr || stdout).trim().slice(0, 300))
     const parsed = JSON.parse(stdout)
+    void reportVisionUsage(true)
     return { ok: true, block: { type: 'text', text: evidenceText(parsed.result) } }
   } catch (error) {
+    void reportVisionUsage(false)
     return {
       ok: false,
       block: {

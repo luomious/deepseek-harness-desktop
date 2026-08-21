@@ -288,7 +288,10 @@ function createDshService(options) {
   function start() {
     if (startPromise) return startPromise;
     startPromise = new Promise((resolve, reject) => {
-      const dshArgs = ['web'];
+      // --no-open：桌面版自带 Electron 窗口，禁止 dsh web 启动时再自动打开默认浏览器
+      // （否则每次点 exe 都会"双开"：桌面窗口 + 浏览器网页版，dsh 日志可见
+      //  "opening the default browser; pass --no-open to disable"）。
+      const dshArgs = ['web', '--no-open'];
       const dsh = findBin();
       if (!dsh) {
         errorLog.log('BOOT-001', { module: 'startDSH', msg: '未找到 dsh 命令（npm 全局未安装 @deepseek-ai/dsh）' });

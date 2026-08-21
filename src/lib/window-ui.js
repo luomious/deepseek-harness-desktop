@@ -65,9 +65,28 @@ function createWindowUI(options) {
     win.once('ready-to-show', () => win.show());
 
     win.webContents.setWindowOpenHandler(({ url }) => {
+      // DSH 自身页面（http://127.0.0.1:3080/...）：在主窗口内打开，避免默认浏览器
+      // 再开一个「网页版」标签——「点 exe 后桌面版和网页版同时出现」的表象来源之一。
+      if (isDSHOrigin(url)) {
+        win.loadURL(url).catch((err) => {
+          console.error('[DSH Desktop] Failed to navigate main window to popup URL:', err);
+        });
+        return { action: 'deny' };
+      }
       // 仅允许 http/https 外部链接用系统浏览器打开，其余拒绝
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
       return { action: 'deny' };
+    });
+
+    // 区分桌面版与浏览器网页版：桌面窗口标题追加「（桌面版）」后缀，
+    // 避免用户分不清哪个窗口是桌面应用、哪个是浏览器标签。
+    win.on('page-title-updated', (event, title) => {
+      try {
+        if (isDSHOrigin(win.webContents.getURL()) && title && !title.includes('（桌面版）')) {
+          event.preventDefault();
+          win.setTitle(title + '（桌面版）');
+        }
+      } catch (e) {}
     });
 
     // 捕获渲染进程日志与异常（前端点击无反应、JS 报错时排查用）

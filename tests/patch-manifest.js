@@ -167,7 +167,7 @@ const modlensDir = path.join(dir, 'node_modules', '@liustack', 'modlens', 'dsh')
 const safeDir = path.join(dir, 'node_modules', 'dsh-safe-delete', 'lib');
 fs.mkdirSync(modlensDir, { recursive: true });
 fs.mkdirSync(safeDir, { recursive: true });
-fs.writeFileSync(path.join(modlensDir, 'index.js'), 'function x() { registerSettingsNamespace() }');
+fs.writeFileSync(path.join(modlensDir, 'index.js'), 'function x() { registerSettingsNamespace() }\n  const lowered = label.toLowerCase()\n  let matchedAny = false');
 fs.writeFileSync(path.join(modlensDir, 'client.js'), "slots.register({ id: 'modlens', order: 30 })");
 fs.writeFileSync(path.join(safeDir, 'client.js'), "slots.register({ id: 'safe-delete', order: 30 })");
 const coreClient = path.join(dir, 'core-client.js');
@@ -180,22 +180,23 @@ const coreSettingsModels = path.join(dir, 'core-settings-models.js');
 fs.writeFileSync(coreSettingsModels, 'dsh-desktop patch: model-catalog search\ndsh-desktop patch: fetch-dialog search');
 
 // dshCoreRoot 指向临时目录（不存在）→ 新增的 3 个核心补丁走 skipped 分支，
-// 不触碰真实全局 dsh 安装；清单共 12 项 = 6 项 applied + 2 项 ok + 4 项 skipped
+// 不触碰真实全局 dsh 安装；清单共 13 项 = 7 项 applied + 2 项 ok + 4 项 skipped
 // （node-pty 文件测试里未创建也 skipped）。
 const fakeCoreRoot = path.join(dir, 'dsh-core-nonexistent');
 let results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreConversationClient: coreConversation, coreSettingsModelsClient: coreSettingsModels, dshCoreRoot: fakeCoreRoot });
-t('12 项结果（6 applied + 2 ok + 4 skipped）', results.length, 12);
-t('6 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 6);
+t('13 项结果（7 applied + 2 ok + 4 skipped）', results.length, 13);
+t('7 项补丁全部 applied', results.filter((x) => x.status === 'applied').length, 7);
 t('2 项已含标记 → ok', results.filter((x) => x.status === 'ok').length, 2);
 t('4 项 skipped（3 核心 + node-pty 缺失）', results.filter((x) => x.status === 'skipped').length, 4);
 
-// 幂等：再跑一次 → 8 项 ok + 4 项 skipped
+// 幂等：再跑一次 → 9 项 ok + 4 项 skipped
 results = reconcilePatches({ profileDir: dir, coreWorkspaceClient: coreClient, coreConversationClient: coreConversation, coreSettingsModelsClient: coreSettingsModels, dshCoreRoot: fakeCoreRoot });
-t('再跑幂等 → 8 项 ok', results.filter((x) => x.status === 'ok').length, 8);
+t('再跑幂等 → 9 项 ok', results.filter((x) => x.status === 'ok').length, 9);
 t('再跑幂等 → 4 项仍 skipped', results.filter((x) => x.status === 'skipped').length, 4);
 
 // 文件真实被修改
 t('index.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'index.js'), 'utf8').includes('scope.settings'), true);
+t('index.js 已写入无缝接管补丁', fs.readFileSync(path.join(modlensDir, 'index.js'), 'utf8').includes('dsh-vision-engine 无缝接管补丁'), true);
 t('client.js 文件已写入补丁', fs.readFileSync(path.join(modlensDir, 'client.js'), 'utf8').includes("key: 'modlens'"), true);
 t('core 文件已写入补丁', fs.readFileSync(coreClient, 'utf8').includes('remoteFlow'), true);
 t('core 文件已写入纯聊天补丁', fs.readFileSync(coreClient, 'utf8').includes('const ADD_CHAT = "::add-chat";'), true);

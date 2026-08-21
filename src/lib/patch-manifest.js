@@ -32,6 +32,39 @@ function patchModlensKey(content) {
   return { status: 'applied', fixed };
 }
 
+// ── modlens：无缝接管判定补丁（dsh-vision-engine）──
+// 根因：dsh-vision-engine 把选择器当前模型静默改写为 modlens 包装（label 无后缀），
+// modlens 的 pasteTakeoverVerdict 用 label 匹配普通文本模型 → 误判 takeover:true →
+// 客户端仍把粘贴转成路径。补丁：label 命中 ownProviders 包装里的模型名时返回 false
+// （原生粘贴），因为被接管的包装模型声明了 image 输入。
+function patchModlensTakeoverVerdict(content) {
+  if (content.includes('dsh-vision-engine 无缝接管补丁')) return { status: 'ok' };
+  const anchor = `  const lowered = label.toLowerCase()
+  let matchedAny = false`;
+  const insert = `  const lowered = label.toLowerCase()
+  // dsh-vision-engine 无缝接管补丁：接管后的模型 label 无后缀，但会话是 modlens 包装（声明 image），
+  // 若 label 命中 ownProviders 包装里的模型名则不应转路径（原生粘贴）
+  if (ownProviders && ownProviders.size > 0) {
+    const lowered0 = label.toLowerCase()
+    for (const pid of ownProviders) {
+      let models = []
+      try { models = await llm.listModels(pid) } catch { continue }
+      for (const m of models) {
+        for (const candidate of [m?.name, m?.id]) {
+          if (typeof candidate === 'string' && candidate.length >= 3 && lowered0.includes(candidate.toLowerCase())) {
+            return false
+          }
+        }
+      }
+    }
+  }
+  let matchedAny = false`;
+  if (!content.includes(anchor)) return { status: 'failed', error: '未找到 pasteTakeoverVerdict 锚点' };
+  const fixed = content.replace(anchor, insert);
+  if (fixed === content) return { status: 'failed', error: '替换未生效' };
+  return { status: 'applied', fixed };
+}
+
 // ── dsh-safe-delete：同上，keyed slot 必须带 key ──
 function patchSafeDeleteKey(content) {
   if (content.includes("key: 'safe-delete'")) return { status: 'ok' };
@@ -234,7 +267,11 @@ function patchClientBundleRetry(content) {
   if (content.includes('_a<3?setTimeout(()=>{b6(n,_a+1)')) return { status: 'ok' };
   const buggy = 'b6=n=>new Promise((r,i)=>{const s=document.createElement("script");s.async=!0,s.src=n,s.addEventListener("load",()=>{s.remove(),r()},{once:!0}),s.addEventListener("error",()=>{s.remove(),i(new Error(`client-modules: bundle script ${n} failed to load`))},{once:!0}),document.head.append(s)}';
   if (!content.includes(buggy)) {
-    // 上游改版（压缩变量名变化）：报 failed 供人工跟进，不盲改
+    // 上游改版：0.1.1-rc.2 前端改为 Vite modulepreload + 动态 import（含 vite:preloadError
+    // 事件），旧的 <script> 标签加载器已整体移除，本补丁自动退役（不再每次启动报 PATCH-001）。
+    // 瞬态 404（并发构建窗口）由服务端 dsh-core-serve-bundle-retry 兜底。
+    if (content.includes('vite:preloadError')) return { status: 'ok' };
+    // 其他形态变化：报 failed 供人工跟进，不盲改
     if (!content.includes('failed to load`')) return { status: 'failed', error: '未找到 bundle 加载错误串（上游可能已改版）' };
     return { status: 'failed', error: 'defaultLoadBundle 压缩形态变化，需人工更新补丁' };
   }
@@ -250,9 +287,11 @@ function patchClientBundleRetry(content) {
 function patchFrontendStaticNoCache(content) {
   const MARK = 'dsh-desktop patch: no-cache for dev stability';
   if (content.includes(MARK)) return { status: 'ok' };
-  const buggy = 'res.writeHead(200, { "content-type": MIME[extname(target)] ?? "application/octet-stream" });';
+  // 0.1.1-rc.2 重构：上游把 MIME[extname(target)] ?? "application/octet-stream" 收进
+  // type 变量，writeHead 行变为 `res.writeHead(200, { "content-type": type });`（全文唯一）。
+  const buggy = 'res.writeHead(200, { "content-type": type });';
   if (!content.includes(buggy)) return { status: 'failed', error: '未找到 serveStatic writeHead 块（上游可能已改版）' };
-  const fixed = content.replace(buggy, 'res.writeHead(200, { "content-type": MIME[extname(target)] ?? "application/octet-stream", "cache-control": "no-cache" }); /* ' + MARK + ' */');
+  const fixed = content.replace(buggy, 'res.writeHead(200, { "content-type": type, "cache-control": "no-cache" }); /* ' + MARK + ' */');
   if (!fixed.includes(MARK)) return { status: 'failed', error: '补丁替换后验证失败' };
   return { status: 'applied', fixed };
 }
@@ -901,6 +940,11 @@ function buildManifest(profileDir, opts = {}) {
       patch: patchModlensKey,
     },
     {
+      id: 'modlens-takeover-verdict',
+      file: path.join(profileDir, 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js'),
+      patch: patchModlensTakeoverVerdict,
+    },
+    {
       id: 'safe-delete-slot-key',
       file: path.join(profileDir, 'node_modules', 'dsh-safe-delete', 'lib', 'client.js'),
       patch: patchSafeDeleteKey,
@@ -931,14 +975,55 @@ function reconcilePatches({ profileDir, coreWorkspaceClient, coreConversationCli
   return results;
 }
 
+/**
+ * 只读探测：逐项读取文件并调用 patchFn 判断当前状态，**不写盘**。
+ * 用途：更新前兼容性评估——检查当前 dsh/modlens 版本下哪些自愈补丁已失效
+ * （锚点失配），从而预估升级后可能需要重新适配的补丁面。
+ */
+function probeManifest({ profileDir, coreWorkspaceClient, coreConversationClient, coreSettingsModelsClient, dshCoreRoot } = {}) {
+  const results = [];
+  for (const p of buildManifest(profileDir, { coreWorkspaceClient, coreConversationClient, coreSettingsModelsClient, dshCoreRoot })) {
+    if (p.dir && p.glob) {
+      const re = new RegExp('^' + p.glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+      let files = [];
+      try { if (fs.existsSync(p.dir)) files = fs.readdirSync(p.dir).filter((f) => re.test(f)); } catch (e) {}
+      if (files.length === 0) {
+        results.push({ id: p.id, status: 'skipped', reason: 'no-match' });
+        continue;
+      }
+      for (const f of files) {
+        try {
+          const content = fs.readFileSync(path.join(p.dir, f), 'utf8');
+          const r = p.patch(content);
+          results.push({ id: p.id, file: path.join(p.dir, f), status: r.status, error: r.error });
+        } catch (e) {
+          results.push({ id: p.id, file: path.join(p.dir, f), status: 'failed', error: e.message });
+        }
+      }
+    } else {
+      try {
+        if (!fs.existsSync(p.file)) { results.push({ id: p.id, status: 'skipped', reason: 'missing' }); continue; }
+        const content = fs.readFileSync(p.file, 'utf8');
+        const r = p.patch(content);
+        results.push({ id: p.id, file: p.file, status: r.status, error: r.error });
+      } catch (e) {
+        results.push({ id: p.id, file: p.file, status: 'failed', error: e.message });
+      }
+    }
+  }
+  return results;
+}
+
 module.exports = {
   reconcilePatches,
+  probeManifest,
   buildManifest,
   applyFilePatch,
   applyGlobPatch,
   applyReplacements,
   patchModlensIndex,
   patchModlensKey,
+  patchModlensTakeoverVerdict,
   patchSafeDeleteKey,
   patchCoreRemoteFlowSlots,
   patchCoreChatOnlyWorkspace,

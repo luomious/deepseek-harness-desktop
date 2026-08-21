@@ -14,6 +14,7 @@ const files = [
   'smoke-v119-logic.js',
   'dsh-service.js',
   'update-check.js',
+  'update-compat.js',
   'plugin-catalog.js',
   'plugin-manager.js',
   'window-ui.js',

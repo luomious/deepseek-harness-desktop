@@ -32,46 +32,8 @@ window.__ModuleLoader__.load({
 
     // ---------- locale ----------
     var NS = 'model-picker-group'
-    var zh = {
-      title: '模型选择器排版',
-      hint: '把每个厂商的 (modlens vision) 模型合并进该厂商自己的分组，紧随原版模型之后。',
-      enableLabel: 'modlens 版本与厂商模型合并排版',
-      enableHint: '开启后，同一厂商的模型和它的 modlens 版本放在同一个分组里；关闭则保持原顺序。',
-      hideTwinsLabel: '隐藏 (modlens vision) 双胞胎',
-      hideTwinsHint: '开启后选择器不再显示 (modlens vision) 版本（图片由 dsh-modlens-autoread 自动识别，无需手动选双胞胎）。当前正在使用的双胞胎会保留显示，切换模型后消失。',
-      saved: '已保存',
-    }
-    var en = {
-      title: 'Model Picker Layout',
-      hint: 'Merge each provider (modlens vision) twin group into its own vendor group, right after the original models.',
-      enableLabel: 'Merge modlens versions into the vendor group',
-      enableHint: 'When on, a provider and its (modlens vision) twins sit in one group; when off, the original layout is kept.',
-      hideTwinsLabel: 'Hide (modlens vision) twins',
-      hideTwinsHint: 'When on, (modlens vision) variants disappear from the picker (images are auto-read by dsh-modlens-autoread). The twin in current use stays visible until you switch models.',
-      saved: 'Saved',
-    }
-    function t(key, vars) {
-      var dict = (typeof navigator !== 'undefined' && /^zh/i.test(navigator.language || '')) ? zh : en
-      var s = dict[key] || key
-      if (vars) for (var k in vars) s = s.replace('{' + k + '}', String(vars[k]))
-      return s
-    }
-
-    // ---------- persistence ----------
-    var STORAGE_KEY = 'dsh.model-picker-group.v1'
-    function readConfig() {
-      try {
-        var raw = localStorage.getItem(STORAGE_KEY)
-        if (!raw) return { enabled: true, hideTwins: true }
-        var cfg = JSON.parse(raw)
-        // hideTwins 默认开：用户已用 dsh-modlens-autoread 自动读图，选择器里
-        // 不再需要单独显示 (modlens vision) 双胞胎（旧配置没有该字段视为开）。
-        return { enabled: cfg.enabled !== false, hideTwins: cfg.hideTwins !== false }
-      } catch (e) { return { enabled: true, hideTwins: true } }
-    }
-    function writeConfig(cfg) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)) } catch (e) {}
-    }
+    var zh = {}
+    var en = {}
 
     // ---------- modlens provider mapping ----------
     // `deepseek-modlens` 包装 `deepseek-official`；`modlens-<up>` 包装 `<up>`。
@@ -88,78 +50,89 @@ window.__ModuleLoader__.load({
       return String(name || '').replace(/\s*\(modlens vision\)\s*$/i, '').replace(/\s+/g, ' ').trim()
     }
 
-    // 改写后的双胞胎 id -> { provider: 真实 modlens 渠道, model: 原始 id }
-    var twinMap = {}
+    // 接管映射：上游 (provider, model) -> modlens 渠道（选中普通模型时静默改走 modlens 版本）
+    var plainMap = {}
     // modlens 渠道 -> 上游渠道（仅当上游在当前目录里出现，即已合并）
     var modlensToUpstream = {}
 
-    function rebuildMaps() { twinMap = {}; modlensToUpstream = {} }
+    function rebuildMaps() { plainMap = {}; modlensToUpstream = {} }
 
-    // 合并分组：modlens 组并入上游组；双胞胎 id 改写避免与上游同 id 撞车。
-    // hideTwins=true（默认）时：去掉全部 (modlens vision) 双胞胎，选择器只剩
-    // 普通模型——图片由 dsh-modlens-autoread 自动读。唯一例外：当前正选中的
-    // 双胞胎仍保留（合并进上游组），避免会话当场丢选择；切到别的模型即消失。
+    // 诊断自动上报：console + POST 到 host 落盘（~/.modlens/picker-diag.log），无需手动抄日志
+    function diag(payload) {
+      try {
+        var parts = []
+        for (var k in payload) parts.push(k + '=' + JSON.stringify(payload[k]))
+        console.log('[picker] ' + parts.join(' '))
+        try {
+          fetch('/vision-engine/diag', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(Object.assign({ src: 'picker' }, payload)),
+          }).catch(function () {})
+        } catch (e) {}
+      } catch (e) {}
+    }
+
+    // 合并分组 + 无缝接管：选择器只显示普通模型（一个版本），但选中普通模型时
+    // 静默改用它的 modlens 版本（声明图片输入 → 粘贴原生图片、发送自动读图），
+    // 全程无感、无需任何设置。孤儿 modlens 组（上游不在场，如白名单只勾 modlens
+    // 版本）以厂商名独立成组，选中即真实 modlens 渠道。
     function mergeGroups(groups, current) {
       rebuildMaps()
       if (!Array.isArray(groups) || groups.length === 0) return groups
-      var hide = readConfig().hideTwins
-      var cur = current || {}
-      var curProvider = typeof cur.provider === 'string' ? cur.provider : ''
-      var curModel = typeof cur.model === 'string' ? cur.model : ''
-      var curIsModlens = curProvider === 'deepseek-modlens' || curProvider.indexOf('modlens-') === 0
       var byId = {}
       for (var i = 0; i < groups.length; i++) { var g = groups[i]; if (g && g.id) byId[g.id] = g }
       var merged = {}
       var order = []
       // 1) 上游组（及无关组）作为合并基底，保留原顺序。
-      //    孤儿 modlens 组（上游不在场——典型：白名单只勾 modlens 版本，原版组
-      //    被整组过滤）也在此成组，但展示名改回厂商名（去掉 "(modlens vision)"
-      //    后缀），看起来就是该厂商的普通分组，而不是甩在末尾的 modlens 附录。
+      //    孤儿 modlens 组（上游不在场）独立成组，展示名改回厂商名。
       for (var i = 0; i < groups.length; i++) {
         var g = groups[i]
         if (!g) continue
         var up = toUpstream(g.id)
-        if (up && byId[up]) continue // modlens 组且上游在场 -> 留到第 2 步并入
-        if (up && hide && !(curIsModlens && curProvider === g.id)) continue // 隐藏模式：丢弃 modlens 组（保留当前选中的）
+        if (up && byId[up]) continue // modlens 组且上游在场 -> 只记录映射，不显示（避免双版本）
         if (!merged[g.id]) {
           var displayName = (up && !byId[up]) ? (baseName(g.name) || g.name) : g.name
           merged[g.id] = { id: g.id, name: displayName, models: (g.models || []).map(function (m) { return Object.assign({}, m) }) }
           order.push(g.id)
         }
       }
-      // 2) 把 modlens 双胞胎并入上游组（id 改写、name 保留、记录 twinMap）
+      // 2) 记录接管映射：上游 (provider, model) -> modlens 渠道；modlens 渠道 -> 上游
       for (var i = 0; i < groups.length; i++) {
         var g = groups[i]
         if (!g) continue
         var up = toUpstream(g.id)
         if (!up || !byId[up]) continue
-        if (hide && !(curIsModlens && curProvider === g.id)) continue
         modlensToUpstream[g.id] = up
-        var target = merged[up]
-        if (!target) continue
         for (var j = 0; j < (g.models || []).length; j++) {
           var m = g.models[j]
-          var origId = m.id
-          // 隐藏模式下只保留当前选中的那一个双胞胎条目（其余全部丢弃）
-          if (hide && !(curModel === origId)) continue
-          var newId = origId + ' (modlens vision)'
-          twinMap[newId] = { provider: g.id, model: origId }
-          target.models.push(Object.assign({}, m, { id: newId }))
+          plainMap[up + '\u0000' + m.id] = g.id
+          plainMap['\u0000' + m.id] = g.id // 兜底：model 全局唯一时可直接命中
         }
       }
-      // 3) 孤儿 modlens 组已在第 1 步以厂商展示名成组（id 不改写，选中仍走真实
-      //    modlens 渠道），此处无需再处理。
+      // 诊断：定位接管是否生效（自动上报 ~/.modlens/picker-diag.log）
+      try {
+        var mlGroups = groups.filter(function (g) { return toUpstream(g.id) })
+        diag({
+          event: 'models',
+          groups: groups.map(function (g) { return g.id }),
+          modlensGroups: mlGroups.map(function (g) { return g.id }),
+          takeoverEntries: Object.keys(plainMap).length,
+          currentProvider: (current && current.provider) || null,
+          currentModel: (current && current.model) || null,
+        })
+      } catch (e) {}
       return order.map(function (id) { return merged[id] })
     }
 
-    // 把 host 报告的 current（modlens 渠道 + 原id）改写到合并坐标（上游渠道 + 改写id），
-    // 让选择器高亮与触发器标签命中合并后的双胞胎条目。
+    // 把 host 报告的 current（modlens 渠道 + 原id）改写到上游坐标（provider=上游、
+    // model=原id，不加后缀），让选择器高亮与触发器标签命中普通条目。
     function rewriteCurrent(value) {
       var cur = value && value.current
       if (cur && modlensToUpstream[cur.provider]) {
         value.current = {
           provider: modlensToUpstream[cur.provider],
-          model: cur.model + ' (modlens vision)',
+          model: cur.model,
           reasoningEffort: cur.reasoningEffort,
         }
       }
@@ -175,43 +148,9 @@ window.__ModuleLoader__.load({
       return value
     }
 
-    // ---------- tiny styles ----------
-    var ACCENT = 'var(--dsw-static-deepseek-500, #4d6bfe)'
-    var CARD_STYLE = { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 12, padding: '12px 14px', background: 'var(--dsw-alias-bg-layer-1)', maxWidth: 680 }
-    var HINT_STYLE = { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }
-    function h(type, props) {
-      var children = Array.prototype.slice.call(arguments, 2)
-      return React.createElement.apply(React, [type, props].concat(children))
-    }
-
-    // ---------- settings card: 模型选择器排版 ----------
-    function GroupingCard() {
-      var [cfg, setCfg] = React.useState(readConfig)
-      var [flash, setFlash] = React.useState(false)
-      function toggle(name) {
-        var next = Object.assign({}, cfg, { [name]: !cfg[name] })
-        setCfg(next)
-        writeConfig(next)
-        setFlash(true)
-        window.setTimeout(function () { setFlash(false) }, 1200)
-      }
-      function Check(label, hint, checked, onToggle) {
-        return h('div', { style: { marginTop: 10 } },
-          h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 500, color: 'var(--dsw-alias-label-primary)' } },
-            h('input', { type: 'checkbox', checked: checked, onChange: onToggle, style: { accentColor: ACCENT, width: 15, height: 15 } }),
-            h('span', null, label)),
-          h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) }, hint))
-      }
-      return h('div', { style: CARD_STYLE },
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-          h('span', { style: { width: 4, height: 20, borderRadius: 2, background: ACCENT, flexShrink: 0 } }),
-          h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, t('title'))),
-        h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) }, t('hint')),
-        Check(t('enableLabel'), t('enableHint'), cfg.enabled, function () { toggle('enabled') }),
-        Check(t('hideTwinsLabel'), t('hideTwinsHint'), cfg.hideTwins, function () { toggle('hideTwins') }),
-        flash && h('div', { style: Object.assign({}, HINT_STYLE, { marginTop: 6 }) },
-          h('span', { style: { color: 'var(--dsw-alias-state-success-primary)', fontWeight: 500 } }, t('saved'))))
-    }
+    // ---------- 无缝接管（无设置卡片，默认永远生效）----------
+    // 设置入口已移除：接管是默认行为，无需开关、无需 localStorage。
+    // 如确需关闭（恢复原始列表），改回 transformModels 的调用条件即可。
 
     // ---------- plugin entry ----------
     function apply(ctx) {
@@ -226,18 +165,16 @@ window.__ModuleLoader__.load({
             return function () { for (var i = 0; i < offs.length; i++) if (typeof offs[i] === 'function') offs[i]() }
           }, 'dsh-model-picker-group: dictionaries')
         }
-        ctx.inject(['connection', 'slots'], function (scope) {
+        ctx.inject(['connection'], function (scope) {
           var sessions = scope.connection && scope.connection.api && scope.connection.api.sessions
-          // 包 models：合并分组 + 改写 current
+          // 包 models：合并分组 + 改写 current（永远接管，无开关）
           if (sessions && typeof sessions.models === 'function' && !sessions.models.__dshGrouped) {
             var origModels = sessions.models.bind(sessions)
             var groupedModels = function (req, signal) {
               return origModels(req, signal).then(function (res) {
                 try {
-                  if (readConfig().enabled && res && res.result && res.result.ok && res.result.value) {
+                  if (res && res.result && res.result.ok && res.result.value) {
                     res.result.value = transformModels(res.result.value)
-                  } else {
-                    rebuildMaps() // 关闭时清空 map，避免遗留映射
                   }
                 } catch (e) {
                   console.error('[dsh-model-picker-group] models transform error:', e)
@@ -247,16 +184,22 @@ window.__ModuleLoader__.load({
             }
             groupedModels.__dshGrouped = true
             sessions.models = groupedModels
-            console.log('[dsh-model-picker-group] api.sessions.models wrapped (merge)')
+            console.log('[dsh-model-picker-group] api.sessions.models wrapped (takeover always-on)')
           }
-          // 拦 selectModel：双胞胎改写 id -> 真实 modlens 渠道 + 原 id
+          // 拦 selectModel：选中普通模型 -> 静默改走它的 modlens 版本（无缝接管）
           if (sessions && typeof sessions.selectModel === 'function' && !sessions.selectModel.__dshGrouped) {
             var origSelect = sessions.selectModel.bind(sessions)
             var groupedSelect = function (req, signal) {
               try {
-                if (req && typeof req.model === 'string' && twinMap[req.model]) {
-                  var t = twinMap[req.model]
-                  req = Object.assign({}, req, { provider: t.provider, model: t.model })
+                if (req && typeof req.model === 'string') {
+                  var key = (typeof req.provider === 'string' ? req.provider : '') + '\u0000' + req.model
+                  var mp = plainMap[key] || plainMap['\u0000' + req.model]
+                  diag({ event: 'select', provider: req.provider || null, model: req.model, hit: mp || null, takeoverEntries: Object.keys(plainMap).length })
+                  if (mp) {
+                    req = Object.assign({}, req, { provider: mp, model: req.model })
+                  }
+                } else {
+                  diag({ event: 'select', shape: 'unexpected', req: JSON.stringify(req).slice(0, 200) })
                 }
               } catch (e) {
                 console.error('[dsh-model-picker-group] selectModel remap error:', e)
@@ -265,17 +208,8 @@ window.__ModuleLoader__.load({
             }
             groupedSelect.__dshGrouped = true
             sessions.selectModel = groupedSelect
-            console.log('[dsh-model-picker-group] api.sessions.selectModel wrapped (remap)')
+            console.log('[dsh-model-picker-group] api.sessions.selectModel wrapped (modlens takeover)')
           }
-          scope.slots.inject('settings.section', function () {
-            return scope.slots.register({
-              name: 'settings.section',
-              id: 'model-picker-group',
-              order: 12,
-              label: function () { return t('title') },
-              locale: NS,
-            }, GroupingCard)
-          })
         })
       } catch (error) {
         console.error('[dsh-model-picker-group] apply error:', error)
@@ -285,10 +219,9 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.mergeGroups = mergeGroups
     exports.transformModels = transformModels
-    // `slots`：设置卡片用（注入器预检要求）；`locale`：apply 内直接访问
-    // ctx.locale.register 注册字典——客户端运行时按 inject 声明门控服务访问，
-    // 未声明的服务直接读会触发 rejectGuard 抛错、apply 中止（之前 wrap 装不上的根因）。
-    exports.inject = ['slots', 'locale']
+    // `connection`：sessions.models/selectModel 包装；`locale`：apply 内直接访问
+    // ctx.locale.register 注册字典——客户端运行时按 inject 声明门控服务访问。
+    exports.inject = ['connection', 'locale']
     return module.exports
   },
 })

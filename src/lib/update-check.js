@@ -39,6 +39,12 @@ function createUpdateChecker(options) {
   const DSH_PKG = options.DSH_PKG;
   const logger = options.logger || console.log;
 
+  // 更新兼容性机制（可注入；默认未配置时跳过，由 main.js 注入完整实现，见 lib/update-compat.js）：
+  // assessCompatibility — 更新前评估新版本风险；postUpdateSelfTest — 更新后自检；rollback — 一键回滚
+  const assessCompatibility = options.assessCompatibility || null;
+  const postUpdateSelfTest = options.postUpdateSelfTest || null;
+  const rollback = options.rollback || null;
+
   // 版本解析可注入（测试/未来替换），内部调用统一走注入版
   const getInstalledVersionImpl = options.getInstalledVersion || getInstalledVersion;
   const getLatestVersionImpl = options.getLatestVersion || getLatestVersion;
@@ -193,6 +199,37 @@ function createUpdateChecker(options) {
       });
 
       if (choice === 0) {
+        // 更新前兼容性评估：先看新版本与当前版本的兼容性/风险，再决定是否更新
+        //（防止上次「0.1.0-rc.6 → 0.1.1-rc.2 更新后 modlens 失效」再次发生）
+        if (assessCompatibility) {
+          let compat;
+          try {
+            compat = await assessCompatibility({ local, remote });
+          } catch (e) {
+            compat = { verdict: 'warn', summary: '兼容性评估执行异常（不影响更新）', risks: [{ level: 'warn', text: '评估异常：' + (e.message || e) }] };
+          }
+          if (!compat || typeof compat.verdict !== 'string') compat = { verdict: 'ok', risks: [] };
+          const riskLines = (compat.risks || []).map((r) => `- [${r.level}] ${r.text}`).join('\n');
+          const recLines = (compat.recommendations || []).join('\n');
+          const detail =
+            `${compat.summary || ''}\n\n当前 ${local} → 新版本 ${remote}\n\n` +
+            (riskLines || '（未发现明显风险）') +
+            (recLines ? `\n\n${recLines}` : '') +
+            '\n\n是否仍要继续更新？';
+          const compatChoice = dialog.showMessageBoxSync(win, {
+            type: compat.verdict === 'block' ? 'warning' : 'info',
+            title: '更新前兼容性检查',
+            message: `DSH 更新前检查（${compat.verdict === 'block' ? '高风险' : compat.verdict === 'warn' ? '有注意事项' : '通过'}）`,
+            detail,
+            buttons: ['仍然更新', '取消'],
+            defaultId: compat.verdict === 'block' ? 1 : 0,
+            cancelId: 1,
+          });
+          if (compatChoice !== 0) {
+            logger(`[DSH Desktop] Update canceled by compatibility check (verdict=${compat.verdict})`);
+            return { hasUpdate: true, local, remote, canceled: true, compat };
+          }
+        }
         return await performUpdate(local, remote);
       }
       // 用户选择「稍后再说」：不打扰，直接返回（不落入下方"已是最新版本"分支）
@@ -303,6 +340,51 @@ function createUpdateChecker(options) {
 
       safeClose(progressWin);
 
+      // 更新后自检（可注入；未配置则跳过）：补丁健康 + 服务就绪，异常时提供一键回滚
+      let selfTest = null;
+      if (postUpdateSelfTest) {
+        try {
+          selfTest = await postUpdateSelfTest({ local: remoteVer });
+        } catch (e) {
+          selfTest = { ok: false, issues: ['自检异常：' + (e.message || e)] };
+        }
+      }
+      if (selfTest && Array.isArray(selfTest.issues) && selfTest.issues.length > 0) {
+        const rb = await dialog.showMessageBox(win, {
+          type: 'warning',
+          title: '更新后自检发现异常',
+          message: 'DSH 已更新，但自检发现以下问题：',
+          detail: selfTest.issues.join('\n') + `\n\n可回滚到 ${localVer}，或继续使用新版本（部分问题会在下次启动时自动修复）。`,
+          buttons: ['继续使用新版本', `回滚到 ${localVer}`],
+          defaultId: 0,
+          cancelId: 1,
+        });
+        if (rb.response === 1) {
+          if (rollback) {
+            try {
+              await rollback(localVer);
+              logger(`[DSH Desktop] Rolled back to ${localVer}`);
+              if (dshService.isRunning()) dshService.stop();
+              await dshService.start();
+              const rbReady = await dshService.waitForReady();
+              if (rbReady && win && !win.isDestroyed()) {
+                win.loadURL(DSH_URL).catch((err) => {
+                  logger(`[DSH Desktop] Failed to reload UI after rollback: ${err}`);
+                });
+              }
+              return { hasUpdate: false, updated: true, rolledBack: true, local: localVer, remote: remoteVer };
+            } catch (e) {
+              dialog.showErrorBox(
+                '回滚失败',
+                `回滚到 ${localVer} 失败：\n${e.message || e}\n\n请手动执行：npm install -g @deepseek-ai/dsh@${localVer}`
+              );
+            }
+          } else {
+            dialog.showErrorBox('无法回滚', `回滚功能未配置，请手动执行：npm install -g @deepseek-ai/dsh@${localVer}`);
+          }
+        }
+      }
+
       const choice = await dialog.showMessageBox(win, {
         type: 'info',
         title: '更新完成',
@@ -330,6 +412,18 @@ function createUpdateChecker(options) {
             win.loadURL(DSH_URL).catch((err) => {
               logger(`[DSH Desktop] Failed to reload UI after update: ${err}`);
             });
+            // 服务已重启就绪：补跑一次完整自检（此时可含 HTTP 检查），异常仅提示不阻塞
+            if (postUpdateSelfTest) {
+              try {
+                const st2 = await postUpdateSelfTest({ local: remoteVer });
+                if (st2 && Array.isArray(st2.issues) && st2.issues.length > 0) {
+                  if (errorLog) {
+                    errorLog.log('UPD-002', { module: 'update-check', msg: '更新后自检（服务重启后）发现异常', ctx: { issues: st2.issues } });
+                  }
+                  dialog.showErrorBox('更新后自检提示', st2.issues.join('\n'));
+                }
+              } catch (e2) { /* 自检失败不阻塞 */ }
+            }
           } else {
             logger('[DSH Desktop] DSH service failed to restart after update');
             // 更新成功但服务没能拉起：必须提示，否则应用停在"服务已停止"状态且用户无感知

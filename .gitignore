@@ -45,6 +45,9 @@ tools/
 # 本地文档/笔记（不入库）
 docs/
 
+# 本地分析/排查临时目录（如 transcribe 等，不入库）
+.dsh-analysis/
+
 # 外部仓库 clone（独立 repo，按各自 README 单独拉取，不入库）
 plugins/dsh-routing-suite/
 

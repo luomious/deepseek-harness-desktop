@@ -196,6 +196,68 @@ function makeFakes(overrides = {}) {
     t('成功路径无失败文案', all.includes('更新失败'), false);
   }
 
+  console.log('== checkForUpdates: 兼容性检查取消（block 高风险）==');
+  {
+    const { state, fakeDeps } = makeFakes({
+      getInstalledVersion: async () => '1.2.3',
+      getLatestVersion: async () => '2.0.0',
+      assessCompatibility: async () => ({ verdict: 'block', summary: '不建议更新', risks: [{ level: 'danger', text: '主版本升级' }] }),
+      dialog: {
+        showMessageBoxSync: (() => { let n = 0; return () => (n++ === 0 ? 0 : 1); })(), // 立即更新 → 取消
+        showMessageBox: async () => ({ response: 0 }),
+        showErrorBox: () => {},
+      },
+    });
+    const uc = createUpdateChecker(fakeDeps);
+    const r = await uc.checkForUpdates(false);
+    t('高风险 → canceled', r.canceled, true);
+    t('未执行安装', state.installArgs, null);
+  }
+
+  console.log('== checkForUpdates: 兼容性通过 → 继续更新（稍后重启）==');
+  {
+    const { state, fakeDeps } = makeFakes({
+      getInstalledVersion: (() => { let n = 0; return async () => (n++ === 0 ? '1.2.3' : '2.0.0'); })(), // 更新前 1.2.3 → 安装后 2.0.0
+      getLatestVersion: async () => '2.0.0',
+      assessCompatibility: async () => ({ verdict: 'ok', summary: '通过', risks: [] }),
+      dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => ({ response: 1 }), showErrorBox: () => {} },
+    });
+    const uc = createUpdateChecker(fakeDeps);
+    const r = await uc.checkForUpdates(false);
+    t('兼容性通过后执行安装', !!state.installArgs, true);
+    t('稍后重启 → 服务已启动', state.started, 1);
+    t('updated=true', r.updated, true);
+  }
+
+  console.log('== performUpdate: 自检异常 → 继续使用新版本 ==');
+  {
+    const { state, fakeDeps } = makeFakes({
+      getInstalledVersion: async () => '2.0.0',
+      postUpdateSelfTest: async () => ({ ok: false, issues: ['自愈补丁 2 项失效'] }),
+      dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => ({ response: 0 }), showErrorBox: () => {} },
+    });
+    const uc = createUpdateChecker(fakeDeps);
+    const r = await uc.performUpdate('1.2.3', '2.0.0');
+    t('未触发回滚', r.rolledBack, undefined);
+    t('继续 → 立即重启', state.relaunched, 1);
+  }
+
+  console.log('== performUpdate: 自检异常 → 一键回滚 ==');
+  {
+    const rollbackCalls = [];
+    const { state, fakeDeps } = makeFakes({
+      getInstalledVersion: async () => '2.0.0',
+      postUpdateSelfTest: async () => ({ ok: false, issues: ['严重异常'] }),
+      rollback: async (v) => { rollbackCalls.push(v); return v; },
+      dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => ({ response: 1 }), showErrorBox: () => {} },
+    });
+    const uc = createUpdateChecker(fakeDeps);
+    const r = await uc.performUpdate('1.2.3', '2.0.0');
+    t('回滚调用旧版本', rollbackCalls[0], '1.2.3');
+    t('回滚后重启服务', state.started, 1);
+    t('返回 rolledBack', r.rolledBack, true);
+  }
+
   console.log('== getInstalledVersion 真实兜底链（npm list 空 → bin.js 反推）==');
   {
     const { fakeDeps } = makeFakes({});

@@ -14,10 +14,12 @@
 //     never loses its selection.
 //  4. Editing is draft-based: click 编辑, check models, then 确定 commits and
 //     取消 discards. Nothing is written until 确定.
-//  5. Models from the same source are grouped together (the "(modlens vision)"
-//     wrapper groups are merged back into their upstream provider group for
-//     display only; the underlying provider/model ids are kept intact so the
-//     picker and the filter keep working).
+//  5. Models from the same source are grouped together, and the "(modlens
+//     vision)" wrapper twins are hidden entirely from this panel (the picker
+//     already hides them via dsh-model-picker-group, and dsh-modlens-autoread
+//     reads images automatically, so there is nothing to manage on twins here).
+//     The underlying provider/model ids of the remaining models are kept intact
+//     so the picker and the filter keep working.
 //
 // Persistence: localStorage key "dsh.model-whitelist.v1" = { enabled, models[] }.
 // Hand-written lazy-CJS bundle; only external is react.
@@ -143,6 +145,13 @@ window.__ModuleLoader__.load({
     function baseGroupName(name) {
       return String(name || '').replace(/\s*\(modlens vision\)\s*$/i, '').replace(/\s+/g, ' ').trim();
     }
+    // "(modlens vision)" 双胞胎：modlens 注册包装模型时 name 带后缀、id 不带。
+    // 与选择器「隐藏双胞胎」保持一致，模型管理列表也不显示双胞胎（图片由
+    // dsh-modlens-autoread 自动识别，无需在此管理双胞胎）。
+    function isModlensTwin(model) {
+      var label = String((model && (model.name || model.id)) || '');
+      return /\(modlens vision\)/i.test(label);
+    }
     function mergeGroups(groups) {
       var byBase = {};
       var order = [];
@@ -150,10 +159,12 @@ window.__ModuleLoader__.load({
         var base = baseGroupName(group.name || group.id) || group.id;
         if (!byBase[base]) { byBase[base] = { name: base, entries: [] }; order.push(base); }
         (group.models || []).forEach(function (model) {
+          if (isModlensTwin(model)) return; // 隐藏 (modlens vision) 双胞胎，与选择器一致
           byBase[base].entries.push({ gid: group.id, model: model });
         });
       });
-      return order.map(function (base) { return byBase[base]; });
+      // 丢弃空分组（如纯 modlens 包装组被过滤后没有剩余条目）
+      return order.map(function (base) { return byBase[base]; }).filter(function (g) { return g.entries.length > 0; });
     }
 
     // ---------- filter: apply whitelist to a sessions.models value ----------
@@ -250,6 +261,9 @@ window.__ModuleLoader__.load({
       }, [connection]);
 
       function commit(next) {
+        // 只丢弃 modlens 双胞胎的勾选（列表已不显示、也无法再勾选它们），
+        // 保证保存的白名单与列表展示一致；目录里暂缺的模型 key 原样保留。
+        next = Object.assign({}, next, { models: next.models.filter(function (k) { return !twinKeys[k]; }) });
         setCfg(next);
         writeConfig(next);
         setDraft(null);
@@ -272,14 +286,19 @@ window.__ModuleLoader__.load({
       }
       function selectAll() {
         var all = [];
-        (groups || []).forEach(function (g) { (g.models || []).forEach(function (m) { all.push(modelKey(g.id, m.id)); }); });
+        (displayGroups || []).forEach(function (dg) { dg.entries.forEach(function (e) { all.push(modelKey(e.gid, e.model.id)); }); });
         patchDraft({ models: all });
       }
       function clearAll() { patchDraft({ models: [] }); }
 
       var displayGroups = groups ? mergeGroups(groups) : [];
-      var total = groups ? groups.reduce(function (n, g) { return n + (g.models || []).length; }, 0) : 0;
-      var checkedCount = current.models.length;
+      var visibleKeys = {};
+      var twinKeys = {};
+      (groups || []).forEach(function (g) { (g.models || []).forEach(function (m) { if (isModlensTwin(m)) twinKeys[modelKey(g.id, m.id)] = true; }); });
+      displayGroups.forEach(function (dg) { dg.entries.forEach(function (e) { visibleKeys[modelKey(e.gid, e.model.id)] = true; }); });
+      var total = displayGroups.reduce(function (n, dg) { return n + dg.entries.length; }, 0);
+      // 只统计当前可见（非双胞胎）条目的勾选数，避免隐藏项悄悄占着计数
+      var checkedCount = current.models.filter(function (k) { return visibleKeys[k]; }).length;
       var [expanded, setExpanded] = React.useState(new Set());
       function toggleExpanded(name) {
         var next = new Set(expanded);

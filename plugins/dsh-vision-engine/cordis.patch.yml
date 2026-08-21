@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-vision-engine
+      name: '@dsh-external/dsh-vision-engine'

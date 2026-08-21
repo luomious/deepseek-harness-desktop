@@ -11,6 +11,7 @@ const npmPaths = require('./lib/npm-paths');
 const { ErrorLog } = require('./lib/error-log');
 const { SafeMode } = require('./lib/safe-mode');
 const { reconcilePatches } = require('./lib/patch-manifest');
+const { createUpdateCompat } = require('./lib/update-compat');
 const { withBuildLock } = require('./lib/build-lock');
 const { createDshService } = require('./lib/dsh-service');
 const { createUpdateChecker } = require('./lib/update-check');
@@ -171,9 +172,10 @@ if (!gotLock) {
 } else {
   bootLog('single-instance lock acquired');
   app.on('second-instance', () => {
-    // 第二个实例被唤起时，聚焦已有窗口
+    // 第二个实例被唤起时，聚焦已有窗口（含被隐藏/最小化的场景，确保可见）
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
     }
     // 若 DSH 服务已停止（如用户手动结束进程），双击图标时恢复服务并加载 UI，避免白屏。
@@ -297,6 +299,16 @@ function safeClose(win) {
   try { if (win && !win.isDestroyed()) win.close(); } catch (e) {}
 }
 
+// 更新兼容性机制：更新前评估新版本风险 / 更新后自检 / 一键回滚（防止更新后无法正常使用）
+const updateCompat = createUpdateCompat({
+  profileDir: PROFILE_DIR,
+  execNode,
+  findNpmCli,
+  dshService,
+  errorLog,
+  logger: (msg) => console.log(msg),
+});
+
 // 更新检查器（版本解析/远程拉取/执行更新，唯一实现见 lib/update-check.js）
 const updateChecker = createUpdateChecker({
   dshService,
@@ -313,6 +325,10 @@ const updateChecker = createUpdateChecker({
   DSH_URL,
   DSH_PKG,
   logger: (msg) => console.log(msg),
+  // 更新兼容性机制（未配置时 update-check 内部默认跳过，不影响原流程）
+  assessCompatibility: (input) => updateCompat.assessCompatibility(input),
+  postUpdateSelfTest: (input) => updateCompat.postUpdateSelfTest(input),
+  rollback: (version) => updateCompat.rollback(version),
 });
 
 function validateArg(input, type) {
@@ -548,6 +564,44 @@ app.whenReady().then(async () => {
   const alreadyRunning = await dshService.isPortListening();
   bootLog(`whenReady: isPortListening(${DSH_PORT}) = ${alreadyRunning}`);
 
+  // 启动时自愈（幂等，无论端口是否空闲都执行）。
+  // 历史教训：这两步原先只在「端口空闲 → 自启服务」分支里执行；当 3080 已被占用
+  //（网页版浏览器会话先开着、或上次退出残留了 dsh 进程）时会被整体跳过，导致
+  // dsh 升级覆盖 modlens / 核心 client 文件后补丁永远不会重打
+  //（粘贴显示路径、设置卡片消失、远程工作区失效等升级后遗症复发）。
+  // 1) 原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
+  try {
+    const patchResult = applyNativePickerPatch();
+    bootLog(`whenReady: native picker patch ${patchResult.status}`);
+    console.log('[DSH Desktop] Native picker patch:', patchResult.status, '-', patchResult.path);
+  } catch (patchErr) {
+    bootLog(`whenReady: native picker patch FAILED (non-fatal): ${patchErr.message}`);
+    console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
+  }
+  // 2) 补丁自愈清单：modlens / safe-delete / 核心 client 的 node_modules 补丁
+  //    （升级覆盖后自动重打；与插件安装/build 共用 build-lock 防写竞争）
+  try {
+    const patchResults = await withBuildLock(
+      'desktop: reconcilePatches (startup)',
+      () => reconcilePatches({ profileDir: PROFILE_DIR }),
+      { waitMs: 60 * 1000 }
+    );
+    for (const pr of patchResults) {
+      if (pr.status === 'applied') {
+        bootLog(`whenReady: patch ${pr.id} applied`);
+        console.log('[DSH Desktop] Patch applied:', pr.id);
+      } else if (pr.status === 'failed') {
+        errorLog.log('PATCH-001', { module: 'patch-manifest', msg: `${pr.id}: ${pr.error || 'unknown'}`, ctx: { file: pr.file } });
+        bootLog(`whenReady: patch ${pr.id} FAILED (non-fatal): ${pr.error}`);
+        console.warn('[DSH Desktop] Patch failed (non-fatal):', pr.id, pr.error);
+      } else {
+        bootLog(`whenReady: patch ${pr.id} skipped (${pr.reason || pr.status})`);
+      }
+    }
+  } catch (patchErr) {
+    bootLog(`whenReady: patch manifest FAILED (non-fatal): ${patchErr.message}`);
+  }
+
   if (alreadyRunning) {
     // 端口被占用：验证是否真的是 DSH 服务（避免加载其他程序的页面并暴露 preload 权限）
     // 实现收敛到 lib/dsh-service.js 的 isDSHListening（含 gzip 容错与 3s 超时）
@@ -571,45 +625,13 @@ app.whenReady().then(async () => {
       }
       // 端口已释放，继续走自启动逻辑
     } else {
-      bootLog('whenReady: DSH already running on port');
+      bootLog('whenReady: DSH already running on port（可能由网页版浏览器会话或上次未退净的进程持有，桌面版直接接管不重复启动）');
       console.log('[DSH Desktop] DSH already running on port', DSH_PORT);
     }
   }
 
   if (!(await dshService.isPortListening())) {
     bootLog('whenReady: port free, calling startDSH()');
-    // 启动 DSH 服务前应用原生目录选择器补丁（修复带低位 0 字节的 UTF-16 路径被截断问题）
-    try {
-      const patchResult = applyNativePickerPatch();
-      bootLog(`whenReady: native picker patch ${patchResult.status}`);
-      console.log('[DSH Desktop] Native picker patch:', patchResult.status, '-', patchResult.path);
-    } catch (patchErr) {
-      bootLog(`whenReady: native picker patch FAILED (non-fatal): ${patchErr.message}`);
-      console.warn('[DSH Desktop] Native picker patch failed (non-fatal):', patchErr.message);
-    }
-    // 补丁自愈清单：modlens / safe-delete 的 node_modules 补丁（升级覆盖后自动重打）
-    // 与插件安装/build 共用 build-lock：补丁写 node_modules 期间不与其他写者竞争
-    try {
-      const patchResults = await withBuildLock(
-        'desktop: reconcilePatches (startup)',
-        () => reconcilePatches({ profileDir: PROFILE_DIR }),
-        { waitMs: 60 * 1000 }
-      );
-      for (const pr of patchResults) {
-        if (pr.status === 'applied') {
-          bootLog(`whenReady: patch ${pr.id} applied`);
-          console.log('[DSH Desktop] Patch applied:', pr.id);
-        } else if (pr.status === 'failed') {
-          errorLog.log('PATCH-001', { module: 'patch-manifest', msg: `${pr.id}: ${pr.error || 'unknown'}`, ctx: { file: pr.file } });
-          bootLog(`whenReady: patch ${pr.id} FAILED (non-fatal): ${pr.error}`);
-          console.warn('[DSH Desktop] Patch failed (non-fatal):', pr.id, pr.error);
-        } else {
-          bootLog(`whenReady: patch ${pr.id} skipped (${pr.reason || pr.status})`);
-        }
-      }
-    } catch (patchErr) {
-      bootLog(`whenReady: patch manifest FAILED (non-fatal): ${patchErr.message}`);
-    }
     try {
       await dshService.start();
       bootLog('whenReady: startDSH resolved');
