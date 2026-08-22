@@ -34,12 +34,16 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     async execute(args: { workspacePath?: string; fileName?: string; force?: boolean }, exec: any) {
       const root = args.workspacePath || exec?.agent?.session?.header?.cwd || process.cwd()
       if (!existsSync(root)) return `错误：工作区不存在：${root}`
-      const file = join(root, args.fileName || config.fileName)
+      const name = (args.fileName || config.fileName).trim()
+      if (!name || name.includes('..') || name.includes('/') || name.includes('\\')) {
+        return `错误：非法文件名（不允许路径或 ..）：${name || '(空)'}`
+      }
+      const file = join(root, name)
       const facts = gatherFacts(root)
       const existing = (() => { try { return readFileSync(file, 'utf8') } catch { return null } })()
       const { content, changed, preserved } = mergeBrief(existing, facts, !!args.force)
       if (!changed) return `无需更新（指纹未变）：${file}`
-      writeFileSync(file, content, 'utf8')
+      try { writeFileSync(file, content, 'utf8') } catch (e) { return `错误：写入失败 ${file}: ${String(e)}` }
       return `已${existing ? '动态更新' : '生成'} ${file}（保留策展行 ${preserved}，指纹 ${fingerprint(facts)}）`
     },
   })), '@dsh-external/dsh-project-brief: project_brief_update')
