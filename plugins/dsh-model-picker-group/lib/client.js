@@ -54,6 +54,10 @@ window.__ModuleLoader__.load({
     var plainMap = {}
     // modlens 渠道 -> 上游渠道（仅当上游在当前目录里出现，即已合并）
     var modlensToUpstream = {}
+    // 当前会话是否实际运行在 modlens 视觉双胞胎上（picker 静默接管后为 true）。
+    // modlens 粘贴裁决按按钮 aria-label 是否含 "(modlens vision)" 判断是否接管粘贴；
+    // 双胞胎上必须保持该标记,否则裁决误判纯文本 → 图片被转成路径。
+    var modlensVisionActive = false
 
     function rebuildMaps() { plainMap = {}; modlensToUpstream = {} }
 
@@ -130,11 +134,14 @@ window.__ModuleLoader__.load({
     function rewriteCurrent(value) {
       var cur = value && value.current
       if (cur && modlensToUpstream[cur.provider]) {
+        modlensVisionActive = true
         value.current = {
           provider: modlensToUpstream[cur.provider],
           model: cur.model,
           reasoningEffort: cur.reasoningEffort,
         }
+      } else {
+        modlensVisionActive = false
       }
       return value
     }
@@ -196,7 +203,10 @@ window.__ModuleLoader__.load({
                   var mp = plainMap[key] || plainMap['\u0000' + req.model]
                   diag({ event: 'select', provider: req.provider || null, model: req.model, hit: mp || null, takeoverEntries: Object.keys(plainMap).length })
                   if (mp) {
+                    modlensVisionActive = true
                     req = Object.assign({}, req, { provider: mp, model: req.model })
+                  } else {
+                    modlensVisionActive = false
                   }
                 } else {
                   diag({ event: 'select', shape: 'unexpected', req: JSON.stringify(req).slice(0, 200) })
@@ -219,6 +229,27 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.mergeGroups = mergeGroups
     exports.transformModels = transformModels
+
+    // 会话运行在 modlens 视觉双胞胎上时,给模型按钮 aria-label 追加 "(modlens vision)" 标记。
+    // modlens 粘贴裁决按该标记判定模型支持图片 → 不接管粘贴 → 图片原生嵌入消息。
+    // 标记只进 aria-label(无障碍属性),界面显示不受影响。幂等挂载,热重载不累积。
+    function patchModelAriaLabel() {
+      try {
+        var btn = document.querySelector('button[aria-label*="选择模型"], button[aria-label*="Select model"]')
+        if (!btn) return
+        var a = btn.getAttribute('aria-label') || ''
+        var has = a.indexOf('(modlens vision)') !== -1
+        if (modlensVisionActive && !has) {
+          btn.setAttribute('aria-label', a + ' (modlens vision)')
+        } else if (!modlensVisionActive && has) {
+          btn.setAttribute('aria-label', a.replace(/ \(modlens vision\)$/, ''))
+        }
+      } catch (e) { /* 诊断失败不影响 */ }
+    }
+    if (!window.__MPG_ARIA_PATCHER__) {
+      window.__MPG_ARIA_PATCHER__ = window.setInterval(patchModelAriaLabel, 800)
+    }
+
     // `connection`：sessions.models/selectModel 包装；`locale`：apply 内直接访问
     // ctx.locale.register 注册字典——客户端运行时按 inject 声明门控服务访问。
     exports.inject = ['connection', 'locale']
