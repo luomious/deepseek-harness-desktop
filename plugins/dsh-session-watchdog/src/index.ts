@@ -160,7 +160,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
             if (!shouldResume(goal)) continue
             const prev = lastResume.get(goal.id) ?? 0
             if (Date.now() - prev < config.cooldownMs) continue
-            goals.resume(agent, { id: goal.id, revision: goal.revision })
+            Promise.resolve(goals.resume(agent, { id: goal.id, revision: goal.revision })).catch((e) => log(`resume rejected: ${String(e)}`))
             lastResume.set(goal.id, Date.now())
             resumed += 1
             log(`cycle=${cycles} resumed goal="${goal.id}" phase=${goal.phase} activation=${goal.activation ?? 'n/a'} rounds=${goal.roundsStarted ?? 0}/${goal.maxGoalRounds ?? '∞'}`)
