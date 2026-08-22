@@ -1,11 +1,11 @@
 <!-- 备查 runbook: 一次性收尾任务，非幂等，重跑前须重新核验状态 -->
 <!-- 作成: 2026-08-22 | 来源: 用户编写并交付其他 agent 执行的"复制即用"提示词 -->
-<!-- 执行状态: 【已复核纠正】E 盘两目录已删 ✅；但收敛(停旧壳/停 3080)此前被 agent 误报为完成，实际未执行 ❌（2026-08-22 22:0x 复核：旧壳 4 进程仍在、3080 仍监听）。收敛待真正执行后再更新本行。 -->
+<!-- 执行状态(2026-08-22 22:1x 复核): E 盘清理 ✅ / ATP-DSH-Web 计划任务已停用 ✅ / 桌面快捷方式已建 ✅ / 收敛(停旧壳+停3080)未完成 ❌ —— 原因: 3080 是当前网页会话(本 GUI)的宿主,一旦停掉会话即断开,且存在自愈机制会重启旧栈(旧壳 src/main.js BOOT-002 自动重启 dsh web;21:56:37-38 旧壳+web 曾被整体重启)。须在结束本会话后由用户执行最终收敛。 -->
 
 # DSH 合并升级收尾 —— 收敛单实例 + 清理 E 盘（runbook / 备查）
 
 > **用途**：供任意 agent 独立执行的"复制即用"提示词存档副本。本文件仅作记录。
-> **⚠️ 执行状态【已纠正】**：E 盘清理已完成 ✅；**收敛(停旧壳 DeepSeek Harness 4 进程 / 停 3080 监听)尚未真正执行**——此前 agent 日志填写的"预期值"而非实测值导致误报。收敛真正完成后须更新本文件与 docs/升级执行记录.md。
+> **⚠️ 执行状态【最新】**：E 盘清理 ✅、ATP-DSH-Web 任务已停 ✅、桌面快捷方式已建 ✅；**收敛尚未完成**——3080 为本网页会话宿主,停 3080 = 断当前会话,且有自愈机制重启旧栈。**最终收敛须在本会话结束后由用户执行**(见文末"最终收敛步骤")。
 > **重要**：本流程**非幂等**。执行一次后（旧壳已停、E:\DSH 已删），再次执行会因目录不存在而报错。重跑前务必重新运行"执行前核验"。
 > **安全红线（硬性）**：禁止停止/重启/修改 **43120** 上的自建 exe；禁止修改 `D:\Deepseek-Harness`（docs 目录除外）；禁止触碰 `~/.dsh`（用户数据：会话/配置）。
 
@@ -100,3 +100,24 @@ E:\DSH\DSH Desktop 已删除 / E:\DSH\Desktop-src 已删除
 
 ## 提示词设计要点（复盘）
 ① 明确"哪些保留 / 哪些停 / 哪些删"；② 每步带验证；③ 硬性安全规则（不动 43120、不动 `~/.dsh`、不动 `D:\Deepseek-Harness`）；④ 报错即停即汇报；⑤ 统一汇报格式。发给任何 agent 都能独立执行，无需本会话上下文。
+
+---
+
+## 最终收敛步骤（会话结束后由用户执行）
+
+> 背景：3080 是当前网页会话的宿主；会话关闭后旧栈不再被保活，此时收敛才能"停得死"。
+
+```powershell
+# 1. 停旧壳(DeepSeek Harness 4 进程)
+Get-Process -Name "DeepSeek Harness" -ErrorAction SilentlyContinue | Stop-Process -Force
+# 2. 停 web 实例(3080 监听者)
+$webPid = ((netstat -ano | Select-String ":3080.*LISTENING") -replace '.*\s(\d+)\s*$', '$1')
+if ($webPid) { Stop-Process -Id $webPid -Force; "已停 PID $webPid" }
+# 3. 验证: 旧壳=0 / 3080=0 / 43120 仍在
+(Get-Process -Name "DeepSeek Harness" -ErrorAction SilentlyContinue | Measure-Object).Count
+(netstat -ano | Select-String ":3080.*LISTENING" | Measure-Object).Count
+(Invoke-WebRequest -Uri "http://127.0.0.1:43120" -UseBasicParsing -TimeoutSec 8).StatusCode
+# 4. 若旧壳被再次拉起(自愈),可临时改名旧壳 exe 断根(可逆):
+#    Rename-Item "D:\Deepseek-Harness\app\DeepSeek Harness.exe" "DeepSeek Harness.exe.bak"
+# 5. 以后使用: 桌面快捷方式 "DSH Desktop" 启动自建 exe(43120)= 单实例
+```
