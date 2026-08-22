@@ -381,10 +381,6 @@ window.__ModuleLoader__.load({
 
       function persist(profiles, active, silent) {
         setNote(t('noteSaving'));
-        // 诊断(临时):确认面板切换流程走到哪一步
-        try {
-          fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-start', active: active }) }).catch(function () {})
-        } catch (e) { /* ignore */ }
         // 不回传掩码 'set'/空 key：避免把 publicConfig 的掩码当真 key 存回（host 也会忽略，双保险）
         var clean = profiles.map(function (p) {
           var o = Object.assign({}, p);
@@ -395,18 +391,15 @@ window.__ModuleLoader__.load({
           setCfg(j);
           loadAll(j);
           if (!silent) flashNote(t('noteSaved'));
-          try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-ok', active: j && j.active }) }).catch(function () {}) } catch (e2) { /* ignore */ }
           return j;
         }).catch(function (e) {
           setNote(String(e));
-          try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-err', error: String(e) }) }).catch(function () {}) } catch (e3) { /* ignore */ }
           throw e;
         });
       }
 
       function activate(id) {
         if (!cfg) return;
-        try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'activate', id: id }) }).catch(function () {}) } catch (e) { /* ignore */ }
         var next = cfg.profiles.map(function (p) { return Object.assign({}, p); });
         persist(next, id).then(function () { flashNote(t('noteSaved')); });
       }
@@ -741,14 +734,6 @@ window.__ModuleLoader__.load({
         chip.style.top = Math.max(8, rect.top - 88) + 'px';
       }
       function render() {
-        // 诊断记录(临时,便于 CDP 抓现场)
-        try {
-          if (!window.__VE_DEBUG__) window.__VE_DEBUG__ = { renders: [] };
-          var _dbg = { t: Date.now(), activeTag: document.activeElement ? document.activeElement.tagName : null };
-          try { _dbg.haveValue = !!(document.activeElement && document.activeElement.value); } catch (e) { _dbg.haveValue = 'err:' + e.message; }
-          window.__VE_DEBUG__.renders.push(_dbg);
-          if (window.__VE_DEBUG__.renders.length > 50) window.__VE_DEBUG__.renders.shift();
-        } catch (e) { /* 诊断失败不影响渲染 */ }
         try {
           var el = document.activeElement;
           var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
