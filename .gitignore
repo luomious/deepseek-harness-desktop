@@ -79,3 +79,6 @@ dsh-stuck-loop-guard/lib/**/*.map
 dsh-stuck-loop-guard/lib/**/*.d.ts
 dsh-context-lifecycle/lib/**/*.map
 dsh-context-lifecycle/lib/**/*.d.ts
+
+# 官方新壳源码快照(vendor,可随时按文档命令重新 clone)
+vendor/
