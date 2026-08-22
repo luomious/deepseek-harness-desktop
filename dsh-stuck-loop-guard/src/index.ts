@@ -315,6 +315,7 @@ export function apply(ctx: MinimalContext, rawConfig?: Partial<Config>): void {
       settle(chain, chain.tool === exec.name ? 'signature-change' : 'tool-change')
     }
     const count = chain !== undefined && chain.key === key ? chain.count + 1 : 1
+    if (typeof agent !== 'object' || agent === null) return undefined
     chains.set(agent, { key, tool: exec.name, code, count })
     if (!fires(count)) return undefined
     const tier1 = count === config.thresholds[0]
@@ -341,7 +342,12 @@ export function apply(ctx: MinimalContext, rawConfig?: Partial<Config>): void {
         ctx.logger.warn(`stuck-loop-guard: observer failed: ${String(error)}`)
       } catch { /* ignore */ }
     }
-    const downstream = await next()
+    const downstream = await next().catch((error) => {
+      try {
+        ctx.logger.warn(`stuck-loop-guard: downstream failed: ${String(error)}`)
+      } catch { /* ignore */ }
+      return undefined
+    })
     if (!reminder) return downstream
     if (downstream.kind === 'block') {
       return {
