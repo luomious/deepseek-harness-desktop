@@ -40,6 +40,7 @@ window.__ModuleLoader__.load({
       pasteUnknown: '粘贴模式未知',
       profilesTitle: '模型配置（可多个，一键切换）',
       active: '当前',
+      apply: '切换并生效',
       activate: '设为当前',
       edit: '编辑',
       del: '删除',
@@ -99,6 +100,7 @@ window.__ModuleLoader__.load({
       profilesTitle: 'Model profiles (multiple, one-click switch)',
       active: 'Active',
       activate: 'Set active',
+      apply: 'Switch & apply',
       edit: 'Edit',
       del: 'Delete',
       add: '+ Add profile',
@@ -585,6 +587,8 @@ window.__ModuleLoader__.load({
                     h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', flexShrink: 0 } }, '模型'),
                     h('select', { value: cur.id, onChange: function (e) { activate(e.target.value); }, style: Object.assign({}, FIELD, { width: 'auto', flex: 1, padding: '5px 8px' }) },
                       g.items.map(function (p) { return h('option', { key: p.id, value: p.id }, p.model + (p.hasKey || p.apiKey === 'set' ? ' 🔑' : '')); })),
+                    // 「切换并生效」按钮：把下拉当前选中的模型设为本厂商生效模型(点卡片也能切换,这里给显式入口+反馈)
+                    !activeIn && h('button', { type: 'button', className: 've-btn', onClick: function (e) { if (e && e.stopPropagation) e.stopPropagation(); activate(cur.id); }, style: primaryBtn() }, t('apply')),
                     h('button', { type: 'button', className: 've-btn', onClick: function () { setEditor({ isNew: false, draft: Object.assign({}, cur) }); }, style: ghostBtn() }, t('edit')),
                     h('button', { type: 'button', className: 've-btn', disabled: cfg.profiles.length <= 1, onClick: function () { removeProfile(cur.id); }, style: ghostBtn(cfg.profiles.length <= 1) }, t('del'))),
                   // 就地编辑当前模型
