@@ -370,6 +370,10 @@ window.__ModuleLoader__.load({
 
       function persist(profiles, active, silent) {
         setNote(t('noteSaving'));
+        // 诊断(临时):确认面板切换流程走到哪一步
+        try {
+          fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-start', active: active }) }).catch(function () {})
+        } catch (e) { /* ignore */ }
         // 不回传掩码 'set'/空 key：避免把 publicConfig 的掩码当真 key 存回（host 也会忽略，双保险）
         var clean = profiles.map(function (p) {
           var o = Object.assign({}, p);
@@ -380,15 +384,18 @@ window.__ModuleLoader__.load({
           setCfg(j);
           loadAll(j);
           if (!silent) flashNote(t('noteSaved'));
+          try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-ok', active: j && j.active }) }).catch(function () {}) } catch (e2) { /* ignore */ }
           return j;
         }).catch(function (e) {
           setNote(String(e));
+          try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'persist-err', error: String(e) }) }).catch(function () {}) } catch (e3) { /* ignore */ }
           throw e;
         });
       }
 
       function activate(id) {
         if (!cfg) return;
+        try { fetch('/vision-engine/diag', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ src: 've-panel', event: 'activate', id: id }) }).catch(function () {}) } catch (e) { /* ignore */ }
         var next = cfg.profiles.map(function (p) { return Object.assign({}, p); });
         persist(next, id).then(function () { flashNote(t('noteSaved')); });
       }
