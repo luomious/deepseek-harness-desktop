@@ -4,8 +4,38 @@
 // 依赖注入（brain/pluginManager/updateChecker 等），逻辑与渲染错误信号走诊断体系。
 const path = require('path');
 
+// 壳层视觉润色（注入 DSH 主页面）：与官方 dsw alias token 对齐。
+// - 字体栈含 CJK 回退（PingFang SC / Microsoft YaHei），避免中文回退宋体；
+// - 滚动条默认隐藏，hover/滚动/聚焦时淡入显示（桌面应用质感，参考 dsh desktop 方案）。
+const SHELL_CSS = `
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+* { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+*:hover::-webkit-scrollbar-thumb,
+*:active::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background-color: rgba(84, 85, 87, 0.45);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(60, 60, 61, 0.6);
+}
+*:hover, *:active, *:focus-within {
+  scrollbar-color: rgba(84, 85, 87, 0.45) transparent;
+}
+`;
+
 function createWindowUI(options) {
-  const { BrowserWindow, Menu, dialog, shell, app, ipcMain } = options.electron;
+  const { BrowserWindow, Menu, dialog, shell, app, ipcMain, Tray, nativeImage } = options.electron;
   const getMainWindow = options.getMainWindow;
   const setMainWindow = options.setMainWindow;
   const brain = options.brain;
@@ -26,6 +56,10 @@ function createWindowUI(options) {
 
   // 插件管理窗口引用（isTrustedSender 精确校验用）
   let pluginWin = null;
+
+  // 系统托盘（点 ✕ 后驻留后台）；模块级引用防止被 GC 回收
+  let tray = null;
+  let trayHintShown = false;
 
   /** 创建主窗口（远程 DSH Web UI，不注入 preload） */
   function createWindow() {
@@ -48,7 +82,7 @@ function createWindowUI(options) {
       },
       frame: true,
       titleBarStyle: 'default',
-      backgroundColor: '#1a1a2e',
+      backgroundColor: '#151517',
       show: false,
     });
 
@@ -172,6 +206,9 @@ function createWindowUI(options) {
       // 只对 DSH 主页面检测（排除 loading.html / 插件管理窗口等）
       const url = win.webContents.getURL();
       if (!isDSHOrigin(url)) return;
+      // 壳层润色：注入视觉 CSS（字体栈 + 隐藏式滚动条）。insertCSS 在导航时会被清除，
+      // 每次 did-finish-load 重新注入；失败静默（不影响业务）。
+      win.webContents.insertCSS(SHELL_CSS, { cssOrigin: 'author' }).catch(() => {});
       setTimeout(() => {
         if (win.isDestroyed()) return;
         win.webContents.executeJavaScript(
@@ -207,7 +244,63 @@ function createWindowUI(options) {
 
     win.on('closed', () => setMainWindow(null));
 
+    // 点右上角 ✕：隐藏到托盘（服务继续运行），不退出应用；
+    // 真正退出走托盘菜单「退出」或 文件→退出（before-quit 先置 isQuitting，此拦截不生效）。
+    // 托盘不可用时退化为普通关闭，防止「点 X 后窗口消失且无法找回」。
+    win.on('close', (event) => {
+      if (isQuitting()) return;
+      if (!tray) return;
+      event.preventDefault();
+      win.hide();
+      showTrayHint();
+    });
+
     createMenu();
+  }
+
+  /** 显示/创建主窗口（托盘点击、二次唤起共用） */
+  function showMainWindow() {
+    const w = getMainWindow();
+    if (!w || w.isDestroyed()) {
+      createWindow();
+      return;
+    }
+    if (w.isMinimized()) w.restore();
+    if (!w.isVisible()) w.show();
+    w.focus();
+  }
+
+  /** 首次隐藏到托盘时的气泡提示（仅一次） */
+  function showTrayHint() {
+    if (trayHintShown || !tray) return;
+    trayHintShown = true;
+    try {
+      tray.displayBalloon({
+        title: 'DeepSeek Harness',
+        content: '已最小化到托盘，服务仍在后台运行。点击托盘图标可重新打开。',
+      });
+    } catch (e) { /* 非 Windows 或无气球支持时静默 */ }
+  }
+
+  /** 系统托盘：点 ✕ 后应用驻留后台；托盘菜单可显示主窗口或彻底退出 */
+  function createTray() {
+    if (tray) return tray;
+    let icon;
+    try {
+      const src = nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon.png'));
+      icon = src.resize({ width: 16, height: 16 });
+      if (icon.isEmpty()) icon = src;
+    } catch (e) { icon = undefined; }
+    tray = new Tray(icon || nativeImage.createEmpty());
+    tray.setToolTip('DeepSeek Harness（运行中）');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: '显示主窗口', click: () => showMainWindow() },
+      { type: 'separator' },
+      { label: '退出', click: () => app.quit() },
+    ]));
+    // Windows：单击托盘图标 = 显示主窗口
+    tray.on('click', () => showMainWindow());
+    return tray;
   }
 
   /** 打开插件管理窗口（本地 data: URL + preload 桥） */
@@ -257,40 +350,40 @@ function createWindowUI(options) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif; background: #151517; color: #e6e8eb; padding: 24px; }
   h1 { font-size: 20px; margin-bottom: 4px; }
-  .subtitle { font-size: 13px; color: #888; margin-bottom: 20px; }
+  .subtitle { font-size: 13px; color: #adb2b8; margin-bottom: 20px; }
   .section { margin-bottom: 24px; }
-  .section-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #4a9eff; }
+  .section-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #679efe; }
   .input-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  input { flex: 1; padding: 8px 12px; border: 1px solid #333; border-radius: 6px; background: #16213e; color: #e0e0e0; font-size: 13px; outline: none; }
-  input:focus { border-color: #4a9eff; }
+  input { flex: 1; padding: 8px 12px; border: 1px solid #2c2c2e; border-radius: 6px; background: #1b1b1c; color: #e6e8eb; font-size: 13px; outline: none; }
+  input:focus { border-color: #679efe; }
   button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
-  .btn-primary { background: #4a9eff; color: white; }
-  .btn-primary:hover { background: #3a8eef; }
-  .btn-secondary { background: #333; color: #ccc; }
-  .btn-secondary:hover { background: #444; }
-  .btn-danger { background: #e74c3c; color: white; }
+  .btn-primary { background: #679efe; color: white; }
+  .btn-primary:hover { background: #4176e6; }
+  .btn-secondary { background: #2c2c2e; color: #cfd3d6; }
+  .btn-secondary:hover { background: #3a3a3c; }
+  .btn-danger { background: #f25a5a; color: white; }
   .btn-danger:hover { background: #d73b2c; }
   .actions { display: flex; gap: 6px; }
-  .btn-toggle { background: #2d3a55; color: #9db8e8; border: 1px solid #3d5075; }
-  .btn-toggle:hover { background: #3a4d73; }
+  .btn-toggle { background: #222428; color: #a8b3c0; border: 1px solid #34373a; }
+  .btn-toggle:hover { background: #2c3033; }
   .tag-disabled { font-size: 11px; color: #f87171; margin-left: 8px; border: 1px solid #f87171; border-radius: 4px; padding: 1px 6px; }
-  .tag-active { font-size: 11px; color: #4ade80; margin-left: 8px; border: 1px solid #4ade80; border-radius: 4px; padding: 1px 6px; }
+  .tag-active { font-size: 11px; color: #22c55e; margin-left: 8px; border: 1px solid #22c55e; border-radius: 4px; padding: 1px 6px; }
   .plugin-list { list-style: none; }
-  .plugin-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #16213e; border-radius: 8px; margin-bottom: 6px; }
+  .plugin-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #1b1b1c; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; margin-bottom: 6px; }
   .plugin-name { font-size: 13px; font-weight: 500; }
-  .plugin-ver { font-size: 12px; color: #888; margin-left: 8px; }
-  .empty { color: #666; font-size: 13px; padding: 12px; text-align: center; }
-  .plugin-desc { font-size: 12px; color: #999; margin-top: 2px; max-width: 460px; overflow-wrap: break-word; }
-  .plugin-meta { font-size: 11px; color: #666; margin-top: 2px; }
+  .plugin-ver { font-size: 12px; color: #81858c; margin-left: 8px; }
+  .empty { color: #81858c; font-size: 13px; padding: 12px; text-align: center; }
+  .plugin-desc { font-size: 12px; color: #81858c; margin-top: 2px; max-width: 460px; overflow-wrap: break-word; }
+  .plugin-meta { font-size: 11px; color: #81858c; margin-top: 2px; }
   .discover-main { flex: 1; min-width: 0; }
   .discover-item { align-items: flex-start; }
-  .btn-toggle.active { background: #4a9eff; color: white; border-color: #4a9eff; }
-  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #333; }
-  .tab { padding: 8px 16px; cursor: pointer; font-size: 13px; color: #888; border-bottom: 2px solid transparent; transition: all 0.2s; }
-  .tab.active { color: #4a9eff; border-bottom-color: #4a9eff; }
-  .tab:hover { color: #ccc; }
+  .btn-toggle.active { background: #679efe; color: white; border-color: #679efe; }
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.12); }
+  .tab { padding: 8px 16px; cursor: pointer; font-size: 13px; color: #adb2b8; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab.active { color: #679efe; border-bottom-color: #679efe; }
+  .tab:hover { color: #e6e8eb; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
   .hint { font-size: 12px; color: #666; margin-top: 4px; line-height: 1.5; }
@@ -806,7 +899,7 @@ function createWindowUI(options) {
     });
   }
 
-  return { createWindow, openPluginManager, createMenu, initIpc };
+  return { createWindow, createTray, openPluginManager, createMenu, initIpc };
 }
 
 module.exports = { createWindowUI };

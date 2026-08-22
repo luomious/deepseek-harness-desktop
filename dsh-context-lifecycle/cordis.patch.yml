@@ -1,5 +1,9 @@
 # 2026-08-21 恢复启用：代码已改为惰性解析 compaction（不再 inject 声明），
 # 且 web profile 已启用 compaction-basic（压缩引擎）。自动压缩：上下文达窗口 80% 触发。
 # overlay patch 文件必须是顶层 YAML 数组（不能全注释/为空）。
+- insert:
+    - id: dsh-context-lifecycle
+      name: '@dsh-external/dsh-context-lifecycle'
+
 - id: dsh-context-lifecycle
   disabled: false

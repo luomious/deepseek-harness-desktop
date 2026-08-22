@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, ipcMain, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain, session, Tray, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const net = require('net');
@@ -98,7 +98,8 @@ const AUTO_RESTART_MAX = 3;
 const AUTO_RESTART_WINDOW_MS = 5 * 60 * 1000;
 let dshRestartTimes = [];
 dshService.setOnUnexpectedExit((code, signal) => {
-  if (isQuitting || !mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
+  // 注意：不判 isVisible——窗口隐藏到托盘（点 ✕）时 dsh 崩溃仍需自动恢复
+  if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
   errorLog.log('BOOT-002', { module: 'dsh-service', msg: `dsh 进程运行中意外退出 code=${code}${signal ? ', signal=' + signal : ''}`, ctx: { code, signal } });
   // 崩溃计入诊断引擎经验表：1 小时内累计 >=3 次 BOOT-002，下次启动进安全模式
   // （移出第三方 bundle），打断「坏配置 -> 每次启动必崩 -> 自动重启也必崩」死循环
@@ -390,7 +391,7 @@ const pluginCatalog = createPluginCatalog({
 
 // 窗口/菜单/IPC（唯一实现见 lib/window-ui.js）；mainWindow 由本文件持有
 const windowUI = createWindowUI({
-  electron: { BrowserWindow, Menu, dialog, shell, app, ipcMain },
+  electron: { BrowserWindow, Menu, dialog, shell, app, ipcMain, Tray, nativeImage },
   getMainWindow: () => mainWindow,
   setMainWindow: (w) => { mainWindow = w; },
   brain,
@@ -523,6 +524,13 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowedPermissions.has(permission));
   bootLog('whenReady: createWindow');
   windowUI.createWindow();
+  // 系统托盘：点 ✕ 后驻留后台（服务继续运行），托盘菜单可显示/退出。
+  // 托盘创建失败绝不阻断启动（否则应用窗口都打不开）
+  try {
+    windowUI.createTray();
+  } catch (trayErr) {
+    bootLog(`whenReady: createTray FAILED (non-fatal): ${(trayErr && trayErr.message) || trayErr}`);
+  }
 
   // 图标守卫尽早跑：detached 修复脚本要尽早挂上（强杀场景也能在退出后修复）
   try {

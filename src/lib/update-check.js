@@ -299,12 +299,12 @@ function createUpdateChecker(options) {
     };
 
     progressWin.loadURL(`data:text/html,${encodeURIComponent(`
-      <html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"></head><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI',sans-serif;">
+      <html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"></head><body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#151517;color:#e6e8eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;">
         <div style="font-size:18px;font-weight:600;margin-bottom:8px;">正在更新 DSH...</div>
-        <div style="font-size:13px;color:#888;margin-bottom:16px;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
-        <div id="stage" style="font-size:13px;color:#9db8e8;margin-bottom:16px;">正在停止服务...</div>
-        <div style="margin-top:4px;width:200px;height:4px;background:#333;border-radius:2px;overflow:hidden;">
-          <div style="width:100%;height:100%;background:linear-gradient(90deg,#4a9eff,#7b68ee);animation:pulse 1.2s infinite;"></div>
+        <div style="font-size:13px;color:#adb2b8;margin-bottom:16px;">${escVer(localVer)} → ${escVer(remoteVer)}</div>
+        <div id="stage" style="font-size:13px;color:#679efe;margin-bottom:16px;">正在停止服务...</div>
+        <div style="margin-top:4px;width:200px;height:4px;background:#2c2c2e;border-radius:2px;overflow:hidden;">
+          <div style="width:100%;height:100%;background:linear-gradient(90deg,#679efe,#7b68ee);animation:pulse 1.2s infinite;"></div>
         </div>
         <style>@keyframes pulse{0%{opacity:0.4}50%{opacity:1}100%{opacity:0.4}}</style>
       </body></html>
