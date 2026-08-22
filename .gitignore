@@ -82,3 +82,13 @@ dsh-context-lifecycle/lib/**/*.d.ts
 
 # 官方新壳源码快照(vendor,可随时按文档命令重新 clone)
 vendor/
+
+# 构建缓存与杂物
+.corepack/
+.yarn-cache/
+.yarn-global/
+.electron-cache/
+.electron-builder-cache/
+_backups/
+.ref-hairyf/
+main.js

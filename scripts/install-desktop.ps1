@@ -1,4 +1,4 @@
-# DSH Desktop profile 一键装配脚本（合并升级 Phase 3）
+﻿# DSH Desktop profile 一键装配脚本（合并升级 Phase 3）
 # 用法: powershell -File scripts/install-desktop.ps1
 # 前置: 先退出 DSH Desktop.exe（profile 文件被运行实例锁定）
 $ErrorActionPreference = 'Stop'
