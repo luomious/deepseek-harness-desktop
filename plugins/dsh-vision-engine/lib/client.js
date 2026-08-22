@@ -759,6 +759,7 @@ window.__ModuleLoader__.load({
       } catch (e) {
         /* 隔离渲染错误:任何异常不得阻止后续渲染 */
       }
+      }
       function renderPositions() {
         var el = document.activeElement;
         if (!el || map.size === 0) return;
