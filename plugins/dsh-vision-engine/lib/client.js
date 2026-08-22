@@ -662,6 +662,7 @@ window.__ModuleLoader__.load({
     function startPastePreview() {
       if (previewStarted || typeof document === 'undefined') return;
       previewStarted = true;
+      ensureCss(); // 关键:样式仅原在设置面板注入,未打开面板时卡片无样式不可见;预览启动即注入
       var map = new Map();
       var lb = null;
       function closeLightbox() { if (lb) { lb.remove(); lb = null; } }
