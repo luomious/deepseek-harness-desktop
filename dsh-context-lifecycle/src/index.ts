@@ -360,15 +360,19 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
   }, config.pollMs)
 
   const pendingTimer = setInterval(() => {
-    if (pendingCompact.size === 0) return
-    for (const [sessionId] of [...pendingCompact]) {
-      const state = states.get(sessionId)
-      const agent = findAgent(sessionId)
-      if (!state || !agent) { pendingCompact.delete(sessionId); continue }
-      if (agent.status === 'idle') {
-        pendingCompact.delete(sessionId)
-        void runCompact(state)
+    try {
+      if (pendingCompact.size === 0) return
+      for (const [sessionId] of [...pendingCompact]) {
+        const state = states.get(sessionId)
+        const agent = findAgent(sessionId)
+        if (!state || !agent) { pendingCompact.delete(sessionId); continue }
+        if (agent.status === 'idle') {
+          pendingCompact.delete(sessionId)
+          void runCompact(state).catch((e) => ctx.logger?.warn?.(`[context-lifecycle] runCompact failed: ${String(e)}`))
+        }
       }
+    } catch (e) {
+      ctx.logger?.warn?.(`[context-lifecycle] pendingTimer error: ${String(e)}`)
     }
   }, 10_000)
 
