@@ -18,3 +18,8 @@
 - id: dsh-super-injector
   config:
     profileNodeModules: !!js (process.env.HOME || process.env.USERPROFILE) + '/.dsh/profiles/desktop/node_modules'
+
+# 与 web profile 对齐的 modlens 配置（装配时遗漏，补齐）
+- id: modlens
+  config:
+    families: ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova', 'gpt']
