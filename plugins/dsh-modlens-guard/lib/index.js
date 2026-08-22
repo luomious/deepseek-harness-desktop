@@ -187,14 +187,14 @@ function runOnce(ctx) {
     log('write error:', String(error))
     return
   }
-  void hotReapply(ctx)
+  void hotReapply(ctx).catch((e) => log('hotReapply error: ' + String(e)))
 }
 
 export function apply(ctx) {
   ctx.effect(() => {
     try {
       runOnce(ctx)   // 注入即恢复（文件层面）
-      void hotReapply(ctx) // 热生效：重建运行中的 modlens 条目（幂等）
+      void hotReapply(ctx).catch((e) => log('hotReapply error: ' + String(e))) // 热生效：重建运行中的 modlens 条目（幂等）
       log('guard armed (every 60s)')
     } catch (error) {
       log('apply error:', String(error))
