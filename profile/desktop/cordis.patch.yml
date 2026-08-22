@@ -1,0 +1,20 @@
+# desktop profile 补丁层：非 bundle 插件用 insert 行加载 + super-injector 注入目标指向 desktop
+- insert:
+    - id: file-explorer
+      name: '@dsh-external/dsh-file-explorer'
+    - id: force-reasoning-effort
+      name: '@dsh-external/dsh-force-reasoning-effort'
+    - id: project-brief
+      name: '@dsh-external/dsh-project-brief'
+    - id: remote-workspace
+      name: '@dsh-external/dsh-remote-workspace'
+    - id: session-watchdog
+      name: '@dsh-external/dsh-session-watchdog'
+    - id: system-notify
+      name: '@dsh-external/dsh-system-notify'
+
+# super-injector 默认指向 profiles/web/node_modules，桌面端必须改指 desktop
+# （!!js 表达式与官方 cordis.patch.yml 的 process.platform 同机制；若求值失败改绝对路径字符串）
+- id: dsh-super-injector
+  config:
+    profileNodeModules: !!js (process.env.HOME || process.env.USERPROFILE) + '/.dsh/profiles/desktop/node_modules'

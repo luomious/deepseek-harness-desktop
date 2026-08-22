@@ -1,0 +1,12 @@
+packages:
+  - .
+nodeLinker: hoisted
+autoInstallPeers: false
+allowBuilds:
+  node-pty: true
+  protobufjs: true
+minimumReleaseAgeExclude:
+  - dshmarket@1.4.1
+  - dsh-bash-terminal@0.3.14
+  - dsh-tool-search@0.1.3
+  - '@liustack/modlens@3.16.6 || 3.23.1'

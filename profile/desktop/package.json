@@ -1,0 +1,44 @@
+{
+  "name": "dsh-profile-desktop",
+  "private": true,
+  "dependencies": {
+    "@dsh-external/dsh-client-ui-skin-maid-atelier": "file:D:/Deepseek-Harness/plugins/dsh-deep-whale-main/maid-atelier",
+    "@dsh-external/dsh-context-lifecycle": "link:D:\\Deepseek-Harness\\dsh-context-lifecycle",
+    "@dsh-external/dsh-file-explorer": "link:D:\\Deepseek-Harness\\plugins\\dsh-file-explorer",
+    "@dsh-external/dsh-force-reasoning-effort": "link:D:\\Deepseek-Harness\\plugins\\dsh-force-reasoning-effort",
+    "@dsh-external/dsh-model-picker-group": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-picker-group",
+    "@dsh-external/dsh-model-tier-router": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-tier-router",
+    "@dsh-external/dsh-model-whitelist": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-whitelist",
+    "@dsh-external/dsh-modlens-autoread": "link:D:\\Deepseek-Harness\\plugins\\dsh-modlens-autoread",
+    "@dsh-external/dsh-modlens-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-modlens-guard",
+    "@dsh-external/dsh-project-brief": "link:D:\\Deepseek-Harness\\plugins\\dsh-project-brief",
+    "@dsh-external/dsh-remote-workspace": "link:D:\\Deepseek-Harness\\plugins\\dsh-remote-workspace",
+    "@dsh-external/dsh-session-history": "link:D:\\Deepseek-Harness\\plugins\\dsh-session-history",
+    "@dsh-external/dsh-session-watchdog": "link:D:\\Deepseek-Harness\\plugins\\dsh-session-watchdog",
+    "@dsh-external/dsh-stuck-loop-guard": "link:D:\\Deepseek-Harness\\dsh-stuck-loop-guard",
+    "@dsh-external/dsh-super-injector": "file:D:/Deepseek-Harness/plugins/dsh-routing-suite/dsh-external-dsh-super-injector-0.3.3.tgz",
+    "@dsh-external/dsh-system-notify": "link:D:\\Deepseek-Harness\\plugins\\dsh-system-notify",
+    "@dsh-external/dsh-vision-engine": "link:D:\\Deepseek-Harness\\plugins\\dsh-vision-engine",
+    "@dsh-external/dsh-web-fetch-local": "link:D:\\Deepseek-Harness\\plugins\\dsh-web-fetch-local",
+    "@dsh-external/dsh-web-search-bing": "link:D:\\Deepseek-Harness\\plugins\\dsh-web-search-bing",
+    "@liustack/modlens": "3.23.1",
+    "@liustack/modsearch": "^5.4.3",
+    "@vectorize-io/hindsight-coding-agents": "^0.3.4",
+    "dsh-bash-terminal": "^0.3.14",
+    "dsh-better-sidebar": "^0.13.0",
+    "dsh-find-plugin": "^0.3.6",
+    "dsh-mcp-lens": "file:dsh-mcp-lens-0.1.0-rc.9.tgz",
+    "dsh-safe-delete": "^0.2.0",
+    "dsh-skills-manager": "link:D:\\Deepseek-Harness\\plugins\\dsh-skills-manager",
+    "dsh-tool-search": "^0.1.3",
+    "dshmarket": "^1.17.1"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app"
+      ]
+    }
+  }
+}
