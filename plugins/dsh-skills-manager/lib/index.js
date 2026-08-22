@@ -248,7 +248,10 @@ export function apply(ctx) {
       try { o = new URL(origin); } catch { return false; }
       if (o.protocol !== "http:") return false;
       if (!isLocalHostname(o.hostname)) return false;
-      if (o.port && o.port !== "3080") return false;
+      // Origin 端口须与请求 Host 端口一致(同源);桌面版端口不固定(43120 等),不再硬编码 3080
+      let hostPort = "";
+      try { hostPort = String(new URL("http://" + rawHost).port || ""); } catch { return false; }
+      if (o.port && hostPort && o.port !== hostPort) return false;
       const sfs = String((req.headers && req.headers["sec-fetch-site"]) || "").toLowerCase();
       if (sfs && sfs !== "same-origin") return false;
       return true;
