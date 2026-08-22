@@ -694,8 +694,16 @@ window.__ModuleLoader__.load({
         var el = document.activeElement;
         var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
         var paths = isInput ? findPaths(el.value) : [];
+        // 增强:焦点输入框无匹配时,扫描全部输入框(应对 composer 重渲染/焦点丢失导致只显示路径不出卡片)
+        if (paths.length === 0) {
+          var boxes = document.querySelectorAll('textarea,input');
+          for (var i = 0; i < boxes.length && paths.length === 0; i++) {
+            var found = findPaths(boxes[i].value || '');
+            if (found.length > 0) { paths = found; el = boxes[i]; isInput = true; }
+          }
+        }
         var seen = {};
-        for (var i = 0; i < paths.length; i++) seen[paths[i]] = true;
+        for (var s = 0; s < paths.length; s++) seen[paths[s]] = true;
         map.forEach(function (chip, p) {
           if (!seen[p]) { chip.remove(); map.delete(p); }
         });
