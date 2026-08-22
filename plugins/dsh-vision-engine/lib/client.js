@@ -530,7 +530,7 @@ window.__ModuleLoader__.load({
               var id = 'p-' + Date.now().toString(36);
               setEditor({ isNew: true, draft: { id: id, name: '', kind: 'api', preset: 'custom', slot: 'openai', baseUrl: '', apiKey: '', hasKey: false, model: '', structuredOutput: false, maxTokens: 4096 } });
             }, style: primaryBtn() }, t('add'))),
-          h('div', { style: Object.assign({}, HINT, { marginBottom: 8 }) }, '本地 / API 一键切换；点厂商卡片里的「切换」换同厂商其它模型'),
+          h('div', { style: Object.assign({}, HINT, { marginBottom: 8 }) }, '本地 / API 一键切换：点击厂商卡片即切换（优先视觉模型），或用卡片内下拉换同厂商其它模型'),
           // 新建表单直接展开在添加按钮下方
           editor && editor.isNew && h('div', { style: { marginBottom: 10 } }, Editor()),
           (function () {
@@ -552,7 +552,13 @@ window.__ModuleLoader__.load({
               var cur = activeIn || g.items[0] || null;
               var editing = editor && !editor.isNew && cur && editor.draft.id === cur.id;
               var keyOpen = keyEditor && keyEditor.host === g.host;
-              return h('div', { key: g.host, className: 've-card ' + (activeIn ? 've-active' : ''), style: Object.assign({}, CARD, { marginBottom: 10, overflow: 'hidden' }) },
+              return h('div', { key: g.host, className: 've-card ' + (activeIn ? 've-active' : ''), style: Object.assign({}, CARD, { marginBottom: 10, overflow: 'hidden', cursor: activeIn ? 'default' : 'pointer', transition: 'border-color .15s, box-shadow .15s' }), title: activeIn ? '' : '点击切换到本厂商模型', onClick: function (e) {
+                // 点卡片 → 切换到该厂商(优先视觉模型);点内部控件(下拉/按钮/输入框)不触发
+                if (activeIn) return;
+                if (e.target && e.target.closest && e.target.closest('button, select, input, label')) return;
+                var pick = g.items.filter(function (p) { return /vl|vision/i.test(String(p.model || '')); })[0] || g.items[0] || null;
+                if (pick) activate(pick.id);
+              } },
                 activeIn && h('div', { className: 've-active-bar' }),
                 h('div', { style: { padding: '10px 12px' } },
                   // 头部：厂商名 + 模型数 + Key 状态 + 当前模型
@@ -563,6 +569,7 @@ window.__ModuleLoader__.load({
                     !isLocal && h('span', { className: 've-tag', style: { background: keyState === 2 ? 'rgba(52,211,153,.15)' : (keyState === 1 ? 'rgba(251,191,36,.15)' : 'rgba(248,113,113,.15)'), color: keyState === 2 ? '#34d399' : (keyState === 1 ? '#fbbf24' : '#f87171') } },
                       keyState === 2 ? 'Key ✓' : (keyState === 1 ? 'Key 部分' : '未填 Key')),
                     h('span', { style: { flex: 1 } }),
+                    !activeIn && h('span', { className: 've-tag', style: { background: 'rgba(77,107,254,.12)', color: 'var(--dsw-static-deepseek-500,#4d6bfe)', cursor: 'pointer' } }, '点击切换'),
                     cur && activeIn && h('span', { className: 've-tag', style: { background: 'rgba(52,211,153,.15)', color: '#34d399' } }, '当前: ' + (cur.model || ''))),
                   // Key 输入行（非本地；未填或点「改 Key」时就地展开）
                   !isLocal && (keyOpen || keyState < 2) && h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
