@@ -452,9 +452,24 @@ function json(res, status, payload) {
   res.end(JSON.stringify(payload))
 }
 
+function isLocalHostname(h) { return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' }
+
+// 本机可信校验:回环对端 + Host 为本机名。
+// 注意:GET 同源请求浏览器不带 Origin,故此处不做 Origin 要求(与 skills-manager/file-explorer 的 POST 守卫不同)。
+function trusted(req) {
+  try {
+    const addr = req && req.socket && req.socket.remoteAddress
+    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
+    const rawHost = String((req.headers && req.headers.host) || '')
+    const hostname = new URL('http://' + rawHost).hostname
+    return isLocalHostname(hostname)
+  } catch { return false }
+}
+
 function wrap(fn) {
   return async (req, res) => {
     try {
+      if (!trusted(req)) { json(res, 403, { error: '拒绝非本机请求' }); return }
       await fn(req, res)
     } catch (error) {
       json(res, 500, { error: String(error?.message ?? error) })
