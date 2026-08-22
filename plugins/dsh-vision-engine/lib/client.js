@@ -700,24 +700,29 @@ window.__ModuleLoader__.load({
           window.__VE_DEBUG__.renders.push(_dbg);
           if (window.__VE_DEBUG__.renders.length > 50) window.__VE_DEBUG__.renders.shift();
         } catch (e) { /* 诊断失败不影响渲染 */ }
-        var el = document.activeElement;
-        var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
-        var paths = isInput ? findPaths(el.value) : [];
-        // 增强:焦点输入框无匹配时,扫描全部输入框(应对 composer 重渲染/焦点丢失导致只显示路径不出卡片)
-        if (paths.length === 0) {
-          var boxes = document.querySelectorAll('textarea,input');
-          for (var i = 0; i < boxes.length && paths.length === 0; i++) {
-            var found = findPaths(boxes[i].value || '');
-            if (found.length > 0) { paths = found; el = boxes[i]; isInput = true; }
+        try {
+          var el = document.activeElement;
+          var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+          var paths = isInput ? findPaths(el.value) : [];
+          // 增强:焦点输入框无匹配时,扫描全部输入框(应对 composer 重渲染/焦点丢失导致只显示路径不出卡片)
+          if (paths.length === 0) {
+            var boxes = document.querySelectorAll('textarea,input');
+            for (var i = 0; i < boxes.length && paths.length === 0; i++) {
+              var found = findPaths(boxes[i].value || '');
+              if (found.length > 0) { paths = found; el = boxes[i]; isInput = true; }
+            }
           }
-        }
-        var seen = {};
-        for (var s = 0; s < paths.length; s++) seen[paths[s]] = true;
-        map.forEach(function (chip, p) {
-          if (!seen[p]) { chip.remove(); map.delete(p); }
-        });
-        if (!isInput || paths.length === 0) return;
-        var rect = el.getBoundingClientRect();
+          var now = Date.now();
+          var seen = {};
+          for (var s = 0; s < paths.length; s++) seen[paths[s]] = true;
+          map.forEach(function (chip, p) {
+            if (seen[p]) { chip._veGoneSince = 0; return; }
+            // 宽限 3 秒:路径因 React 重渲染/异步插入短暂消失时不立即删卡,防卡片闪烁消失
+            if (!chip._veGoneSince) chip._veGoneSince = now;
+            if (now - chip._veGoneSince > 3000) { chip.remove(); map.delete(p); }
+          });
+          if (!isInput || paths.length === 0) return;
+          var rect = el.getBoundingClientRect();
         for (var j = 0; j < paths.length; j++) {
           var p2 = paths[j];
           if (map.has(p2)) { place(map.get(p2), rect, j); continue; }
@@ -751,6 +756,8 @@ window.__ModuleLoader__.load({
           map.set(p2, chip);
           place(chip, rect, j);
         }
+      } catch (e) {
+        /* 隔离渲染错误:任何异常不得阻止后续渲染 */
       }
       function renderPositions() {
         var el = document.activeElement;
