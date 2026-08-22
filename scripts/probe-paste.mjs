@@ -1,7 +1,7 @@
-// 粘贴预览探针:通过 CDP 注入页面,检查 vision-engine 预览链路 + 模拟粘贴路径实测渲染
+// 粘贴预览探针 v2:抓取真实粘贴的 render 诊断 + 模拟实测
 // 用法: node scripts/probe-paste.mjs <cdpPort>
+import fs from 'node:fs';
 const port = process.argv[2] || '9222';
-const fs = require('fs');
 const log = 'D:/Deepseek-Harness/_backups/probe-paste.log';
 const line = (s) => fs.appendFileSync(log, s + '\n');
 
@@ -19,18 +19,24 @@ const line = (s) => fs.appendFileSync(log, s + '\n');
         const m = JSON.parse(ev.data);
         if (m.id === id) {
           ws.removeEventListener('message', handler);
-          if (m.result && m.result.exceptionDetails) rej(new Error('页面异常: ' + JSON.stringify(m.result.exceptionDetails).slice(0, 300)));
+          if (m.result && m.result.exceptionDetails) rej(new Error('页面异常: ' + JSON.stringify(m.result.exceptionDetails).slice(0, 400)));
           else res(m.result && m.result.result ? m.result.result.value : m);
         }
       };
       ws.addEventListener('message', handler);
       ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: expr, returnByValue: true, awaitPromise } }));
     });
-    line('=== 探针结果 ===');
+    line('=== 探针 v2 ===');
     line('armed=' + JSON.stringify(await evaluate('!!window.__VE_POLLERS__')));
-    line('activeTag=' + JSON.stringify(await evaluate('document.activeElement ? document.activeElement.tagName : null')));
-    line('composerTextarea=' + JSON.stringify(await evaluate('document.querySelectorAll("textarea,input").length')));
-    // 模拟粘贴路径 → 触发 input → 等待卡片
+    line('debug=' + JSON.stringify(await evaluate(`(() => {
+      const d = window.__VE_DEBUG__ || { renders: [] };
+      return JSON.stringify({ count: d.renders.length, last8: d.renders.slice(-8) });
+    })()`)));
+    line('composer=' + JSON.stringify(await evaluate(`(() => {
+      const boxes = Array.from(document.querySelectorAll('textarea,input'));
+      const vals = boxes.map(b => ({ tag: b.tagName, v: (b.value || '').slice(0, 120), focus: document.activeElement === b }));
+      return JSON.stringify(vals.filter(x => x.v).slice(0, 5));
+    })()`)));
     const sim = await evaluate(`(async () => {
       const out = {};
       const ta = document.createElement('textarea');
@@ -41,7 +47,6 @@ const line = (s) => fs.appendFileSync(log, s + '\n');
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise(r => setTimeout(r, 2000));
       out.cards = document.querySelectorAll('.ve-preview').length;
-      out.imgSrc = (document.querySelector('.ve-preview img') || {}).src || '';
       ta.remove();
       return JSON.stringify(out);
     })()`, true);

@@ -691,6 +691,14 @@ window.__ModuleLoader__.load({
         chip.style.top = Math.max(8, rect.top - 88) + 'px';
       }
       function render() {
+        // 诊断记录(临时,便于 CDP 抓现场)
+        try {
+          if (!window.__VE_DEBUG__) window.__VE_DEBUG__ = { renders: [] };
+          var _dbg = { t: Date.now(), activeTag: document.activeElement ? document.activeElement.tagName : null };
+          try { _dbg.haveValue = !!(document.activeElement && document.activeElement.value); } catch (e) { _dbg.haveValue = 'err:' + e.message; }
+          window.__VE_DEBUG__.renders.push(_dbg);
+          if (window.__VE_DEBUG__.renders.length > 50) window.__VE_DEBUG__.renders.shift();
+        } catch (e) { /* 诊断失败不影响渲染 */ }
         var el = document.activeElement;
         var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
         var paths = isInput ? findPaths(el.value) : [];
