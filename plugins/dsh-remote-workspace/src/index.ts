@@ -269,6 +269,9 @@ function run(argv: string[], opts: { cwd?: string; timeoutMs?: number; input?: s
         stderr = stderr.slice(0, MAX_STREAM_BYTES)
       }
     })
+    child.stdout.on('error', () => { /* 流错误由 child 'error'/'close' 兜底，避免未处理 'error' 崩溃进程 */ })
+    child.stderr.on('error', () => { /* 同上 */ })
+    child.stdin.on('error', () => { /* 同上 */ })
     child.on('error', (e) => { if (timer) clearTimeout(timer); resolve({ code: -1, stdout, stderr: stderr || String(e.message), truncated: outTruncated || errTruncated }) })
     child.on('close', (code) => { if (timer) clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr, truncated: outTruncated || errTruncated }) })
     if (opts.input) child.stdin.write(opts.input)
@@ -727,9 +730,14 @@ export function apply(ctx: any) {
         res.end(JSON.stringify({ ok: false, error: '请求体不是合法 JSON' }))
         return
       }
-      const result = await handle(payload && payload.method ? String(payload.method) : ``, payload && payload.args ? payload.args : {}, ctx)
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(result))
+      try {
+        const result = await handle(payload && payload.method ? String(payload.method) : ``, payload && payload.args ? payload.args : {}, ctx)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(result))
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: `处理失败: ${String(e)}` }))
+      }
     },
   }), 'dsh-remote-workspace: /remote-ws api route')
 
