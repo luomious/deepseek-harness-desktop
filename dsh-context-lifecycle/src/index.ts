@@ -405,6 +405,19 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
   }
 
   async function handle(req: any, res: any): Promise<void> {
+    // 本机校验:回环对端 + Host 为本机名(GET 同源请求无 Origin,故不做 Origin 要求)
+    const cAddr = req?.socket?.remoteAddress as string | undefined
+    if (cAddr !== '127.0.0.1' && cAddr !== '::1' && cAddr !== '::ffff:127.0.0.1') {
+      return json(res, 403, { error: '拒绝非本机请求' })
+    }
+    try {
+      const cHost = new URL(`http://${String(req?.headers?.host ?? '')}`).hostname
+      if (cHost !== '127.0.0.1' && cHost !== 'localhost' && cHost !== '[::1]' && cHost !== '::1') {
+        return json(res, 403, { error: '拒绝非本机请求' })
+      }
+    } catch {
+      return json(res, 403, { error: '拒绝非本机请求' })
+    }
     try {
       let url = String(req.url ?? '').split('?')[0]
       // Tolerate both the full path and a prefix-stripped path.
