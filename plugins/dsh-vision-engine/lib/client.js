@@ -675,7 +675,8 @@ window.__ModuleLoader__.load({
         lb.onclick = closeLightbox;
         document.body.appendChild(lb);
       }
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeLightbox(); });
+      var onKey = function (e) { if (e.key === 'Escape') closeLightbox(); };
+      document.addEventListener('keydown', onKey);
       var IMG_RE = /([A-Za-z]:[\\/][^\s"'<>|]{1,400})/g;
       function findPaths(text) {
         var out = [];
@@ -741,12 +742,30 @@ window.__ModuleLoader__.load({
         var i = 0;
         map.forEach(function (chip) { place(chip, rect, i++); });
       }
-      document.addEventListener('input', function () { window.setTimeout(render, 40); }, true);
-      document.addEventListener('focusin', function () { window.setTimeout(render, 40); }, true);
+      // 幂等挂载：热重载/重复挂载时先清理旧轮询与监听，防止累积（防 CPU 空转）
+      if (window.__VE_POLLERS__) {
+        window.clearInterval(window.__VE_POLLERS__.timer);
+        document.removeEventListener('input', window.__VE_POLLERS__.onInput, true);
+        document.removeEventListener('focusin', window.__VE_POLLERS__.onFocusIn, true);
+        window.removeEventListener('scroll', window.__VE_POLLERS__.onScroll, true);
+        window.removeEventListener('resize', window.__VE_POLLERS__.onResize);
+        document.removeEventListener('keydown', window.__VE_POLLERS__.onKey);
+      }
+      var onInput = function () { window.setTimeout(render, 40); };
+      var onFocusIn = function () { window.setTimeout(render, 40); };
+      window.__VE_POLLERS__ = {
+        onInput: onInput,
+        onFocusIn: onFocusIn,
+        onScroll: renderPositions,
+        onResize: renderPositions,
+        onKey: onKey,
+        timer: window.setInterval(function () { render(); }, 900)
+      };
+      document.addEventListener('input', onInput, true);
+      document.addEventListener('focusin', onFocusIn, true);
       window.addEventListener('scroll', renderPositions, true);
       window.addEventListener('resize', renderPositions);
       // 兜底：个别编辑器直接改 value 不触发 input 事件
-      window.setInterval(function () { render(); }, 900);
     }
 
     // ---------- plugin entry ----------
