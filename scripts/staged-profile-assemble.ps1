@@ -1,8 +1,9 @@
 ﻿# ============================================================
 # staged-profile-assemble.ps1 — desktop profile 隔离装配引擎
 #
-# 需求: 当变更可能影响系统稳定性(应用启动/运行)时,先在独立隔离空间执行,
-#       验证通过后再合并回原位置;失败则原位置零损伤。
+# 方法 A(安全隔离): 当变更可能影响系统稳定性(应用启动/运行)时,先在独立
+# 隔离空间执行,验证通过后再合并回原位置;失败则原位置零损伤。
+# 完整机制见 docs/隔离与移植机制.md(方法 A 与方法 B 的决策规则)。
 #
 # 风险判断规则:
 #   - 高风险(须隔离): profile 装配类变更 —— package.json bundles 列表、
@@ -24,7 +25,7 @@
 # 前置: 退出 DSH Desktop.exe(profile 被运行实例锁定);web 实例(3080)不受影响。
 # ============================================================
 param(
-  [Parameter(Mandatory = $true)][ValidateSet(1, 2, 3, 4)][int]$Batch,
+  [Parameter(Mandatory = $true)][ValidateSet(1, 2, 3, 4, 5)][int]$Batch,
   [switch]$ValidateOnly,
   [switch]$Direct
 )
@@ -42,15 +43,17 @@ $three        = @('package.json', 'cordis.patch.yml', 'pnpm-workspace.yaml')
 # ---------------- 批次清单(与 docs/升级执行记录.md 一致) ----------------
 $BatchBundles = @{
   1 = @('@dsh-external/dsh-web-search-bing', '@dsh-external/dsh-web-fetch-local', '@dsh-external/dsh-session-history', '@dsh-external/dsh-stuck-loop-guard', '@dsh-external/dsh-context-lifecycle')
-  2 = @('@liustack/modlens', '@liustack/modsearch', '@dsh-external/dsh-model-picker-group', '@dsh-external/dsh-model-tier-router', '@dsh-external/dsh-model-whitelist', '@dsh-external/dsh-modlens-guard', 'dsh-mcp-lens', 'dsh-tool-search', 'dsh-find-plugin', '@dsh-external/dsh-modlens-autoread', '@dsh-external/dsh-vision-engine')
-  3 = @('@dsh-external/dsh-client-ui-skin-maid-atelier', 'dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector')
-  4 = @()
+  2 = @('@liustack/modlens')
+  3 = @('@liustack/modsearch', '@dsh-external/dsh-model-picker-group', '@dsh-external/dsh-model-tier-router', '@dsh-external/dsh-model-whitelist', '@dsh-external/dsh-modlens-guard', 'dsh-mcp-lens', 'dsh-tool-search', 'dsh-find-plugin', '@dsh-external/dsh-modlens-autoread', '@dsh-external/dsh-vision-engine')
+  4 = @('@dsh-external/dsh-client-ui-skin-maid-atelier', 'dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector')
+  5 = @()
 }
 $BatchPatches = @{
   1 = @('file-explorer', 'force-reasoning-effort', 'project-brief', 'session-watchdog', 'system-notify')
   2 = @()
-  3 = @('remote-workspace')
-  4 = @()
+  3 = @()
+  4 = @('remote-workspace')
+  5 = @()
 }
 # 非 bundle 插件 id → 包名
 $NonBundleNames = @{
@@ -64,9 +67,10 @@ $NonBundleNames = @{
 # 每批的验证标记(用于 dump-config 检查)
 $BatchMarkers = @{
   1 = @('web-search-bing', 'web-fetch-local', 'session-history', 'stuck-loop-guard', 'context-lifecycle', 'file-explorer', 'project-brief', 'session-watchdog', 'system-notify')
-  2 = @('modlens', 'modsearch', 'model-picker-group', 'model-tier-router', 'model-whitelist', 'modlens-guard', 'mcp-lens', 'tool-search', 'find-plugin', 'modlens-autoread', 'vision-engine')
-  3 = @('maid-atelier', 'better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace')
-  4 = @()
+  2 = @('modlens')
+  3 = @('modsearch', 'model-picker-group', 'model-tier-router', 'model-whitelist', 'modlens-guard', 'mcp-lens', 'tool-search', 'find-plugin', 'modlens-autoread', 'vision-engine')
+  4 = @('maid-atelier', 'better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace')
+  5 = @()
 }
 
 # ---------------- 风险判断 ----------------
@@ -156,8 +160,9 @@ if (Test-Path $staging) {
   Write-Step "清理上次遗留 staging"
   Remove-Item $staging -Recurse -Force
 }
-Write-Step "隔离: 复制 desktop → desktop-staging"
-Copy-Item $desktop $staging -Recurse -Force
+Write-Step "隔离: 复制 desktop → desktop-staging(排除 node_modules,pnpm 秒级重建)"
+robocopy $desktop $staging /E /XD node_modules /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { Write-Warning "robocopy 失败(code=$LASTEXITCODE)"; exit 1 }
 foreach ($f in $three) {
   Copy-Item (Join-Path $desktop $f) "$backupDir\desktop-$f.bak-$ts" -ErrorAction SilentlyContinue
 }
