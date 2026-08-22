@@ -23,7 +23,17 @@ export const inject = []
 const MODLENS_CONFIG = join(homedir(), '.modlens', 'config.json')
 const VE_CONFIG = join(homedir(), '.modlens', 'vision-engine.json')
 const VE_USAGE = join(homedir(), '.modlens', 'vision-engine-usage.json')
-const CORDIS_PATCH = join(homedir(), '.dsh', 'profiles', 'web', 'cordis.patch.yml')
+// 修正:粘贴模式应读当前 profile 的 cordis.patch.yml,而非硬编码 web(桌面版跑在 desktop profile)
+function resolveCordisPatch() {
+  const profilesDir = join(homedir(), '.dsh', 'profiles')
+  // 桌面壳用 desktop profile;兼容旧 web
+  const preferred = [join(profilesDir, 'desktop', 'cordis.patch.yml'), join(profilesDir, 'web', 'cordis.patch.yml')]
+  for (const p of preferred) {
+    try { if (existsSync(p)) return p } catch { /* */ }
+  }
+  return join(profilesDir, 'web', 'cordis.patch.yml')
+}
+const CORDIS_PATCH = resolveCordisPatch()
 const PASTE_ROOT = join(tmpdir(), 'modlens-dsh-paste')
 const ANALYSIS_TIMEOUT_MS = 180_000
 const BALANCE_TIMEOUT_MS = 8_000
