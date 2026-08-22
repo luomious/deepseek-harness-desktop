@@ -12,6 +12,7 @@ generator: @dsh-external/dsh-project-brief
 
 ## 协作指南（策展区 · 更新时保留）
 
+- **重启守则（用户要求，务必遵守）**：代码改动后**不得自动重启桌面应用**——重启会打断用户的其他会话进程。改为：改动提交后告诉用户"已就绪，等你指示再重启"，**仅当用户明确说"重启/生效/测试"时才执行重启**。诊断类临时重启（带调试端口探针）同样需先征得用户同意。
 - 修改代码前先读本文件与 `PROJECT_README.md` / `CHANGELOG.md`，遵循既有插件/补丁模式，不重复造轮子。
 - 对全局 node_modules 的修改必须登记到 `src/lib/patch-manifest.js` 自愈清单，否则 `npm i -g @deepseek-ai/dsh` 升级即丢失。
 - **严禁对 `@liustack/modlens`（服务端插件，adapter 注册只在启动时发生）执行 `dev_reload_package` 热重载**：会丢失 adapter 注册，会话切到 `modlens-*` 报 `no adapter registered for provider "modlens-*"` 并卡死服务；modlens 代码改动必须完全重启桌面应用。

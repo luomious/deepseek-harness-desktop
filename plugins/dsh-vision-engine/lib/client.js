@@ -70,6 +70,10 @@ window.__ModuleLoader__.load({
       quotaTitle: '额度与用量监控',
       balanceTitle: '渠道额度',
       refresh: '刷新',
+      selfTestTitle: '模型试读（刷新自测）',
+      selfTestRunning: '正在用内置测试图试读…',
+      selfTestOk: '模型可用 ✓',
+      selfTestFail: '模型试读失败 ✗',
       balanceFetching: '获取中…',
       usageToday: '今日',
       usageWeek: '近 7 天',
@@ -129,6 +133,10 @@ window.__ModuleLoader__.load({
       quotaTitle: 'Quota & usage',
       balanceTitle: 'Provider quota',
       refresh: 'Refresh',
+      selfTestTitle: 'Model read test (refresh self-check)',
+      selfTestRunning: 'Reading built-in test image…',
+      selfTestOk: 'Model OK ✓',
+      selfTestFail: 'Model read failed ✗',
       balanceFetching: 'Fetching…',
       usageToday: 'Today',
       usageWeek: '7 days',
@@ -335,6 +343,7 @@ window.__ModuleLoader__.load({
       var [test, setTest] = React.useState(null); // null | { phase, result }
       var [balance, setBalance] = React.useState(null); // null | { phase, data }
       var [usage, setUsage] = React.useState(null);
+      var [modelTest, setModelTest] = React.useState(null); // 刷新时的模型试读自测结果 null | { phase, data }
       var [ollama, setOllama] = React.useState(null);
       var [note, setNote] = React.useState('');
       var [flash, setFlash] = React.useState(false);
@@ -451,7 +460,16 @@ window.__ModuleLoader__.load({
 
       function refreshBalance() {
         setBalance({ phase: 'loading', data: null });
-        api('/vision-engine/balance').then(function (b) { setBalance({ phase: 'done', data: b }); }).catch(function (e) { setBalance({ phase: 'done', data: { ok: false, error: String(e) } }); });
+        setModelTest({ phase: 'loading', data: null });
+        // 刷新 = 额度 + 用量 + 模型试读自测(内置测试图真实读图,验证模型能否正常使用)
+        api('/vision-engine/refresh').then(function (j) {
+          setBalance({ phase: 'done', data: j.balance });
+          if (j.usage) setUsage(j.usage);
+          setModelTest({ phase: 'done', data: j.test });
+        }).catch(function (e) {
+          setBalance({ phase: 'done', data: { ok: false, error: String(e) } });
+          setModelTest({ phase: 'done', data: { ok: false, error: String(e) } });
+        });
       }
 
       if (!cfg) {
@@ -635,6 +653,19 @@ window.__ModuleLoader__.load({
                           h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--dsw-alias-label-tertiary)', marginLeft: 8 } }, balance.data.label || '')),
                         h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-tertiary)', marginTop: 2 } }, balance.data.value || '')))
                 : h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-state-error-primary)' } }, (balance.data.label || t('balanceFetching')) + (balance.data.error ? ' · ' + balance.data.error : '')))),
+          // 模型试读自测（刷新时用内置测试图真实读图，验证当前模型能否正常使用）
+          h('div', { style: { padding: '10px 14px', borderRadius: 10, background: 'var(--dsw-alias-bg-layer-2, rgba(127,127,127,.06))', marginBottom: 12 } },
+            h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', marginBottom: 4 } }, t('selfTestTitle')),
+            modelTest && modelTest.phase === 'loading' && h('div', { style: { padding: '8px 0' } }, h('span', { className: 've-spin' }), ' ' + t('selfTestRunning')),
+            modelTest && modelTest.phase === 'done' && modelTest.data && (
+              modelTest.data.ok
+                ? h('div', null,
+                    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+                      h('span', { className: 've-tag', style: { background: 'rgba(52,211,153,.15)', color: '#34d399' } }, t('selfTestOk')),
+                      h('span', { className: 've-num', style: { fontWeight: 600 } }, (modelTest.data.latencyMs / 1000).toFixed(1) + ' s'),
+                      h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, (modelTest.data.profileName || '') + ' · ' + (modelTest.data.model || ''))),
+                    modelTest.data.summary && h('div', { style: { marginTop: 5, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } }, modelTest.data.summary))
+                : h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-state-error-primary)' } }, t('selfTestFail') + ': ' + (modelTest.data.error || '')))),
           // 仪表 + 统计（横排，间距拉开）
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap', marginBottom: 4 } },
             usage && usage.today && h('div', { style: { display: 'flex', alignItems: 'center', gap: 16 } },

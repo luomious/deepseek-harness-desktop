@@ -41,6 +41,10 @@ const OLLAMA_PROBE_MS = 1_500
 const USAGE_CAP = 5000
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
+// 内置自测图(64x64 红底白心):刷新时跑一次真实读图,验证当前模型能否正常使用
+const TEST_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAbElEQVR4nO3PQQ0AIBADQZTgXxReQASPzSXTrIDOOnuPbuUPAOoHAPUDgPoBQP0AoH4AUD8AqB8A1A8A6gcA9YMecD8GAAAAAAAAAAAAAAAAADAZ0AZQB1AHUAdQB1AHUAdQB1AHUAdQNx7wAA++dv1I/VJJAAAAAElFTkSuQmCC'
+
 // 预设表：local 与 OpenAI 兼容 API 共用 modlens 的 openai 槽；Gemini 用 gemini-api 槽。
 const PRESETS = {
   local: { name: '本地 Ollama', slot: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5vl:7b', structuredOutput: true, maxTokens: 4096 },
@@ -562,6 +566,32 @@ async function handleBalance(req, res) {
   json(res, 200, await fetchBalance(profile))
 }
 
+// 刷新(额度 + 用量 + 模型试读自测):用内置测试图跑一次真实读图,验证当前模型能否正常使用
+async function handleRefresh(req, res) {
+  if (req.method !== 'POST') {
+    res.writeHead(405).end()
+    return
+  }
+  const body = await readBody(req)
+  const ve = readVe()
+  const profile = body.profileId ? ve.profiles.find((p) => p.id === body.profileId) ?? null : activeProfile()
+  const t0 = Date.now()
+  let balance
+  try {
+    balance = await fetchBalance(profile)
+  } catch (e) {
+    balance = { ok: false, error: String(e?.message ?? e) }
+  }
+  let test
+  try {
+    const r = await analyzeImage({ dataUrl: TEST_PNG_DATA_URL, profileId: profile?.id, signal: undefined })
+    test = { ok: true, latencyMs: r.latencyMs, provider: r.provider, model: r.model, profileName: r.profileName, summary: String(r.summary || '').slice(0, 80), ocrPreview: String(r.ocrPreview || '').slice(0, 60) }
+  } catch (e) {
+    test = { ok: false, error: String(e?.message ?? e).slice(0, 160), latencyMs: Date.now() - t0 }
+  }
+  json(res, 200, { balance, usage: usageSummary(), test, at: Date.now() })
+}
+
 async function handleOllama(req, res) {
   if (req.method !== 'GET') {
     res.writeHead(405).end()
@@ -622,6 +652,7 @@ function registerRoutes(webServer) {
     { name: 've-test', path: '/vision-engine/test', handler: handleTest },
     { name: 've-usage', path: '/vision-engine/usage', handler: handleUsage },
     { name: 've-balance', path: '/vision-engine/balance', handler: handleBalance },
+    { name: 've-refresh', path: '/vision-engine/refresh', handler: handleRefresh },
     { name: 've-ollama', path: '/vision-engine/ollama', handler: handleOllama },
     { name: 've-diag', path: '/vision-engine/diag', handler: handleDiag },
     { name: 've-paste-img', path: '/vision-engine/paste-img', handler: handlePasteImg },
