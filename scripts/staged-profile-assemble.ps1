@@ -80,7 +80,15 @@ function Test-ProfileLocked {
 function Write-Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
 if (Test-ProfileLocked) {
-  Write-Warning 'DSH Desktop.exe 正在运行,profile 被锁定。请先退出后再执行。'
+  # 方法 C(人工操作门): 不代停用户正在运行的应用,给出指引由用户执行
+  Write-Warning @'
+DSH Desktop.exe 正在运行,profile 被锁定,无法装配。
+请手动退出后再运行本脚本(任选其一):
+  方式1(托盘): 右键系统托盘 DSH Desktop 图标 → 退出
+  方式2(任务管理器): Ctrl+Shift+Esc → 结束所有 "DSH Desktop" 进程
+  方式3(命令行): Get-Process -Name 'DSH Desktop' | Stop-Process -Force
+退出完成后重新执行本脚本即可。
+'@
   exit 1
 }
 
