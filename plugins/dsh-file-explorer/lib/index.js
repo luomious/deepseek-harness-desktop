@@ -27,7 +27,8 @@ function normalizePath(input) {
   if (!input || typeof input !== 'string') return null
   let p = input.trim().replace(/^~(\/|\\)|^~$/, HOME + '$1')
   if (!p) return null
-  if (/^[A-Za-z]:[\\/]/.test(p)) return p
+  // 本地绝对盘符路径(C:\、D:\ 等)原样保留——用纯字符串判断,避免插件加载器对正则的变换导致误判。
+  if (p.length >= 3 && p[1] === ':' && (p[2] === '\\' || p[2] === '/') && /^[A-Za-z]$/.test(p[0])) return p
   return join(HOME, p)
 }
 
@@ -204,7 +205,8 @@ function trusted(req) {
  */
 function isPathAllowed(abs) {
   if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
-  if (/^[A-Za-z]:[\\/]/.test(abs)) return true
+  // 本地绝对盘符路径放行(纯字符串判断)
+  if (abs && abs.length >= 3 && abs[1] === ':' && (abs[2] === '\\' || abs[2] === '/') && /^[A-Za-z]$/.test(abs[0])) return true
   try {
     const real = realpathSync(abs)
     const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
