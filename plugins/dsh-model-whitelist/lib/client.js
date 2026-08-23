@@ -306,6 +306,39 @@ window.__ModuleLoader__.load({
         setExpanded(next);
       }
 
+      // ── 测试连接:对厂商的模型发一次最小请求,返回可用性/延迟/错误 ──
+      var [tests, setTests] = React.useState({});
+      function testGroup(dg) {
+        var entry = dg.entries[0];
+        if (!entry) return;
+        var name = dg.name;
+        setTests(Object.assign({}, tests, { [name]: { phase: 'testing' } }));
+        fetch('/model-whitelist/test', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: entry.gid, model: entry.model.id }),
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          setTests(Object.assign({}, tests, { [name]: { phase: 'done', result: res } }));
+        }).catch(function (e) {
+          setTests(Object.assign({}, tests, { [name]: { phase: 'done', result: { ok: false, error: String((e && e.message) || e) } } }));
+        });
+      }
+      function testResultText(res) {
+        if (!res) return '';
+        if (res.ok) return '✓ 可用 · ' + (res.latencyMs / 1000).toFixed(1) + 's';
+        if (res.error) return '✗ ' + res.error;
+        return '✗ 失败';
+      }
+      function testResultStyle(res) {
+        var base = { fontSize: 12, marginTop: 6, paddingLeft: 36 };
+        return Object.assign({}, base, { color: res && res.ok ? 'var(--dsw-alias-state-success-primary, #34d399)' : 'var(--dsw-alias-state-error-primary, #f87171)' });
+      }
+      var TEST_BTN_STYLE = {
+        display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid var(--dsw-alias-border-inverted)',
+        borderRadius: 8, padding: '3px 10px', fontSize: 12, color: 'var(--dsw-alias-label-primary)',
+        background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+      };
+
       var checkboxStyle = { accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, margin: 0 };
       var EXPAND_BTN = {
         width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -372,10 +405,19 @@ window.__ModuleLoader__.load({
               },
                 h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' },
                   h('path', { d: 'M6 4l4 4-4 4' }))),
-              // provider name + count badge
+              // provider name + count badge + 测试连接
               h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: ACCENT, flexShrink: 0, transition: 'transform .3s' } }),
               h('span', { style: { flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, dg.name),
-              h('span', { style: CHIP_STYLE }, String(dg.entries.length))),
+              h('span', { style: CHIP_STYLE }, String(dg.entries.length)),
+              h('button', {
+                type: 'button',
+                className: 'mw-btn',
+                onClick: function (e) { e.stopPropagation(); testGroup(dg); },
+                style: TEST_BTN_STYLE,
+              }, tests[dg.name] && tests[dg.name].phase === 'testing' ? '测试中…' : '测试连接')),
+            // 测试结果行
+            tests[dg.name] && tests[dg.name].phase === 'done' && h('div', { style: testResultStyle(tests[dg.name].result) },
+              testResultText(tests[dg.name].result)),
             // collapsible model list
             h('div', { style: Object.assign({}, MODEL_ENTER, isOpen ? MODEL_OPEN : {}) },
               dg.entries.map(function (e) {
