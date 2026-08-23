@@ -139,7 +139,7 @@ async function handle(method, args) {
     if (method === 'resolve-home') {
       const abs = normalizePath(p || '~')
       if (!abs) return { ok: false, error: '路径无效' }
-      return { ok: true, data: { path: abs } }
+      return { ok: true, data: { path: abs, ve: 'FIX-V2' } }
     }
     if (method === 'session-cwd') {
       // 尽力探测：tools 执行上下文（remote-workspace 同款路径）
