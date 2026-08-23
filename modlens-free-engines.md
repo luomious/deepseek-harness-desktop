@@ -78,6 +78,8 @@ node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dis
 - ModLens 的 `openai` 槽只有一个：智谱 / 百炼 / SiliconFlow 三者互斥（都是 OpenAI 兼容接口），后配的会覆盖前者。
 - Gemini / Antigravity / claude-cli 是独立槽，可与当前引擎并存，自动组成故障转移链（5–10 秒 API 先试，agent 类兜底）。
 - 你机器上的 Claude Code 已在链里（`openai → claude-cli`），登录状态下是隐形免费备胎。
+- 开机自启已设为**永久保留**（2026-08-23）：即使切换到云端配置，`Ollama Serve.vbs` 也不会被删除
+  （由 dsh-vision-engine 插件保证），ollama 常驻后台（空闲 ~66MB，模型按需加载）。
 
 ---
 

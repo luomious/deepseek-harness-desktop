@@ -197,6 +197,7 @@ function runCli(args, signal) {
     const child = spawn(process.execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
+      windowsHide: true, // 桌面壳无控制台：不加会每次 CLI 调用弹一个黑色命令窗（modlens #60 同款问题）
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     })
     let stdout = ''
@@ -482,8 +483,8 @@ async function syncOllama(profile) {
       const running = await probeOllama()
       if (!running) { log('本地模型激活: 启动 ollama'); await startOllama() }
     } else {
-      setOllamaAutostart(false)
-      log('云端模型激活: 关闭 ollama 与自启')
+      // 自启永久保留（用户要求）：云端生效时只停当前进程，不删开机自启 VBS
+      log('云端模型激活: 停止 ollama（开机自启保留）')
       await stopOllama()
     }
   } catch { /* 失败不阻断 */ }
@@ -766,14 +767,13 @@ export function apply(ctx) {
   } catch (error) {
     log('seed failed:', String(error))
   }
-  // 启动时与当前生效模型对齐 ollama 状态：本地 → 确保运行+自启；云端 → 关自启(不强杀手动启动的 ollama)
+  // 启动时与当前生效模型对齐 ollama 状态：本地 → 确保运行+自启；云端 → 不强杀手动启动的 ollama。
+  // 开机自启永久保留（用户要求）：切到云端配置也不删除 VBS，ollama 常驻后台。
   try {
     const act = activeProfile()
     if (act && isLocalProfile(act)) {
       setOllamaAutostart(true)
       probeOllama().then((running) => { if (!running) { log('启动时检测本地模型: 启动 ollama'); startOllama() } })
-    } else if (act) {
-      setOllamaAutostart(false)
     }
   } catch { /* 对齐失败不阻断启动 */ }
 }

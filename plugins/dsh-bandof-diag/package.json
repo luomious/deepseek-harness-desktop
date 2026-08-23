@@ -1,0 +1,8 @@
+{
+  "name": "@dsh-external/dsh-bandof-diag",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "license": "BSD-3-Clause"
+}

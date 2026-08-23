@@ -16,7 +16,10 @@ if (!HOME) throw new Error('cannot resolve user home')
 const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai')
 const CANON_DIR = 'D:/Deepseek-Harness/patches/bundles'
 const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
-const PKG_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@deepseek-ai'
+// 支持 DSH_PKG_ROOT 覆盖打包目录（重打包到新目录后对新产物重打补丁）
+const PKG_ROOT = process.env.DSH_PKG_ROOT
+  ? process.env.DSH_PKG_ROOT.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
+  : 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@deepseek-ai'
 
 const WORKSPACES = [
   {

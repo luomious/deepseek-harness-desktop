@@ -83,6 +83,7 @@ function run(command, args, signal) {
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
+      windowsHide: true, // 桌面壳无控制台：不加会每次自动读图弹一个黑色命令窗（modlens #60 同款问题）
       // 桌面壳里 process.execPath 是 Electron 二进制；让它按纯 node 跑 CLI
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     })
