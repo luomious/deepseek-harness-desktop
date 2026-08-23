@@ -166,6 +166,14 @@ window.__ModuleLoader__.load({
         return function () { alive = false; clearInterval(timer); };
       }, [sessionId]);
 
+      // 切换会话时立即清空本会话的瞬时 UI(交接摘要/结果提示/当前状态),
+      // 防止 A 会话的压缩提示、交接弹窗串显到 B 会话(跨会话作用域 bug)。
+      React.useEffect(function () {
+        setHandover(null);
+        setNotice('');
+        setInfo(null);
+      }, [sessionId]);
+
       if (handover) return h(HandoverOverlay, { text: handover, onClose: function () { setHandover(null); setInfo(null); } });
       if (!info || info.suggestion === 'none') {
         // Banner hidden, but keep a transient result line visible so a

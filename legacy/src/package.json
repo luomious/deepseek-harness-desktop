@@ -1,7 +1,0 @@
-{
-  "name": "dsh-desktop",
-  "version": "1.3.0",
-  "description": "DeepSeek Harness Desktop - with update checker and plugin manager",
-  "main": "main.js",
-  "type": "commonjs"
-}
