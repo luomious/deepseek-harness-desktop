@@ -1,17 +1,21 @@
 # verify-patches.ps1 - verify windowsHide patches and critical-guard sources.
 # PURE ASCII ONLY (PS 5.1 reads UTF-8 no-BOM as GBK -> syntax errors).
 # Run after every rebuild to confirm dist patches survived.
+# Checks BOTH dist entries: win-unpacked-build2 (current prod, P1-4) and win-unpacked-new (fallback).
 
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $PSScriptRoot
-$v2 = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked-new\resources\app.asar.unpacked'
 $src = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\src'
+$roots = @(
+  (Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked-build2\win-unpacked\resources\app.asar.unpacked'),
+  (Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked-new\resources\app.asar.unpacked')
+)
 
 $checks = @(
-  @{ n = 'subprocess-local windowsHide';        f = Join-Path $v2 'node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js'; p = 'windowsHide: true' },
-  @{ n = 'open windowsHide';                    f = Join-Path $v2 'node_modules\open\index.js'; p = 'windowsHide = true' },
-  @{ n = 'default-browser windowsHide';         f = Join-Path $v2 'node_modules\default-browser\windows.js'; p = 'windowsHide: true' },
-  @{ n = 'materializer windowsHide (lib/main)'; f = Join-Path $v2 'lib\main.js'; p = 'windowsHide: true,' },
+  @{ n = 'subprocess-local windowsHide';        f = Join-Path $roots[0] 'node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js'; p = 'windowsHide: true' },
+  @{ n = 'open windowsHide';                    f = Join-Path $roots[0] 'node_modules\open\index.js'; p = 'windowsHide = true' },
+  @{ n = 'default-browser windowsHide';         f = Join-Path $roots[0] 'node_modules\default-browser\windows.js'; p = 'windowsHide: true' },
+  @{ n = 'materializer windowsHide (lib/main)'; f = Join-Path $roots[0] 'lib\main.js'; p = 'windowsHide: true,' },
   @{ n = 'vision-engine runCli windowsHide';    f = Join-Path $root 'plugins\dsh-vision-engine\lib\index.js'; p = 'windowsHide: true' },
   @{ n = 'autoread run windowsHide';            f = Join-Path $root 'plugins\dsh-modlens-autoread\lib\index.js'; p = 'windowsHide: true' },
   @{ n = 'project-brief git windowsHide';       f = Join-Path $root 'plugins\dsh-project-brief\lib\core.js'; p = 'windowsHide: true' },
