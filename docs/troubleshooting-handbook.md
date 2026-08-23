@@ -175,3 +175,14 @@
 | `scripts/verify-core.mjs` | remote-workspace 核心逻辑 15 项 | — |
 
 > 所有脚本纯 Node/PowerShell，路径硬编码 `D:\Deepseek-Harness`（本机）；跨机需改 `scripts/*.mjs` 顶部的根路径常量。
+## 16. better-sidebar 侧边栏不可用（chunk "terminal": client module system unavailable）
+
+- **症状**：右侧边栏（explorer 文件树/编辑器/终端）整体不出现；页面控制台报 `chunk "terminal": client module system unavailable`；`dev_plugin_status` 显示 `better-sidebar [disabled]`。
+- **根因**：① dsh-better-sidebar 0.13.x 按 rc.7/rc.8 开发，其 chunk-loader 依赖 shell 暴露的 client module system，0.1.1-rc.2 不暴露 → chunk 加载失败；② 包内 cordis.patch.yml 的 `!!js` 双挂载守卫在 rc.2 loader 下误判为 true → 插件被自动 disabled。
+- **解决**：
+  1. 升级到 0.15.2（chunk-loader 自带模块系统注入，不再依赖 shell）：`pnpm --dir C:/Users/<user>/.dsh/profiles/<desktop|web> add dsh-better-sidebar@^0.15.2`；
+  2. 在两个 profile 的 cordis.patch.yml 追加 `- id: better-sidebar
+  disabled: false`（profile 层覆盖包内守卫）。
+- **验证**：重启后侧边栏出现；`dev_plugin_status` 显示 `better-sidebar [active]`。
+- **预防**：升级 dsh 大版本后检查第三方插件的 !!js 守卫与 chunk-loader 兼容性。
+
