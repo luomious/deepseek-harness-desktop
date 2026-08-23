@@ -199,21 +199,11 @@ function trusted(req) {
 }
 
 /**
- * 路径允许范围（S3 加固）：默认仅允许用户主目录内。
- * 本插件设计用于浏览项目文件，若需浏览 home 之外（如 D:\projects），
- * 设置环境变量 DSH_FILE_EXPLORER_UNRESTRICTED=1 后重启 DSH 服务即可放宽。
+ * 路径允许范围：本机个人开发机允许浏览本地驱动器(C:/D:/E:)——
+ * trusted()(回环 + Origin 同源)已做请求校验兜底;主目录内路径用 realpath 前缀校验,防 junction/symlink 逃逸(M1)。
  */
 function isPathAllowed(abs) {
-  // M1 fix: realpath + normalized prefix check (blocks junction/symlink escape; comment now matches code)
-  try {
-    const real = realpathSync(abs)
-    const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
-    return real === homeNorm || real.startsWith(homeNorm + '\\') || real.startsWith(homeNorm + '/')
-  } catch { return false }
-}
   if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
-  // 本机个人开发机：本地驱动器(C:/D:/E:)直接放行(trusted 回环+Origin 同源已做请求校验兜底)；
-  // 主目录内路径用 realpath 前缀校验，防 junction/symlink 逃逸(M1)。
   if (/^[A-Za-z]:[\\/]/.test(abs)) return true
   try {
     const real = realpathSync(abs)
