@@ -12,7 +12,7 @@
 // 安全：apiKey 只在 host 侧读写，浏览器只见“已保存/未设置”；额度/测试请求全部 host 发起。
 // 纯 node 内置模块，零依赖；配置写前重读文件，避免与 modlens 自带设置卡互相覆盖。
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
@@ -419,6 +419,76 @@ async function probeOllama() {
   }
 }
 
+// ── 本地模型 ↔ Ollama 生命周期 ──
+// 规则：切换到本地模型 → 启动 ollama + 开机静默自启；切换到云端模型 → 关闭 ollama + 关闭自启。
+function isLocalProfile(p) {
+  return !!p && (p.kind === 'local' || /localhost|127\.0\.0\.1|ollama/i.test(String(p.baseUrl || '')))
+}
+function ollamaExe() {
+  const base = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
+  return join(base, 'Programs', 'Ollama', 'ollama.exe')
+}
+function startupDir() {
+  return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+}
+const OLLAMA_AUTOSTART_VBS = join(startupDir(), 'Ollama Serve.vbs')
+function startOllama() {
+  return new Promise((resolve) => {
+    try {
+      const exe = ollamaExe()
+      if (!existsSync(exe)) { log('ollama.exe 不存在:', exe); return resolve(false) }
+      const child = spawn(exe, ['serve'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: { ...process.env, OLLAMA_MODELS: 'D:\\ollama-models', OLLAMA_CONTEXT_LENGTH: '8192' },
+      })
+      child.unref()
+      resolve(true)
+    } catch { resolve(false) }
+  })
+}
+function stopOllama() {
+  return new Promise((resolve) => {
+    try {
+      const p = spawn('taskkill', ['/F', '/IM', 'ollama.exe'], { windowsHide: true, stdio: 'ignore' })
+      p.on('close', () => resolve(true))
+      p.on('error', () => resolve(false))
+    } catch { resolve(false) }
+  })
+}
+function setOllamaAutostart(on) {
+  try {
+    const dir = startupDir()
+    mkdirSync(dir, { recursive: true })
+    if (!on) {
+      if (existsSync(OLLAMA_AUTOSTART_VBS)) rmSync(OLLAMA_AUTOSTART_VBS, { force: true })
+      return
+    }
+    // 纯 ASCII 源(用 %LOCALAPPDATA% 展开,避免中文路径编码问题);直接调 ollama.exe,不经过 .cmd 关联 → 无弹窗
+    const vbs =
+      'Set sh = CreateObject("WScript.Shell")\r\n' +
+      'sh.Environment("PROCESS")("OLLAMA_MODELS") = "D:\\ollama-models"\r\n' +
+      'sh.Environment("PROCESS")("OLLAMA_CONTEXT_LENGTH") = "8192"\r\n' +
+      'sh.Run sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") & " serve", 0, False\r\n'
+    writeFileSync(OLLAMA_AUTOSTART_VBS, vbs, { encoding: 'utf8' })
+  } catch { /* 自启设置失败不阻断 */ }
+}
+// 切换/启动时对齐 ollama 状态（fire-and-forget，不阻塞配置保存响应）
+async function syncOllama(profile) {
+  try {
+    if (isLocalProfile(profile)) {
+      setOllamaAutostart(true)
+      const running = await probeOllama()
+      if (!running) { log('本地模型激活: 启动 ollama'); await startOllama() }
+    } else {
+      setOllamaAutostart(false)
+      log('云端模型激活: 关闭 ollama 与自启')
+      await stopOllama()
+    }
+  } catch { /* 失败不阻断 */ }
+}
+
 // ── 面板可读的配置视图（apiKey 只暴露 hasKey）──
 function publicConfig() {
   const ve = readVe()
@@ -534,6 +604,8 @@ async function handleConfig(req, res) {
   const act = cleaned.find((p) => p.id === active) ?? cleaned[0]
   writeModlensSlot(act) // 失败会抛错 → 500，但 VE_CONFIG 已保存，下次保存重试即可
   log(`profile '${act.name}' (${act.slot}/${act.model}) applied to modlens config`)
+  // 本地模型 → 启动 ollama + 开机静默自启;云端模型 → 关闭 ollama + 自启(异步,不阻塞响应)
+  syncOllama(act).catch(() => {})
   json(res, 200, publicConfig())
 }
 
@@ -628,17 +700,27 @@ function handlePasteImg(req, res) {
     const root = PASTE_ROOT.replace(/\\+$/, '').replace(/\/+$/, '')
     const norm = p.replace(/\\/g, '/')
     const rootNorm = root.replace(/\\/g, '/')
-    if (!norm || !norm.startsWith(rootNorm + '/')) {
-      json(res, 400, { error: 'path not allowed' })
-      return
+    // 归一化 .. 段(目录穿越防御)+ 必须落在 PASTE_ROOT 内。
+    // 注意:真实粘贴路径是完整 Windows 路径(以 C: 开头),不能按"驱动器/绝对路径"拒绝,只做包含校验。
+    const segs = norm.split('/').filter((x) => x && x !== '.')
+    const stack = []
+    for (const seg of segs) {
+      if (seg === '..') {
+        if (!stack.length) { json(res, 400, { error: 'path not allowed' }); return }
+        stack.pop()
+      } else {
+        stack.push(seg)
+      }
     }
+    const safePath = stack.join('/')
+    if (!safePath.startsWith(rootNorm + '/')) { json(res, 400, { error: 'path not allowed' }); return }
     const ext = extname(p).toLowerCase()
     const type = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp' }[ext]
     if (!type) {
       json(res, 400, { error: 'not an image path' })
       return
     }
-    const buf = readFileSync(p)
+    const buf = readFileSync(safePath)
     res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=300' })
     res.end(buf)
   } catch {
@@ -684,4 +766,14 @@ export function apply(ctx) {
   } catch (error) {
     log('seed failed:', String(error))
   }
+  // 启动时与当前生效模型对齐 ollama 状态：本地 → 确保运行+自启；云端 → 关自启(不强杀手动启动的 ollama)
+  try {
+    const act = activeProfile()
+    if (act && isLocalProfile(act)) {
+      setOllamaAutostart(true)
+      probeOllama().then((running) => { if (!running) { log('启动时检测本地模型: 启动 ollama'); startOllama() } })
+    } else if (act) {
+      setOllamaAutostart(false)
+    }
+  } catch { /* 对齐失败不阻断启动 */ }
 }
