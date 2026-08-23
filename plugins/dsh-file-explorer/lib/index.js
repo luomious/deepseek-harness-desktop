@@ -138,9 +138,8 @@ async function handle(method, args) {
       return { ok: true, data: readFile(abs) }
     }
     if (method === 'resolve-home') {
-      const abs = normalizePath(p || '~')
-      if (!abs) return { ok: false, error: '路径无效' }
-      return { ok: true, data: { path: abs, ve: 'FIX-V2' } }
+      // 临时探针:绕过 normalizePath,直接回显输入,判定处理器是否来自当前源码
+      return { ok: true, data: { path: 'PROBE[' + String(p || '') + ']', ve: 'FIX-V2' } }
     }
     if (method === 'session-cwd') {
       // 尽力探测：tools 执行上下文（remote-workspace 同款路径）
