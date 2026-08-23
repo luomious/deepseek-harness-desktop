@@ -58,7 +58,10 @@ const DEFAULTS = {
   ambiguous: 'high',            // 'high' | 'low'
   minComplexLength: 140,
   routes: [
-    { provider: 'modlens-tokenrhythm01', high: 'deepseek-v4-pro-0813', low: 'deepseek-v4-flash' },
+    // 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731，
+    // 默认模型 qwen3.8-max），旧路由 id 不匹配导致自动切换从未触发——按实际模型修正
+    { provider: 'modlens-tokenrhythm01', high: 'deepseek-v4-pro-0813', low: 'deepseek-v4-flash-0731' },
+    { provider: 'modlens-tokenrhythm01', high: 'qwen3.8-max', low: 'deepseek-v4-flash-0731' },
     { provider: 'modlens-xiaomi-token-plan-cn', high: 'mimo-v2.5-pro', low: 'deepseek-v4-flash' },
   ],
 }
