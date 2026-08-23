@@ -151,3 +151,11 @@ generator: @dsh-external/dsh-project-brief
 - 错误码速查
 - 故障排查记录
 <!-- brief:auto:changelog:end -->
+
+## 安全守则（防止误删/破坏性操作，2026-08-23 新增）
+
+- **删除/清空类命令必须先用 `scripts/guard-destructive.ps1` 预检**（. .\scripts\guard-destructive.ps1 → Test-DestructiveCommand）：盘根(C:\/D:\等)、用户目录、AppData、工作区根之外的**递归/强制删除一律拦截**；未加引号的通配符目标一律拦截。
+- 删除任何文件前，先列出将被删除的路径与数量，目标必须在 `D:\Deepseek-Harness` 工作区内（或用户明确同意）。
+- 涉及 PowerShell/cmd/正则的路径参数：警惕 `[ ] { } ( ) $ * ?` 元字符与引号配对；写脚本用纯 ASCII 注释（PS 5.1 会把 UTF-8 无 BOM 中文读成 GBK 导致语法错——2026-08-23 实测踩坑两次）。
+- bundle/服务文件等高危改动：先在 `patches/bundles/` 临时副本修改+`node --check`+标记验证 → 再原子替换正式文件；绝不在运行中的应用服务路径上留下非法中间态。
+- 不自动重启桌面应用（等用户指示）；`~/.dsh` 下改动先存档再改（可回滚）。

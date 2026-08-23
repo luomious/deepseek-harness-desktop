@@ -435,6 +435,12 @@ export function apply(ctx, rawConfig) {
                 });
             }
             if (req.method === 'POST' && url.startsWith('/decide')) {
+      // M4 fix: require local Origin (blocks CSRF-triggered compaction from any local page)
+      const hdrs = req.headers || {}
+      const origin = String(hdrs.origin || '')
+      if (origin) { try { const ou = new URL(origin); if (!['127.0.0.1','localhost','::1','[::1]'].includes(ou.hostname)) { res.writeHead(403); res.end(); return } } catch { res.writeHead(403); res.end(); return } }
+      const sfs = String(hdrs['sec-fetch-site'] || '').toLowerCase()
+      if (sfs && sfs !== 'same-origin' && sfs !== 'none') { res.writeHead(403); res.end(); return }
                 const body = await readBody(req);
                 const sessionId = String(body.sessionId ?? '');
                 const action = String(body.action ?? '');

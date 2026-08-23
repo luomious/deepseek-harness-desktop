@@ -304,7 +304,22 @@ function wslArgs(conn: Extract<Connection, { kind: 'wsl' }>): string[] {
   args.push('--')
   return args
 }
+/** M2 fix: reject hosts/containers/distros that could inject ssh/docker options or shell chars */
+function assertSafeTarget(conn: Connection): boolean {
+  if (conn.kind === 'ssh') {
+    if (!conn.host || conn.host.startsWith('-') || /[\s;|&<>`"']/.test(conn.host)) return false
+    if (conn.user && /[\s;|&<>`"']/.test(conn.user)) return false
+  }
+  if (conn.kind === 'docker') {
+    if (!conn.container || conn.container.startsWith('-') || /[^A-Za-z0-9_.-]/.test(conn.container)) return false
+  }
+  if (conn.kind === 'wsl') {
+    if (conn.distro && /[^A-Za-z0-9_.-]/.test(conn.distro)) return false
+  }
+  return true
+}
 function remoteArgv(conn: Connection, workdir: string | undefined, command: string): { argv: string[]; workdirHandled: boolean } {
+  if (!assertSafeTarget(conn)) return { argv: [], workdirHandled: true };
   const wd = workdir || ''
   if (conn.kind === 'wsl') {
     const args = wslArgs(conn)
@@ -330,6 +345,7 @@ function remoteArgv(conn: Connection, workdir: string | undefined, command: stri
 
 /** 测试连接连通性。 */
 async function testConnection(conn: Connection): Promise<{ ok: boolean; message: string }> {
+  if (!assertSafeTarget(conn)) return { ok: false, message: '目标参数不合法（M2 拦截）' }
   try {
     if (conn.kind === 'wsl') {
       const r = await run([...wslArgs(conn), 'echo', 'WSL_OK'])
@@ -384,7 +400,7 @@ async function listRemoteDir(conn: Connection, path: string | undefined): Promis
     if (conn.kind === 'ssh' && conn.auth === 'password') {
       return { ok: false, error: 'SSH 密码认证不支持，请改用密钥认证（keyPath）。' }
     }
-    const cmd = `if [ -d "${sq(p)}" ]; then cd -- '${sq(p)}'; else echo "__REMOTE_ERR__: no such dir"; exit 1; fi; for e in ./* ./.[!.]*; do [ -e "$e" ] || continue; if [ -d "$e" ]; then printf 'D\\t%s\\n' "$(basename -- "$e")"; else printf 'F\\t%s\\n' "$(basename -- "$e")"; fi; done`
+    const cmd = `if [ -d ${sq(p)} ]; then cd -- ${sq(p)}; else echo "__REMOTE_ERR__: no such dir"; exit 1; fi; for e in ./* ./.[!.]*; do [ -e "$e" ] || continue; if [ -d "$e" ]; then printf 'D\\t%s\\n' "$(basename -- "$e")"; else printf 'F\\t%s\\n' "$(basename -- "$e")"; fi; done`
     const { argv } = remoteArgv(conn, p, cmd)
     const r = await run(argv, { timeoutMs: 20000 })
     if (r.code !== 0 || r.stderr.includes('__REMOTE_ERR__')) {
@@ -593,7 +609,10 @@ function trusted(req: { socket?: { remoteAddress?: string }; headers?: Record<st
     try { o = new URL(origin) } catch { return false }
     if (o.protocol !== 'http:') return false
     if (!isLocalHostname(o.hostname)) return false
-    if (o.port && o.port !== '3080') return false
+    // 适配新壳桌面版（端口不固定，如 43120）：Origin 端口须与请求 Host 端口一致（同 file-explorer 动态端口校验）
+    let hostPort = ''
+    try { hostPort = new URL('http://' + rawHost).port } catch { return false }
+    if (o.port && hostPort && o.port !== hostPort) return false
     const sfs = String((req.headers && (req.headers['sec-fetch-site'] as string)) || '').toLowerCase()
     if (sfs && sfs !== 'same-origin') return false
     return true
@@ -655,7 +674,7 @@ function registerRemoteBash(ctx: any) {
     },
   }
   try {
-    ;(ctx.tools.register as (def: unknown) => unknown)(tool)
+    ctx.effect(() => (ctx.tools.register as (def: unknown) => unknown)(tool), 'dsh-remote-workspace: remote_bash')
   } catch (e) {
     ctx.logger?.warn?.('[remote-workspace] remote_bash 注册失败：' + String((e as Error)?.message || e))
   }

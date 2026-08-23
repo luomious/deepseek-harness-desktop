@@ -23,3 +23,7 @@
 - id: modlens
   config:
     families: ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova', 'gpt']
+
+# 2026-08-23 决策：maid-atelier 皮肤保持禁用（与新壳兼容性待定，等用户启用时移除本行）
+- id: ui-skin-maid-atelier
+  disabled: true

@@ -1,0 +1,5 @@
+# dsh-file-explorer bundle 补丁层：文件浏览器装配行。
+# 适配说明：桌面 profile 已在 cordis.patch.yml 手挂；本文件供 web profile 自动装配流使用。
+- insert:
+    - id: file-explorer
+      name: '@dsh-external/dsh-file-explorer'

@@ -1,0 +1,16 @@
+{
+  "name": "@dsh-external/dsh-frontend-reload",
+  "version": "0.1.0",
+  "description": "前端刷新按钮 + Ctrl+R 快捷键（桌面壳 Windows 无应用菜单/reload 角色，页面内兜底）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": ["lib"],
+  "license": "BSD-3-Clause",
+  "dsh": {
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-runtime", "@deepseek-ai/dsh-client-ui-slots"],
+      "platform": "web"
+    }
+  }
+}

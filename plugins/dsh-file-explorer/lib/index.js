@@ -9,8 +9,8 @@
  *
  * 安全：所有路径 resolve 后校验必须落在用户主目录内，越权直接拒绝。
  */
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, statSync, existsSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
 export const name = '@dsh-external/dsh-file-explorer'
@@ -203,8 +203,12 @@ function trusted(req) {
  */
 function isPathAllowed(abs) {
   if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
-  if (abs === HOME) return true
-  return abs.startsWith(HOME + '\\') || abs.startsWith(HOME + '/')
+  // M1 fix: realpath + normalized prefix check (blocks junction/symlink escape; comment now matches code)
+  try {
+    const real = realpathSync(abs)
+    const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
+    return real === homeNorm || real.startsWith(homeNorm + '\\') || real.startsWith(homeNorm + '/')
+  } catch { return false }
 }
 
 export function apply(ctx) {

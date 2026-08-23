@@ -1,0 +1,5 @@
+# dsh-remote-workspace bundle 补丁层：远程连接工作区（SSH/WSL/Docker）装配行。
+# 适配说明：桌面 profile 已在 cordis.patch.yml 手挂；本文件供 web profile 自动装配流（dsh plugin add / injector）使用。
+- insert:
+    - id: remote-workspace
+      name: '@dsh-external/dsh-remote-workspace'

@@ -6,6 +6,44 @@
 
 ---
 
+## 2026-08-23 安全审计与加固 + 前端刷新/图标修复（详见 docs/migration-audit-2026-08-22.md §8）
+
+- **安全审计**：4 高危/5 中危/8 低危。修复 H1 注入器任意目录删除（包名白名单）、H2 注入器 API CSRF（Origin 校验）、H3 vision-engine 任意文件读（路径规范化）、H4 staging RCE（默认禁用 DSH_STAGE_RESTORE=1 门禁）、M1 file-explorer 路径逃逸（realpath）、M2 remote-workspace ssh/docker 参数注入（assertSafeTarget）、M3 远程目录列举引号 bug、M4 context-lifecycle CSRF。
+- **误删防护机制**：`scripts/guard-destructive.ps1` 危险命令守卫（递归删除仅限工作区内、盘根/通配符拦截；自检 7/7）。
+- **前端刷新**：桌面壳 Windows 无应用菜单（removeMenu）→ Ctrl+R 从未注册；新增 `dsh-frontend-reload` 插件（右下角刷新按钮 + Ctrl+R 页面内兜底，已装 desktop+web）。
+- **桌面图标空白修复**：快捷方式 IconLocation 指向已归档的 src\assets\icon.ico → 改指 legacy\src\assets\icon.ico。
+- **验证**：功能终核脚本 `scripts/verify-features.ps1` 26/26 通过。
+
+## 2026-08-23 合并迁移后功能修复：远程连接/「不在项目中工作」还原 + 插件兼容适配 + 迁移审计（详见 docs/migration-audit-2026-08-22.md）
+
+### 现象
+新会话「添加工作区…」处的 **SSH 远程连接** 与 **「不在项目中工作」** 功能消失；部分插件（file-explorer/system-notify 等）不工作。
+
+### 根因（三层）
+1. **核心客户端补丁未移植到新壳**：旧壳 patch-manifest.js（13 项，启动自愈）随 src/ 归档 legacy/；新壳用自己的打包 dsh（0.1.1-rc.2，app.asar.unpacked），其 ui-workspace/ui-conversation bundle 不含 remoteFlow 洞、不在项目中工作菜单、纯聊天标签。
+2. **dsh-remote-workspace trusted() 硬编码 3080**：新壳端口不固定（43120）→ /remote-ws 全 403 → host API 整体失效（同族 4 插件已修，唯独漏它）。
+3. **0.1.1-rc.2 的 remoteFlow 洞只声明不渲染** → 需补 ADD_REMOTE 入口 + 渲染。
+
+### 修复
+| 模块 | 说明 |
+|---|---|
+| 核心 bundle 补丁移植 | dsh-client-ui-workspace：remoteFlow 洞 + ADD_CHAT（不在项目中工作）+ ADD_REMOTE（远程连接入口+渲染，还原 rc.7 UX），保留新壳 drop-target 补丁；dsh-client-ui-conversation：纯聊天标签。dev/打包/canon 三副本一致 |
+| modlens 无缝接管补丁 | desktop profile 补上（与 web 对齐），粘贴不再误转路径 |
+| dsh-remote-workspace 适配 | trusted() 动态端口；tools.register 包 ctx.effect；client 类型适配（SlotRegistry/connectWorkspace/sessions 注入）；verify-core 15/15 |
+| 补 cordis.patch.yml | remote-workspace/file-explorer/system-notify（web 自动装配流用） |
+| super-injector 兼容 | dev_plugin_status loadCache 崩溃修复（可选链，TS 源+两份 lib） |
+| 装配补漏 | dshmarket 补进 desktop profile bundles（web 有、desktop 漏） |
+| 记录 | docs/migration-audit-2026-08-22.md + scripts/port-user-patches.mjs（幂等重打） |
+
+### 生效
+- modlens 与 profile 装配：需完全退出桌面应用重开（遵守重启守则，等用户指示）；bundle 改动刷新浏览器即生效。
+- 重启后预期：添加工作区菜单出现「不在项目中工作」「远程连接…」；dev_plugin_status 正常；桌面版粘贴图片不再变路径。
+
+### 待决策
+maid-atelier 皮肤双处禁用（无决策记录，当前保持禁用）；settings-models 搜索等 4 个旧补丁是否迁移；补丁固化机制（建议并入 vendor yarn patches/build 流程）。
+
+---
+
 ## 2026-08-22 dsh 0.1.1-rc.2 升级后遗症修复：modlens 粘贴路径 + 启动自愈前移 + 核心补丁适配
 
 ### 现象

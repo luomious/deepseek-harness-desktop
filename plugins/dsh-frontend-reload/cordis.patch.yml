@@ -1,0 +1,4 @@
+# dsh-frontend-reload bundle 补丁层：前端刷新按钮 + Ctrl+R 快捷键（Windows 桌面壳无应用菜单兜底）。
+- insert:
+    - id: frontend-reload
+      name: '@dsh-external/dsh-frontend-reload'

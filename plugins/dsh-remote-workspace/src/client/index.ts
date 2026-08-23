@@ -12,14 +12,14 @@
  * 与 host 通过 /remote-ws/api（本机 trusted JSON RPC）通信。
  */
 import { useState, useEffect, createElement } from 'react'
-import type { SlotsService } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 
 type ClientContext = {
-  slots: SlotsService
-  workspaces?: { startSession(id: string): void }
+  slots: SlotRegistry
+  workspaces?: { startSession(id: string): void; connectWorkspace(id: string): Promise<string> }
 }
 
-export const inject = ['slots', 'workspaces']
+export const inject = ['slots', 'workspaces', 'sessions']
 
 // ═══════════════ host API ═══════════════
 
@@ -60,6 +60,7 @@ type RemoteWorkspace = {
   cwd: string
   kind: 'ssh' | 'wsl' | 'docker'
   createdAt: string
+  nativeId?: string
 }
 
 type View = 'main' | 'pick' | 'config' | 'browse'
@@ -414,7 +415,21 @@ export function apply(ctx: ClientContext): void {
   const slots = ctx.slots
   const startSession = (nativeId: string, attempt = 0) => {
     try {
-      ctx.workspaces?.startSession(nativeId)
+      const w = ctx.workspaces
+      if (w && typeof (w as any).connectWorkspace === 'function') {
+        (w as any).connectWorkspace(nativeId).then((sid: string) => {
+          ;(ctx as any).sessions?.open(sid)
+        }).catch((e: unknown) => {
+          const msg2 = String((e as Error)?.message || e)
+          if (attempt < 2 && msg2.includes('unknown workspace')) {
+            window.setTimeout(() => startSession(nativeId, attempt + 1), 600)
+            return
+          }
+          console.warn('[dsh-remote-workspace] 启动新对话失败：', msg2)
+        })
+        return
+      }
+      w?.startSession(nativeId)
     } catch (e) {
       const msg = String((e as Error)?.message || e)
       // 原生工作区刚注册，客户端 store 可能还没收到投影 → 稍后重试一次

@@ -1,0 +1,5 @@
+# dsh-system-notify bundle 补丁层：系统通知装配行。
+# 适配说明：桌面 profile 已在 cordis.patch.yml 手挂；本文件供 web profile 自动装配流使用。
+- insert:
+    - id: system-notify
+      name: '@dsh-external/dsh-system-notify'
