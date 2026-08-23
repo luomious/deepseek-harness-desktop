@@ -42,6 +42,8 @@ for (const f of INJECTOR) {
 
 // ---------- H4: restoreStaging 默认禁用（new Function 持久化 RCE 门禁） ----------
 for (const f of INJECTOR) {
+  const hasFn = (() => { try { return readFileSync(f, 'utf8').includes('function restoreStaging') } catch { return false } })()
+  if (!hasFn) { report.push(`SKIP H4 restoreStaging gate (${f.split('/').pop()}: 无此函数，无需修复)`); continue }
   patch(f, `H4 restoreStaging gate (${f.split('/').pop()})`, (s) => {
     if (s.includes('DSH_STAGE_RESTORE')) return s
     const lines = s.split('\n')
