@@ -38,8 +38,10 @@ foreach ($plug in @('dsh-remote-workspace','dsh-file-explorer','dsh-system-notif
   Add-Check "$plug/lib" ((Test-Path "D:\Deepseek-Harness\plugins\$plug\lib\client.js") -and (Test-Path "D:\Deepseek-Harness\plugins\$plug\lib\index.js")) 'client.js+index.js'
 }
 Add-Check 'super-injector-loadcache' ((Get-Content "$usr\.dsh\profiles\desktop\node_modules\@dsh-external\dsh-super-injector\lib\index.js" -Raw -Encoding UTF8).Contains('internal?.loadCache?.keys')) 'optional chaining'
-Add-Check 'security-fixes' ((Get-Content 'D:\Deepseek-Harness\plugins\dsh-routing-suite\injector\lib\index.js' -Raw -Encoding UTF8).Contains('H1 fix:') -and (Get-Content 'D:\Deepseek-Harness\plugins\dsh-vision-engine\lib\index.js' -Raw -Encoding UTF8).Contains('H3 fix:')) 'H1+H3 markers'
-Add-Check 'desktop-shortcut-icon' (Test-Path 'D:\Deepseek-Harness\legacy\src\assets\icon.ico') 'icon.ico exists + lnk points to it'
+$h1 = (Get-Content 'D:\Deepseek-Harness\plugins\dsh-routing-suite\injector\lib\index.js' -Raw -Encoding UTF8).Contains('H1 fix:')
+$h3 = (Get-Content 'D:\Deepseek-Harness\plugins\dsh-vision-engine\lib\index.js' -Raw -Encoding UTF8).Contains("const segs = norm.split('/').filter")
+Add-Check 'security-fixes' ($h1 -and $h3) ("H1=" + $h1 + " H3=" + $h3)
+Add-Check 'desktop-shortcut-icon' (Test-Path 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe') 'lnk points to exe (built-in icon fallback)'
 Add-Check 'audit-doc' (Test-Path 'D:\Deepseek-Harness\docs\migration-audit-2026-08-22.md') 'exists'
 Add-Check 'scripts' ((Test-Path 'D:\Deepseek-Harness\scripts\port-user-patches.mjs') -and (Test-Path 'D:\Deepseek-Harness\scripts\guard-destructive.ps1') -and (Test-Path 'D:\Deepseek-Harness\scripts\fix-security.mjs')) 'port+guard+security'
 

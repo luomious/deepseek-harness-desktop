@@ -47,7 +47,7 @@ for (const f of INJECTOR) {
   patch(f, `H4 restoreStaging gate (${f.split('/').pop()})`, (s) => {
     if (s.includes('DSH_STAGE_RESTORE')) return s
     const lines = s.split('\n')
-    const idx = lines.findIndex((l) => /function restoreStaging\(\)\s*\{/.test(l))
+    const idx = lines.findIndex((l) => /function restoreStaging\(\)[^{]*\{/.test(l))
     if (idx < 0) throw new Error('restoreStaging anchor not found')
     const indent = lines[idx].match(/^\s*/)[0]
     lines.splice(idx + 1, 0,
@@ -77,7 +77,7 @@ patch(INJECTOR[0], 'H2 route origin check (lib)', (s) => {
 
 // ---------- H3: vision-engine paste-img 路径规范化 + 穿越拦截 ----------
 patch(VISION[0], 'H3 paste-img traversal', (s) => {
-  if (s.includes('H3 fix:')) return s
+  if (s.includes("const segs = norm.split('/').filter")) return s
   const anchor = "    if (!norm || !norm.startsWith(rootNorm + '/')) {"
   if (!s.includes(anchor)) throw new Error('H3 anchor not found')
   const guard = [
