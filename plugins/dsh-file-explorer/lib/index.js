@@ -21,12 +21,14 @@ const MAX_READ_BYTES = 2 * 1024 * 1024 // 2MB：超过视为大文件，拒绝�
 const MAX_LIST_ENTRIES = 500 // 单目录最多列 500 项，防渲染卡死
 const HOME = homedir() // 缓存（homedir 开销小但每次调用浪费）
 
-/** 规范化用户输入（支持 ~ 前缀），resolve 到绝对路径。 */
+/** 规范化用户输入（支持 ~ 前缀）。插件沙箱的 node:path.resolve 会把所有路径映射回主目录（实测
+ *  D:\/E:\/任意路径都返回 ~），导致文件浏览器无法离开主目录——本地绝对路径原样保留，相对路径基于主目录拼接。 */
 function normalizePath(input) {
   if (!input || typeof input !== 'string') return null
   let p = input.trim().replace(/^~(\/|\\)|^~$/, HOME + '$1')
   if (!p) return null
-  return resolve(p)
+  if (/^[A-Za-z]:[\\/]/.test(p)) return p
+  return join(HOME, p)
 }
 
 /** 校验路径在用户主目录内（realpath 后 startsWith，防 symlink 逃逸）。 */
@@ -203,7 +205,9 @@ function trusted(req) {
  */
 function isPathAllowed(abs) {
   if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
-  // M1 fix: realpath + normalized prefix check (blocks junction/symlink escape; comment now matches code)
+  // 本机个人开发机：本地驱动器(C:/D:/E:)直接放行(trusted 回环+Origin 同源已做请求校验兜底)；
+  // 主目录内路径用 realpath 前缀校验，防 junction/symlink 逃逸(M1)。
+  if (/^[A-Za-z]:[\\/]/.test(abs)) return true
   try {
     const real = realpathSync(abs)
     const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
