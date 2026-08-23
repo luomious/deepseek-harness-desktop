@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-08-23 弹窗治理 + 退出保护机制 + Ollama 自启 + 生产上线方案（详见 docs/PRODUCTION-UPGRADE-PLAN.md）
+
+- **弹窗治理（windowsHide ×8）**：插件 3 处（vision-engine 读图 / autoread 读图 / project-brief git）+ 桌面应用 4 处（dsh-subprocess-local / profile-materializer / open / default-browser）+ 源码 1 处（profile-materializer.ts）。启动 / 切换视觉模型 / 读图 / 打开外链全程无黑框（实测 hwnd=0）。
+- **Ollama 开机自启**：VBS 隐藏启动（window 0）+ 环境变量；自启**永久保留**（切云端配置不删 VBS，只停进程，切回自动重启）。
+- **退出保护机制（critical-guard）**：新建 `src/critical-guard.ts`、`src/critical-busy-route.ts`（`POST /desktop/critical-busy`，仅 loopback）；`shutdown.ts`/`main.ts`/`electron-shell-generation.ts`/`index.ts` 接入。busy 时点 ✕ 或退出会弹窗提醒，防止强制退出损坏配置。`tsc --noEmit` ✅，**待重建生效**。
+- **koffi 报错定位**：`win-unpacked-new` 构建写入时序竞态（构建中打开 exe 读到半成品），非关闭导致；koffi 本体正常（3.1.5 实测）。预防：构建完成后等 1 分钟再启动。
+- **生产上线方案**：`docs/PRODUCTION-UPGRADE-PLAN.md`（P0-P3 分阶段 + 防误删/防崩溃/回滚基线 + 重建验收清单）。
+
 ## 2026-08-23 安全审计与加固 + 前端刷新/图标修复（详见 docs/migration-audit-2026-08-22.md §8）
 
 - **安全审计**：4 高危/5 中危/8 低危。修复 H1 注入器任意目录删除（包名白名单）、H2 注入器 API CSRF（Origin 校验）、H3 vision-engine 任意文件读（路径规范化）、H4 staging RCE（默认禁用 DSH_STAGE_RESTORE=1 门禁）、M1 file-explorer 路径逃逸（realpath）、M2 remote-workspace ssh/docker 参数注入（assertSafeTarget）、M3 远程目录列举引号 bug、M4 context-lifecycle CSRF。

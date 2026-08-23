@@ -19,19 +19,21 @@ generator: @dsh-external/dsh-project-brief
 - 启动自愈（`reconcilePatches` + 原生目录选择器补丁）已移到 `main.js` 端口检查**之前**：无论 3080 是否被占用（网页版/残留进程）都会执行。若某补丁对某版本 dsh 失效，优先更新锚点或登记自动退役（如 `dsh-core-client-bundle-retry` 对 0.1.1-rc.2 的 Vite 前端），不要只删清单项。
 - 长任务用 goal（`create_goal`）自动续跑；跨会话守护用 daemon-loop 插件（如 `dsh-session-watchdog`）。
 - 建新插件优先克隆/借鉴 `plugins/` 与 `dsh-stuck-loop-guard`、`dsh-context-lifecycle` 的零依赖 host 模式。
+- **关键操作退出保护**：在不可中断操作（pnpm 安装 / 补丁应用 / 长任务）开始前调用 `POST http://127.0.0.1:3080/desktop/critical-busy`，body `{"busy":true,"reason":"..."}`；结束后 body `{"busy":false}`（仅 loopback）。
+- **Windows 子进程铁律**：桌面壳无控制台，任何 `spawn`/`execFile`/`execSync` 必须带 `windowsHide:true`，否则闪黑框（已修 8 处，见 CHANGELOG 2026-08-23）。dist 改动先备份再改；重建后跑 `scripts/verify-patches.ps1` 校验。
+- 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`。
 
 ## 架构与关键路径（策展）
 
-- 本仓库是 **Windows 桌面包裹层**，不含 DSH 上游源码；真正的 DSH 装在 `%APPDATA%\npm\node_modules\@deepseek-ai\dsh`。
-- Electron 壳 `src/main.js` 拉起 `dsh web`（端口 3080）；打包产物在 `app/resources/app.asar`。
-- Web GUI（http://127.0.0.1:3080）由 dsh web 进程从**全局安装**提供；客户端 bundle（`dsh-client-ui-*/lib/client.js`）按请求读盘 + `no-cache`，改完刷新浏览器即生效。
+- **当前架构（2026-08-23 迁移后）**：桌面应用本体在 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，Electron；产物 `dist\win-unpacked-new` 为当前入口）；插件生态在根目录 `plugins/`（link 加载，改后重启 dsh 生效）；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。
+- Web GUI（http://127.0.0.1:3080）由桌面应用内嵌 DSH 内核提供；客户端 bundle（`dsh-client-ui-*/lib/client.js`）按请求读盘 + `no-cache`，改完刷新浏览器即生效。
 - 插件在 `plugins/`，经 `dsh-super-injector`（`dev_inject_plugin`/`dev_install_package`/`dev_reload_package`）运行时注入、热重载、持久化装配。
 
 ## 构建 / 部署（策展）
 
-- 改 `src/` 后必须 `build-app.ps1` 重打 asar 并**完全退出**所有 exe 实例再启动（单实例锁）。
-- 改全局客户端 bundle 无需重启服务，浏览器硬刷新即可。
-- 插件编译：本机无 DSH 源码 checkout，`dev_build_plugin` 需 `DSH_CHECKOUT`（缺失）；可直接用同仓 `typescript` + `@types/node` 手动 `tsc`。
+- **桌面应用构建**：`cd vendor/deepseek-harness-desktop` → `git submodule update --init --recursive` → `corepack yarn install --immutable` → `corepack yarn typecheck` → `corepack yarn build`（详见 docs/BUILD.md）。**构建写入完成后等 1 分钟再启动 exe**（koffi 竞态）。重建会覆盖 dist 手工补丁 → 跑 `scripts/verify-patches.ps1` 校验/重打。
+- 改插件（plugins/）无需重建：重启 dsh（遵守重启守则）或对非 modlens 插件热重载；改后 `node --check`。
+- 插件编译：用同仓 `typescript` + `@types/node` 手动 `tsc`。
 
 ## 常见坑位（策展）
 

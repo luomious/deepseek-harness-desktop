@@ -2,6 +2,8 @@
 
 基于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 桌面封装应用。
 
+> 🏭 **当前生产架构（2026-08-23 迁移后）**：桌面应用本体位于 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，构建见 [docs/BUILD.md](docs/BUILD.md)），插件生态在根目录 `plugins/`；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。生产上线方案与已知问题跟踪见 [docs/PRODUCTION-UPGRADE-PLAN.md](docs/PRODUCTION-UPGRADE-PLAN.md)。
+
 ## ✨ 功能特性
 
 - 🖥️ **原生桌面体验** — Electron 封装，自动启动/关闭 DSH Web 服务
