@@ -81,16 +81,13 @@ patch(VISION[0], 'H3 paste-img traversal', (s) => {
   const anchor = "    if (!norm || !norm.startsWith(rootNorm + '/')) {"
   if (!s.includes(anchor)) throw new Error('H3 anchor not found')
   const guard = [
-    '    // H3 fix: normalize segments and block any path escaping PASTE_ROOT (rejects ../, drive/UNC)' ,
-    '    if (/^[a-zA-Z]:/.test(p) || p.startsWith("\\\\") || p.startsWith("/") || p.startsWith("\\")) {' ,
-    '      json(res, 400, { error: \'path not allowed\' }); return' ,
-    '    }' ,
-    '    const segs = norm.split(\'/\').filter((x) => x && x !== \'.\')' ,
-    '    const stack = []' ,
-    '    for (const seg of segs) { if (seg === \'..\') { if (!stack.length) { json(res, 400, { error: \'path not allowed\' }); return } stack.pop() } else stack.push(seg) }' ,
-    '    const safePath = root + \'/\' + stack.join(\'/\')' ,
-    '    if (!safePath.startsWith(rootNorm + \'/\')) { json(res, 400, { error: \'path not allowed\' }); return }' ,
-    '    const buf = readFileSync(safePath)' ,
+    '    // H3 fix: normalize segments; block any path escaping PASTE_ROOT (full Windows paths stay allowed)',
+    '    const segs = norm.split(\'/\').filter((x) => x && x !== \'.\')',
+    '    const stack = []',
+    '    for (const seg of segs) { if (seg === \'..\') { if (!stack.length) { json(res, 400, { error: \'path not allowed\' }); return } stack.pop() } else stack.push(seg) }',
+    '    const safePath = stack.join(\'/\')',
+    '    if (!safePath.startsWith(rootNorm + \'/\')) { json(res, 400, { error: \'path not allowed\' }); return }',
+    '    const buf = readFileSync(safePath)',
   ].join('\n')
   // replace the old norm check + readFileSync(p)
   let out = s
