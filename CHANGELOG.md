@@ -13,6 +13,7 @@
 - **退出保护机制（critical-guard）**：新建 `src/critical-guard.ts`、`src/critical-busy-route.ts`（`POST /desktop/critical-busy`，仅 loopback）；`shutdown.ts`/`main.ts`/`electron-shell-generation.ts`/`index.ts` 接入。busy 时点 ✕ 或退出会弹窗提醒，防止强制退出损坏配置。`tsc --noEmit` ✅，**待重建生效**。
 - **koffi 报错定位**：`win-unpacked-new` 构建写入时序竞态（构建中打开 exe 读到半成品），非关闭导致；koffi 本体正常（3.1.5 实测）。预防：构建完成后等 1 分钟再启动。
 - **生产上线方案**：`docs/PRODUCTION-UPGRADE-PLAN.md`（P0-P3 分阶段 + 防误删/防崩溃/回滚基线 + 重建验收清单）。
+- **P1 执行（2026-08-23）**：修复 `~/.dsh/.agent-presets/router-standard/router-bootstrap.mjs` 缺失的 `bandOf`/`extractText` 模块导入（根治会话监听器 `ReferenceError` 刷日志，并恢复路由预设的弱模式引导功能）；bandof-diag 降级为安全 no-op（诊断完成，待下次重启后卸载）；新增 `scripts/apply-winhide-patches.mjs`（幂等重打 dist 级 windowsHide，覆盖 dev node_modules + 两个 dist）；web-fetch SSRF 审查达标（DNS 全解析防 rebinding / 全私网段 / 每跳重定向复查 / 1MB 上限，无需改动）。
 
 ## 2026-08-23 安全审计与加固 + 前端刷新/图标修复（详见 docs/migration-audit-2026-08-22.md §8）
 
