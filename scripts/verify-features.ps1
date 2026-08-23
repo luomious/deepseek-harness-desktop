@@ -45,6 +45,8 @@ Add-Check 'desktop-shortcut-icon' (Test-Path 'D:\Deepseek-Harness\vendor\deepsee
 Add-Check 'audit-doc' (Test-Path 'D:\Deepseek-Harness\docs\migration-audit-2026-08-22.md') 'exists'
 Add-Check 'scripts' ((Test-Path 'D:\Deepseek-Harness\scripts\port-user-patches.mjs') -and (Test-Path 'D:\Deepseek-Harness\scripts\guard-destructive.ps1') -and (Test-Path 'D:\Deepseek-Harness\scripts\fix-security.mjs')) 'port+guard+security'
 
+$frDep = (Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw | ConvertFrom-Json).dependencies.'@dsh-external/dsh-frontend-reload'
+Add-Check 'frontend-reload-dep' ([bool]$frDep) ("dep=" + $frDep)
 $rows | Format-Table -AutoSize -Wrap | Out-String -Width 210
 $fail = ($rows | Where-Object { $_.Status -eq 'FAIL' }).Count
 "TOTAL $($rows.Count), FAIL $fail"

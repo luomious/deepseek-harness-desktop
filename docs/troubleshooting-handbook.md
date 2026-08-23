@@ -185,4 +185,13 @@
   disabled: false`（profile 层覆盖包内守卫）。
 - **验证**：重启后侧边栏出现；`dev_plugin_status` 显示 `better-sidebar [active]`。
 - **预防**：升级 dsh 大版本后检查第三方插件的 !!js 守卫与 chunk-loader 兼容性。
+## 17. dsh-frontend-reload 装配易失（pnpm add 清掉手动 link 依赖 → 自愈清理 insert 行）
+
+- **症状**：重启后右下角无 ⟳ 刷新按钮、Ctrl+R 无效；`dev_plugin_status` 无 frontend-reload；但插件目录/junction 都在。
+- **根因**：① `pnpm add <pkg>` 重写 profile package.json 时会丢弃**未进 lockfile 的手动 link 依赖**；② 重启时装配自愈（reconcile）发现 insert 行引用的包不在 dependencies → 把 cordis.patch.yml 里的 insert 行也清掉 → 插件彻底不被挂载。
+- **解决**（三件套缺一不可）：
+  1. package.json 加回依赖：`"@dsh-external/dsh-frontend-reload": "link:D:\Deepseek-Harness\plugins\dsh-frontend-reload"`；
+  2. `pnpm --dir <profile> install`（把 link 依赖注册进 lockfile，以后再 pnpm 操作不会丢）；
+  3. cordis.patch.yml 加回 insert 行：`- insert: { id: frontend-reload, name: @dsh-external/dsh-frontend-reload }`。
+- **预防**：新增手动 link 依赖后立即 `pnpm install` 入 lockfile；`verify-features.ps1` 已含 frontend-reload-dep 检查（防复发）。
 
