@@ -223,6 +223,11 @@ function isPathAllowed(abs) {
 }
 
 export function apply(ctx) {
+  // 诊断:记录本插件实际被加载的路径(判定运行实例是否从 junction 源码加载)
+  try {
+    const loadedPath = typeof import.meta !== 'undefined' && import.meta.url ? import.meta.url : ''
+    ctx.logger && ctx.logger.info && ctx.logger.info('[file-explorer] LOADED_FROM=' + loadedPath)
+  } catch (e) { /* ignore */ }
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/file-explorer',
