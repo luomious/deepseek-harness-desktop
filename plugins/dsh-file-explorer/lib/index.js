@@ -138,8 +138,9 @@ async function handle(method, args) {
       return { ok: true, data: readFile(abs) }
     }
     if (method === 'resolve-home') {
-      // 临时探针:绕过 normalizePath,直接回显输入,判定处理器是否来自当前源码
-      return { ok: true, data: { path: 'PROBE[' + String(p || '') + ']', ve: 'FIX-V2' } }
+      const abs = normalizePath(p || '~')
+      if (!abs) return { ok: false, error: '路径无效' }
+      return { ok: true, data: { path: abs } }
     }
     if (method === 'session-cwd') {
       // 尽力探测：tools 执行上下文（remote-workspace 同款路径）
@@ -214,11 +215,6 @@ function isPathAllowed(abs) {
 }
 
 export function apply(ctx) {
-  // 诊断:记录本插件实际被加载的路径(判定运行实例是否从 junction 源码加载)
-  try {
-    const loadedPath = typeof import.meta !== 'undefined' && import.meta.url ? import.meta.url : ''
-    ctx.logger && ctx.logger.info && ctx.logger.info('[file-explorer] LOADED_FROM=' + loadedPath)
-  } catch (e) { /* ignore */ }
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/file-explorer',
