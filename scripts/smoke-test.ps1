@@ -90,9 +90,17 @@ if (Test-Path $lnkPath) {
     Check 'desktop shortcut points to stable win-unpacked entry' $okShortcut ("shortcut=$t stable=$exe")
 } else { Check 'desktop shortcut exists' $false $lnkPath }
 
-# ---- 8. ollama autostart ----
+# ---- 8. ollama autostart (runtime state managed by dsh-vision-engine) ----
+# Aligned with verify-patches.ps1 (P1-B3): the VBS is legitimately absent when
+# the cloud engine is selected, so absence is INFO, not a failure. Only a
+# PRESENT VBS missing the hidden flag is reported, and then as WARN (non-fatal).
 $vbs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\Ollama Serve.vbs'
-Check 'ollama VBS autostart' (HasText $vbs '0, False') 'VBS missing or not hidden'
+if (Test-Path $vbs) {
+    if (HasText $vbs '0, False') { Write-Host 'PASS  ollama VBS hidden autostart (local engine active)' -ForegroundColor Green }
+    else { Write-Host 'WARN  ollama VBS present but missing hidden flag (not counted as fail)' -ForegroundColor Yellow }
+} else {
+    Write-Host 'INFO  ollama VBS absent (cloud engine selected; auto-recreated on switch to local)' -ForegroundColor Cyan
+}
 
 # ---- 9. model-tier-router routes (new ids) ----
 $tr = Join-Path $root 'plugins\dsh-model-tier-router\lib\index.js'
@@ -100,8 +108,11 @@ Check 'tier-router low uses -0731' (HasText $tr 'deepseek-v4-flash-0731') 'old m
 Check 'tier-router covers qwen3.8-max' (HasText $tr 'qwen3.8-max') 'default model not routed'
 
 # ---- 10. current-run log health ----
-$log = Join-Path $env:APPDATA 'DSH Desktop\logs\dsh-2026-08-23.log'
-if (Test-Path $log) {
+# Pick the newest dsh-*.log instead of a hardcoded date (a stale hardcoded name
+# would make this check silently vanish once the date rolls over).
+$logDir = Join-Path $env:APPDATA 'DSH Desktop\logs'
+$log = Get-ChildItem $logDir -Filter 'dsh-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+if ($log -and (Test-Path $log)) {
     $lines = Get-Content $log
     $idx = ($lines | Select-String -Pattern "run \d+" | Select-Object -Last 1).LineNumber
     if ($idx) {

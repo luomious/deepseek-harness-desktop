@@ -56,10 +56,34 @@ $prevTarget = ''
 if (Test-Path $link) { $prevTarget = (Get-Item $link -Force).Target }
 
 # ---------- re-point junction ----------
-if (Test-Path $link) { cmd /c rmdir "$link" | Out-Null }
+# P1-B5 hardening: verify $link really is a junction before AND after, and check
+# mklink's exit code. The previous version swallowed rmdir/mklink errors, so if
+# $link had degraded into a plain directory the re-point silently failed while
+# Test-Path(exe) still passed -> a "fake promote" pointing at stale content.
+if (Test-Path $link) {
+    $item = Get-Item $link -Force
+    if ($item.LinkType -ne 'Junction') {
+        Write-Error "win-unpacked exists but is not a junction (LinkType=$($item.LinkType)); refusing to promote over it. Inspect $link manually."
+        exit 1
+    }
+    cmd /c rmdir "$link" | Out-Null
+    if (Test-Path $link) {
+        Write-Error "failed to remove existing junction at $link"
+        exit 1
+    }
+}
 cmd /c mklink /J "$link" $From | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "mklink failed (exit $LASTEXITCODE) creating junction $link -> $From"
+    exit 1
+}
+$made = Get-Item $link -Force -ErrorAction SilentlyContinue
+if (-not $made -or $made.LinkType -ne 'Junction') {
+    Write-Error "junction was not created correctly at $link"
+    exit 1
+}
 if (-not (Test-Path (Join-Path $link 'DSH Desktop.exe'))) {
-    Write-Error "junction re-point failed"
+    Write-Error "junction re-point failed (exe not reachable through $link)"
     exit 1
 }
 
