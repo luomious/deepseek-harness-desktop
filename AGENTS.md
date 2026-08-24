@@ -25,7 +25,7 @@ generator: @dsh-external/dsh-project-brief
 
 ## 架构与关键路径（策展）
 
-- **当前架构（2026-08-23 迁移后）**：桌面应用本体在 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，Electron；产物 `dist\win-unpacked-build2\win-unpacked` 为当前入口，`dist\win-unpacked-new` 为回退）；插件生态在根目录 `plugins/`（link 加载，改后重启 dsh 生效）；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。
+- **当前架构**：桌面应用本体在 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，Electron）。**当前入口 = `dist\win-unpacked`（junction，快捷方式永指它，由 `scripts\promote-build.ps1` 换版重指）；真实构建为 `dist\win-unpacked-build<N>`，补丁脚本经 `scripts\resolve-dist.mjs` 定位最新构建。勿写死/归档 junction 目标，勿再产生 buildN 歧义**。插件生态在根目录 `plugins/`（link 加载，改后重启 dsh 生效）；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。
 - Web GUI（http://127.0.0.1:43120，新壳端口；旧壳为 3080）由桌面应用内嵌 DSH 内核提供；客户端 bundle（`dsh-client-ui-*/lib/client.js`）按请求读盘 + `no-cache`，改完刷新浏览器即生效。
 - 插件在 `plugins/`，经 `dsh-super-injector`（`dev_inject_plugin`/`dev_install_package`/`dev_reload_package`）运行时注入、热重载、持久化装配。
 
