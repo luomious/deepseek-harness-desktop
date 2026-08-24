@@ -1,12 +1,20 @@
-﻿# 重打包 + 自动重启(由独立计划任务执行,不受会话断开影响)
+# 重打包 + 自动重启(由独立计划任务执行,不受会话断开影响)
 # 流程: 停 exe → package-vendor.ps1 重打包 → 启动新 exe → 验证
 $ErrorActionPreference = 'Continue'
 $log = 'D:\Deepseek-Harness\_backups\rebuild-restart.log'
 "=== 开始 $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File $log -Encoding utf8
 
-# 1. 停 exe(会断开当前网页会话,属预期)
-Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Seconds 5
+# 1. 停 exe(会断开当前网页会话,属预期)。循环强杀直到确认零残留,
+#    避免 Electron 子进程/僵尸残留导致下次启动出现双实例。
+$procs = Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue
+if ($procs) { $procs | Stop-Process -Force -ErrorAction Continue }
+for ($i = 0; $i -lt 5; $i++) {
+  Start-Sleep -Seconds 2
+  $procs = Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue
+  if (-not $procs) { break }
+  $procs | Stop-Process -Force -ErrorAction Continue
+}
+Start-Sleep -Seconds 3
 "旧 exe 已停,剩余: $((Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue | Measure-Object).Count)" | Tee-Object -FilePath $log -Append
 
 # 2. 重打包

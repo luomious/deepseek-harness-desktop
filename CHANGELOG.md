@@ -6,6 +6,94 @@
 
 ---
 
+## 2026-08-24 双 DSH Desktop 实例共存根因定位 + 单实例防线加固
+
+### 现象
+同一时刻存在两个 DSH Desktop 主进程：14:06 由脚本拉起的 build3 老实例（PID 38244，
+命令行带 `D:\Deepseek-Harness\hy3-gateway\server.js` 参数）与 18:06 用户双击快捷方式（junction → build4）
+启动的活动实例（PID 47916，持有 43120 端口与 Web GUI）。
+
+### 根因（进程树 + lockfile + 端口实测）
+1. 应用单实例保障只依赖 Electron `requestSingleInstanceLock()`——它在 userData 目录用
+   `lockfile` 文件承载，**文件一旦在进程运行期间被删除/接管，Electron 不会复查**，老进程继续跑、
+   新启动进程拿到新锁照常启动 → 双主进程共存。
+2. 实测 `%APPDATA%\DSH Desktop\lockfile` 创建于 **18:06:34**（正是 build4 实例启动时刻），
+   证明 14:06 起的 build3 实例当时并未持有锁（其锁在 15:36 前后即丢失——当天日志有 7 次启动记录，
+   多次为 rebuild/restart 流程，`rebuild-and-restart.ps1` 的 `Stop-Process -Force` 快照式强杀会漏掉
+   Electron 子进程/僵尸，且无人删除残留 lockfile 造成旧锁悬空）。
+3. 双实例各跑一个 DSH 内核：活动实例（build4）持有 43120；老实例无锁无端口成为僵尸，
+   但两者共用 `~/.dsh` profile 与 userData → 存在 profile junction/插件写入互相覆盖的风险。
+
+### 修复
+| 文件 | 改动 |
+|---|---|
+| `dsh-plugin-desktop/src/main.ts` + 打包 `lib/main.js`（build4） | `start()` 在 `requestSingleInstanceLock()` 之后、**触碰任何共享文件之前**，探测默认 Web 端口（43120）是否已是活 DSH 服务（`__DSH_BOOT__` 标记）；是则记日志并 `app.quit()`，杜绝第二实例启动 |
+| `dsh-plugin-desktop/src/webserver.ts` + 打包 `lib/webserver.js`（build4） | `DesktopWebServer.init()` 绑定前对**实际配置端口**做同款探测（覆盖自定义端口场景），命中则抛「another DSH Desktop instance is already serving」错误 |
+| 同上（main.ts/webserver.js） | 启动失败 catch 中识别该错误 → 记日志 + `shutdown.request(0)` 优雅退出（不弹恢复窗口、不 relaunch） |
+| `scripts/close-stale-dsh.ps1`（新增） | 一键清理：列出所有 DSH Desktop 主进程（命令行不含 `--type=`），保留持有 Web 端口的服务实例，确认后强杀其余僵尸；`-Yes` 跳过确认 |
+| `scripts/rebuild-and-restart.ps1` | 停 exe 改为**循环强杀 + 确认零残留**（最多 5 轮），避免重建后僵尸残留再触发双实例 |
+
+### 生效方式
+- 打包产物改动（main.js/webserver.js）需**重启桌面应用**生效（遵守重启守则，等你指示）。
+- 当前僵尸实例（build3，PID 38244/6080）可用 `powershell -File scripts\close-stale-dsh.ps1` 随时清理（会保留 43120 上的活动实例）。
+
+### 二轮实测：Electron 锁在悬空 lockfile 上会**卡死**而非失败（2026-08-24 20:2x）
+- 实测：重启后（单实例正常，51368 持有 43120）再启动一次 exe，第二实例 20-25 秒仍存活、无窗口、无日志头——
+  它卡在 `requestSingleInstanceLock()` 之前/之中，**既没退出也没走完启动**。
+- 推论：该 Electron 版本在 lockfile 悬空（18:06 实例已死但文件在）时，锁获取表现为阻塞而非返回 false；
+  因此「探测放在锁之后」的方案在这类悬空锁状态下根本不生效。
+- **修复升级（已应用）**：把端口探测**挪到 `requestSingleInstanceLock()` 之前**（重复实例先被端口挡下，不碰锁）；
+  探测改用 AbortController 保证 1.2s 内必然超时；端口空闲时先删除超过 2 分钟的悬空 lockfile 再取锁。
+  生效后：活动实例在跑 → 第二次启动在探测处直接退出；悬空锁场景 → 先清锁再正常取锁，不再卡死。
+
+---
+
+## 2026-08-24 工作区目录选择器回归修复：恢复跨盘选择 + 新增「上一级」导航
+
+### 现象
+「添加工作区」的目录选择对话框只能浏览当前路径向下的子目录，无法切换到其他盘（D:/E:…）、
+无法回到 C:\ 及以上层级，也看不到原生「使用 Windows 选择文件夹」按钮（仅能手动粘贴路径）。
+用户反馈「以前可以的」。
+
+### 根因
+1. `dsh-client-ui-directory-picker-browse` 的原生选择器按钮按 **URL query**（`dsh-desktop-platform=win32`）
+   判断是否渲染，但该判断在 `injected()` 里**懒执行**——对话框打开时才读 `window.location.search`，
+   而 SPA 客户端路由（pushState）早已把 query 参数剥掉 → 按钮永远不渲染。
+2. 面包屑从 home 开始，向上无导航（home 之上、盘根、其他盘都到不了），只能往下钻或粘贴路径。
+
+### 三轮迭代：按「打开文件夹」的原生对话框逻辑实现（2026-08-24 20:4x）
+- 用户实测：即使按钮/向上导航已补上，弹窗里仍无法直接切到其他盘（小图标按钮不易发现）；
+  且「自动弹原生选择器 + Web 弹窗」会出现两个弹窗叠加。
+- **最终实现（原生优先，替换 Web 弹窗）**：`BrowseDirectoryFlow` 在原生桥接可用时**只渲染
+  `NativeDirectoryOnlyFlow`**——点「添加工作区」直接弹 Windows 原生文件夹选择器（等效「打开文件夹」），
+  **不再渲染 Web 浏览器弹窗**；选中即 `validateDirectory` 校验后 `onPicked`，取消/校验失败即 `onCancel` 关闭。
+  纯网页环境（无原生桥接）才回退到原 Web 浏览器弹窗。`DirectoryBrowser` 内此前加的自动弹逻辑保留为防御性代码（桥接存在时不再渲染它）。
+- 改动：`dsh-client-ui-directory-picker-browse/lib/client.js`（build4 + canon 同步）+ node --check 通过；
+  **刷新页面即生效，无需重启**。
+
+### 修复（全部为客户端 bundle，改完刷新浏览器即生效，无需重启桌面应用）
+| 文件 | 改动 |
+|---|---|
+| `@deepseek-ai/dsh-client-ui-directory-picker-browse/lib/client.js`（build3/build4 打包产物） | ①`pickNativeDirectory`/`validateDirectory` 改为按 `window.__DSH_DESKTOP_PICK_DIRECTORY__` / `__DSH_DESKTOP_VALIDATE_DIRECTORY__` **桥接存在性**判断（不再依赖 URL query）；②面包屑栏新增「↑ 上一级」按钮（`browser.up`），从 home 可一路回到 `C:\`，到盘根自动禁用；③新增 `parentPath` 计算（Windows/POSIX 分隔符兼容）；④中文/英文文案、CSS、类名同步补齐 |
+| `dsh-plugin-desktop/lib/client.js`（build3/build4 打包产物） | `apply()` 在 Windows 渲染环境（`navigator` 判定）下**无条件**安装原生目录选择器桥接，不再被 `parseDesktopClientEnvironment` 早退拦截 |
+| `patches/bundles/dsh-client-ui-directory-picker-browse-client.js` | 新 canon 权威副本（完整 patched bundle） |
+| `scripts/port-user-patches.mjs` | 新增 `DIRECTORY_PICKER` 条目（canon → dev + 当前构建），重建后重跑即恢复 |
+| `dsh-plugin-desktop/src/client/index.ts` | 源码同步（`apply()` 桥接安装逻辑），下次 build 时打包产物保持一致性 |
+
+### 持久化说明
+- 补丁经 `scripts/fix-workspace-picker.mjs`（幂等）直接写入 build3 + build4 两个打包产物；
+  原文件备份在 `_backups/picker-fix-20260824/`（browse/desktop × build3/build4 共 4 份）。
+- `port-user-patches.mjs` 新增 `DIRECTORY_PICKER` 条目 + canon 文件 → 未来重建（package-vendor）自动恢复。
+- 既有 Yarn patch（`vendor/.../patches/dsh-client-ui-directory-picker-browse@0.1.1-rc.2.patch`）保持不变，
+  作为 install 阶段的基底；最终内容以 canon + port 为准（与 settings-models/frontend-static 同一模式）。
+
+### 效果
+- 原生选择器按钮（「使用 Windows 选择文件夹」图标，位于「新建文件夹」与「显示隐藏文件」之间）恢复显示，
+  点击打开系统文件夹对话框，可自由切盘/选任意文件夹（含 OneDrive 重定向后的桌面等）。
+- 新增「↑」按钮：点击回到上一级目录，无需再靠粘贴路径。
+
+---
+
 ## 2026-08-24 视觉引擎配置名乱码根治（复发的 GBK 编码问题）
 
 ### 现象与根因

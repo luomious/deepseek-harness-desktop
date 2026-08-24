@@ -296,6 +296,17 @@ window.__ModuleLoader__.load({
 			const [createError, setCreateError] = (0, react.useState)(null);
 			const [nativePicking, setNativePicking] = (0, react.useState)(false);
 			const [validatingDirectory, setValidatingDirectory] = (0, react.useState)(false);
+			const prevOpenRef = (0, react.useRef)(false);
+			// Auto-open the native Windows folder picker whenever the dialog opens
+			// ("open folder" behavior): picking a folder validates and confirms it;
+			// cancelling falls back to the in-app browser.
+			(0, react.useEffect)(() => {
+				const openedNow = open && !prevOpenRef.current;
+				prevOpenRef.current = open;
+				if (!openedNow || pickNativeDirectory === void 0) return void 0;
+				const timer = setTimeout(() => pickFromSystem(), 0);
+				return () => clearTimeout(timer);
+			}, [open, pickNativeDirectory]);
 			const requestSeq = (0, react.useRef)(0);
 			const scanController = (0, react.useRef)(null);
 			const openGeneration = (0, react.useRef)(0);
@@ -1010,7 +1021,58 @@ window.__ModuleLoader__.load({
 		* @param props - owner conversation plus the injected browse face.
 		* @returns the dialog element (renders nothing while closed).
 		*/
+		function NativeDirectoryOnlyFlow({ open, pick, validate, onPicked, onCancel }) {
+			const handledRef = (0, react.useRef)(false);
+			const latestRef = (0, react.useRef)({});
+			latestRef.current = { pick, validate, onPicked, onCancel };
+			(0, react.useEffect)(() => {
+				if (!open) {
+					handledRef.current = false;
+					return void 0;
+				}
+				if (handledRef.current) return void 0;
+				handledRef.current = true;
+				const callbacks = latestRef.current;
+				let cancelled = false;
+				callbacks.pick().then((path) => {
+					if (cancelled) return;
+					if (path === null) {
+						callbacks.onCancel();
+						return;
+					}
+					if (callbacks.validate === void 0) {
+						callbacks.onPicked(path);
+						return;
+					}
+					callbacks.validate(path).then((allowed) => {
+						if (cancelled) return;
+						if (allowed) callbacks.onPicked(path);
+						else callbacks.onCancel();
+					}, () => {
+						if (!cancelled) callbacks.onCancel();
+					});
+				}, () => {
+					if (!cancelled) callbacks.onCancel();
+				});
+				return () => {
+					cancelled = true;
+				};
+			}, [open]);
+			return null;
+		}
 		function BrowseDirectoryFlow(props) {
+			// 原生优先：桌面端点「添加工作区」只弹 Windows 原生文件夹选择器
+			// （"打开文件夹"逻辑），不再渲染 Web 浏览器弹窗；取消/校验失败即关闭。
+			// 纯网页环境（无原生桥接）回退到 Web 浏览器弹窗。
+			if (props.pickNativeDirectory !== void 0) {
+				return (0, react.createElement)(NativeDirectoryOnlyFlow, {
+					open: props.open,
+					pick: props.pickNativeDirectory,
+					validate: props.validateDirectory,
+					onPicked: props.onPicked,
+					onCancel: props.onCancel
+				});
+			}
 			return (0, react.createElement)(DirectoryBrowser, {
 				open: props.open,
 				busy: props.busy,
