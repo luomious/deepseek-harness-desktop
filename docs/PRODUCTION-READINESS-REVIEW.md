@@ -34,6 +34,8 @@
 
 ## 二、P0 阻塞项（必须闭环）
 
+> ⚠️ **更正（2026-08-25 实测）**：下述 P0-1 经对运行实例实测，确认**当前 build4（rc.2）已由上游 `dsh-client-connection.isTrustedApiRequest()` 信任栅栏阻断**——伪造 Host（DNS rebinding）与跨源 Origin 均被 403 拒绝，合法回环放行。原审计判 P0 为**假阴性**（grep 模式未匹配真实实现、且只查了不做鉴权的 webserver 层）。详见 `docs/PRODUCTION-EXECUTION-PLAN.md` §1.1b。**P0 实际已闭环，token（b）降为可选加固。**
+
 ### P0-1 内核 /api 桥与 WebSocket 无 Origin/Token 校验 → DNS rebinding 劫持 Agent → RCE
 - 证据：`dsh-host-webserver` README 自述 “No TLS, auth, or origin policy”（node_modules/@deepseek-ai/dsh-host-webserver/README.md:21）；全部 @deepseek-ai 安装包 grep `sec-websocket-origin|checkOrigin|headers.origin` 零命中。
 - 攻击链：用户浏览恶意页面 → DNS rebinding 将攻击域解析到 127.0.0.1 → 页面发起 `ws://127.0.0.1:43120/...`（WS 不受同源策略约束、无预检）→ 内核不校验 → 驱动 Agent 会话 → shell 工具 = 用户权限 RCE；可经 remote-workspace 横向延伸到 SSH 远程主机。

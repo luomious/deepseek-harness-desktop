@@ -31,10 +31,27 @@
 
 ### 1.1 威胁与目标
 - **威胁**：用户浏览恶意网页 → DNS rebinding 将攻击域解析到 `127.0.0.1` → 页面发起 `ws://127.0.0.1:43120/...`（WS 不受同源策略约束、无预检）→ 内核 `/api`+WS 无 Origin/Token 校验 → 驱动 Agent → shell 工具 = 用户权限 RCE，可经 remote-workspace 横向到 SSH 主机。
-- **上游现状**：`@deepseek-ai/dsh-host-webserver` README 自述 "No TLS, auth, or origin policy"；`/api` HTTP 桥与下行 WS 是 connection 插件的路由。
+- **上游现状（已核实，2026-08-25）**：`@deepseek-ai/dsh-host-webserver` README 自述 "No TLS, auth, or origin policy"——但那只是 **webserver 层**（交付裸 socket）。**真正的信任栅栏在 `@deepseek-ai/dsh-client-connection`**：它对 `/api` 桥与 WS downlinks 统一施加 `isTrustedApiRequest()`。
 - **目标**：让"非本机来源 / 无有效凭据"的请求一律被拒，合法 Web UI 与内核自身调用不受影响。
 
-### 1.2 阶段 A —— Origin 校验（先做，低风险，堵现实攻击）
+### 1.1b 可行性验证结果（2026-08-25 实测）——**P0 阶段 A 已由上游实现并生效，无需再开发**
+- 定位：`dsh-client-connection/lib/index.js` 的 `isTrustedApiRequest()`（三重栅栏）：
+  1. **Host 栅栏**：Host 必须是回环或 `trustedHosts` 受信域——注释明确"Host 是 DNS rebinding 无法伪造的唯一头部"，rebinding 时 Host=攻击域名→非回环→拒；
+  2. **`sec-fetch-site: cross-site` 拒绝**；
+  3. **Origin 同源**：若带 Origin，要求 `origin.host === hostUrl.host`。
+- 挂载点：`/api` 桥（`isTrustedApiRequest` 不过即 403）+ WS downlinks（`/api/events.mux`、`/api/events.host`，不可信即 `rejectWebSocketUpgrade` 403）+ 特权方法。
+- **运行实例实测（http://127.0.0.1:43120）**：
+  | 请求 | 期望 | 实际 |
+  |---|---|---|
+  | 伪造 `Host: rebind.attacker.example` → `/api` | 403 | **403** ✅ |
+  | 伪造 Host → `/api/events.mux`(WS) | 403 | **403** ✅ |
+  | 回环 Host + 跨源 `Origin: evil.example` | 403 | **403** ✅ |
+  | 对照:回环 Host 无 Origin / 同源 Origin | 非403 | 404(过栅栏) ✅ |
+- **结论**：P0 描述的 DNS rebinding → 劫持 Agent → RCE 攻击链，在当前 build4（rc.2）**已被上游信任栅栏阻断并经实测确认**。审计原判 P0 为**假阴性**（grep 模式 `headers.origin`/`checkOrigin` 未匹配真实写法 `header(request.headers,"origin")`，且只查了不做鉴权的 webserver 层）。
+- **阶段 A 处置**：**无需再开发 Origin 补丁**；将上述实测证据归档即可。`token`（阶段 B）降级为可选加固项。
+
+### 1.2 阶段 A —— Origin 校验（~~先做~~ 已由上游实现并实测通过，无需开发）
+> 原设计保留备查；实际已由 `dsh-client-connection.isTrustedApiRequest()` 覆盖（见 1.1b）。
 **设计**：在内核 WS upgrade 与 `/api` 入口加统一鉴权守卫 `assertLocalTrusted(req)`：
 - 对端必须是回环（`127.0.0.1`/`::1`/`::ffff:127.0.0.1`）；
 - 若请求带 `Origin` 头：其 hostname 必须是 `127.0.0.1`/`localhost`/`[::1]`，否则拒（**浏览器 DNS rebinding 的 Origin 是攻击域名，必被拦**）；
@@ -126,16 +143,17 @@
 
 > 每一步的失败都不影响退回上一步。涉及重启/杀进程的步骤需用户当场同意。
 
-### 阶段 0 — 现场清理与基线（无重启）
-1. [需同意] `close-stale-dsh.ps1` 清僵尸实例（D1）。
-2. 确认 `git status` 干净、7 批提交在、`_backups` 有当前可用构建快照。
-- **门禁**：进程列表只剩一组活跃实例。
+### 阶段 0 — 现场清理与基线（无重启）✅ 已完成（2026-08-25）
+1. ✅ `close-stale-dsh.ps1` 清僵尸实例（D1）——已清，活跃实例 43120 正常、UI 200。
+2. ✅ vendor 备份：建私有仓 `luomious/dsh-plugin-desktop`、推送基线快照、根仓记录 `docs/VENDOR-BASELINE.md`（D2）。
+3. ✅ `git status` 干净、7+ 批提交在。
+- **门禁**：进程列表只剩一组活跃实例。✅ 达成。
 
-### 阶段 1 — P0 Origin 校验（a）
-3. 可行性验证：定位 WS upgrade / `/api` 入口，确认守卫可干净插入。
-4. 实现 `assertLocalTrusted`，先打 dev 构建自测。
-5. 登记进 `port-user-patches.mjs` + canon，`verify-patches` 加校验。
-- **门禁**：dev 构建下伪造 Origin 被拒、正常功能全绿。**不通过则停止回报。**
+### 阶段 1 — P0 Origin 校验（a）✅ 已由上游实现并实测通过，无需开发
+3. ✅ 可行性验证：定位 `dsh-client-connection.isTrustedApiRequest()`，确认已覆盖 `/api`+WS downlinks（见 1.1b）。
+4. ✅ 运行实例实测：伪造 Host / 跨源 Origin 均 403，合法回环放行。**P0 攻击链已被阻断。**
+5. （无需）实现/登记 Origin 补丁——原计划作废；`token`（b）降为可选加固。
+- **门禁**：伪造 Origin/Host 被拒、正常功能全绿。✅ 实测达成。
 
 ### 阶段 2 — 剩余 P1 代码修复（第 2 章 R1–R9）
 6. 逐项实现，每项 `node --check`/语法校验；插件类改完暂不重启。
