@@ -312,6 +312,12 @@ async function analyzeImage({ dataUrl, path, profileId, signal }) {
   const ve = readVe()
   const profile = profileId ? ve.profiles.find((p) => p.id === profileId) ?? activeProfile() : activeProfile()
   let file = path
+  // 投产审计 P1-E9 纵深防御：path 必须是已存在的图片文件（白名单扩展名），
+  // 防止把任意文件（配置/源码等）喂给 modlens CLI。跨源入口已由 trusted() 封堵。
+  if (file) {
+    if (!/\.(png|jpe?g|webp|gif)$/i.test(file)) throw new Error('仅支持图片文件（png/jpg/webp/gif）')
+    if (!existsSync(file)) throw new Error('图片文件不存在: ' + file)
+  }
   let dir = null
   if (!file) {
     if (typeof dataUrl !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(dataUrl)) {
@@ -610,15 +616,23 @@ function json(res, status, payload) {
 
 function isLocalHostname(h) { return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' }
 
-// 本机可信校验:回环对端 + Host 为本机名。
-// 注意:GET 同源请求浏览器不带 Origin,故此处不做 Origin 要求(与 skills-manager/file-explorer 的 POST 守卫不同)。
+// 本机可信校验:回环对端 + Host 为本机名 + (若携带)Origin/Sec-Fetch-Site 必须为本机/同源。
+// 投产审计 P1-E9:原实现只查回环+Host,缺 Origin/Sec-Fetch-Site 校验——恶意网页可经
+// DNS rebinding 跨源 POST /config(写任意 baseUrl+apiKey)、/test(任意文件路径)等端点。
+// 现对携带 Origin 的请求要求其为回环源;携带 Sec-Fetch-Site 时要求 same-origin/none。
+// 同源 GET(浏览器不带 Origin)不受影响;本机非浏览器客户端(无 Origin/Sec-Fetch-Site)放行。
 function trusted(req) {
   try {
     const addr = req && req.socket && req.socket.remoteAddress
     if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
     const rawHost = String((req.headers && req.headers.host) || '')
     const hostname = new URL('http://' + rawHost).hostname
-    return isLocalHostname(hostname)
+    if (!isLocalHostname(hostname)) return false
+    const origin = String((req.headers && req.headers.origin) || '')
+    if (origin && !isLocalHostname(new URL(origin).hostname)) return false
+    const sfs = String((req.headers && req.headers['sec-fetch-site']) || '')
+    if (sfs && sfs !== 'same-origin' && sfs !== 'none') return false
+    return true
   } catch { return false }
 }
 
