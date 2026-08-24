@@ -28,10 +28,11 @@ export const inject = ['agents', 'webServer', 'tokenMeter'];
 const DEFAULT_CONFIG = {
     softRatio: 0.55,
     hardRatio: 0.8,
-    cooldownMinutes: 15,
+    cooldownMinutes: 30,          // 2026-08-24: 15->30，减少反复骚扰
     minTokens: 8000,
     fallbackContextWindow: 131072,
     pollMs: 30_000,
+    idleHours: 24,                // 2026-08-24: 会话超过 idleHours 无活动则不提示压缩（活动感知）
 };
 function resolveConfig(raw) {
     const config = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
@@ -45,6 +46,8 @@ function resolveConfig(raw) {
         throw new Error('context-lifecycle: fallbackContextWindow must be >= 4096');
     if (!(config.pollMs >= 5000))
         throw new Error('context-lifecycle: pollMs must be >= 5000');
+    if (!(config.idleHours >= 1))
+        throw new Error('context-lifecycle: idleHours must be >= 1');
     return config;
 }
 /**
@@ -188,7 +191,14 @@ export function apply(ctx, rawConfig) {
             const measurement = ctx.tokenMeter.measure(session);
             const tokens = Number(measurement?.totalTokens ?? 0);
             const prev = states.get(key);
-            const decision = decideSuggestion({ tokens, window, compactedByUs: prev?.compactedByUs ?? false, eventCount: session.events.length }, config);
+            // 2026-08-24: 活动感知——取最后一条事件时间作为"最后活跃"，闲置会话不提示
+            const lastEvent = session.events[session.events.length - 1];
+            const lastActiveAt = Number(lastEvent?.time ?? lastEvent?.timestamp ?? 0) || 0;
+            const idleMs = Date.now() - lastActiveAt;
+            let decision = decideSuggestion({ tokens, window, compactedByUs: prev?.compactedByUs ?? false, eventCount: session.events.length }, config);
+            if (idleMs > config.idleHours * 3600_000) {
+                decision = { suggestion: 'none', ratio: decision.ratio, reason: 'session idle (no recent activity)' };
+            }
             const state = prev ?? {
                 sessionId: key,
                 agentId: String(agent.id),
@@ -217,7 +227,7 @@ export function apply(ctx, rawConfig) {
             }
             else {
                 const cooled = Date.now() - state.lastSuggestionAt >= config.cooldownMinutes * 60_000;
-                const pastDismissal = decision.ratio >= state.dismissedAtRatio + 0.03;
+                const pastDismissal = decision.ratio >= state.dismissedAtRatio + 0.05; // 2026-08-24: 0.03->0.05，驳回后需涨更多才重提
                 if ((state.suggestion === 'none' || state.suggestion !== decision.suggestion) && cooled && pastDismissal) {
                     state.suggestion = decision.suggestion;
                     state.reason = decision.reason;
