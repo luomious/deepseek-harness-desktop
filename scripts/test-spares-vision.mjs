@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const keys = JSON.parse(readFileSync('C:/Users/机械革命/.modlens/spare-keys.json', 'utf8'))
-const proxy = 'http://127.0.0.1:7897'
+// P1-B7: proxy from env (DSH_PROXY > HTTP_PROXY), fallback to the machine-local default.
+const proxy = process.env.DSH_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897'
 
 function makePng(w, h, [r, g, b]) {
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

@@ -11,7 +11,9 @@ const OUT = 'D:/Deepseek-Harness/.electron-builder-cache/icons@1.2.1/icons-bundl
 const EXPECTED_SHA = '193241afc7c81ab165fa0af15ef0af88f796eb69e8e5bb4249a49310d8be242a'
 mkdirSync('D:/Deepseek-Harness/.electron-builder-cache/icons@1.2.1', { recursive: true })
 
-const dispatcher = new ProxyAgent({ uri: 'http://127.0.0.1:7897' })
+// P1-B7: proxy from env (DSH_PROXY > HTTP_PROXY), fallback to the machine-local default.
+const PROXY = process.env.DSH_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897'
+const dispatcher = new ProxyAgent({ uri: PROXY })
 for (let attempt = 1; attempt <= 5; attempt++) {
   try {
     console.log(`[icons] attempt ${attempt}`)

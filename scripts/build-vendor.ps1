@@ -1,10 +1,12 @@
-﻿# DSH Desktop vendor 构建脚本（在用户自己的终端/PTY 中运行；harness shell 受限无法 spawn）
+# DSH Desktop vendor 构建脚本（在用户自己的终端/PTY 中运行；harness shell 受限无法 spawn）
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-vendor.ps1
 $ErrorActionPreference = 'Continue'
 
-$env:HTTP_PROXY = 'http://127.0.0.1:7897'
-$env:HTTPS_PROXY = 'http://127.0.0.1:7897'
-$env:NO_PROXY = 'localhost,127.0.0.1'
+# P1-B7: proxy from env (DSH_PROXY first, existing HTTP(S)_PROXY respected),
+# fallback to the machine-local default. No longer clamps a fixed proxy.
+if (-not $env:HTTP_PROXY) { $env:HTTP_PROXY = if ($env:DSH_PROXY) { $env:DSH_PROXY } else { 'http://127.0.0.1:7897' } }
+if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = if ($env:DSH_PROXY) { $env:DSH_PROXY } else { 'http://127.0.0.1:7897' } }
+if (-not $env:NO_PROXY) { $env:NO_PROXY = 'localhost,127.0.0.1' }
 $env:COREPACK_HOME = 'D:\Deepseek-Harness\.corepack'
 $env:YARN_CACHE_FOLDER = 'D:\Deepseek-Harness\.yarn-cache'
 $env:YARN_GLOBAL_FOLDER = 'D:\Deepseek-Harness\.yarn-global'

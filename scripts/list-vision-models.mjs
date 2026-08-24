@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 const keys = JSON.parse(readFileSync('C:/Users/机械革命/.modlens/spare-keys.json', 'utf8'))
-const proxy = 'http://127.0.0.1:7897'
+// P1-B7: proxy from env (DSH_PROXY > HTTP_PROXY), fallback to the machine-local default.
+const proxy = process.env.DSH_PROXY || process.env.HTTP_PROXY || 'http://127.0.0.1:7897'
 
 function list(provider) {
   const cfg = keys[provider]
