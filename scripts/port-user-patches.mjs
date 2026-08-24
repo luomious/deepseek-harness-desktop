@@ -17,7 +17,7 @@ if (!HOME) throw new Error('cannot resolve user home')
 const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai')
 const CANON_DIR = 'D:/Deepseek-Harness/patches/bundles'
 const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
-// 支持 DSH_PKG_ROOT 覆盖打包目录；否则自动解析"当前最新构建"（与 update-shortcuts.ps1 同源）。
+// 支持 DSH_PKG_ROOT 覆盖打包目录；否则自动解析"最新真实构建"（resolve-dist.mjs；与应用入口 junction 机制分开）。
 const PKG_ROOT = process.env.DSH_PKG_ROOT
   ? process.env.DSH_PKG_ROOT.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
   : resolveCurrentBuild().nodeModules.replace(/\\/g, '/') + '/@deepseek-ai'

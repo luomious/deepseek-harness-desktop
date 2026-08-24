@@ -1,9 +1,10 @@
 # verify-patches.ps1 - verify windowsHide patches and critical-guard sources.
 # PURE ASCII ONLY (PS 5.1 reads UTF-8 no-BOM as GBK -> syntax errors).
 # Run after every rebuild to confirm dist patches survived.
-# The current build is resolved dynamically via scripts/resolve-dist.mjs (same
-# rule as update-shortcuts.ps1), so this never goes stale when a rebuild lands
-# in a new directory.
+# The patch target is resolved dynamically via scripts/resolve-dist.mjs (the
+# newest real build; the app entry junction is separate and managed by
+# promote-build.ps1), so this never goes stale when a rebuild lands in a new
+# directory.
 
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $PSScriptRoot

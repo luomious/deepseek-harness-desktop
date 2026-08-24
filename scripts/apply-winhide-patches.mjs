@@ -9,7 +9,8 @@
 // It re-applies the dist-level patches (subprocess-local / open /
 // default-browser / materializer) to BOTH the vendor dev node_modules and the
 // CURRENT build, which is resolved dynamically via scripts/resolve-dist.mjs
-// (same rule as update-shortcuts.ps1). Plugins (vision-engine, autoread,
+// (the newest real build; the app entry junction is separate and managed by
+// promote-build.ps1). Plugins (vision-engine, autoread,
 // project-brief) are tracked in git and need no re-application.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'

@@ -1,10 +1,14 @@
 // scripts/resolve-dist.mjs
-// Single source of truth for "which build is the current one".
-// Mirrors scripts/update-shortcuts.ps1: the current build is the NEWEST
-// DSH Desktop.exe under vendor/.../dist (by mtime), skipping archive/junk dirs
-// (names starting with '_' or '.'). Every patch/verify script must resolve the
-// build through here instead of hardcoding a dist path, so a rebuild into a new
-// directory (DSH_OUT_DIR) never desyncs patches from the running build again.
+// Single source of truth for "which build the patch scripts should target".
+// The patch target is the NEWEST DSH Desktop.exe under vendor/.../dist (by
+// mtime), skipping archive/junk dirs (names starting with '_' or '.'). This is
+// deliberately DIFFERENT from the app entry mechanism: the desktop shortcut
+// always points at dist\win-unpacked (a junction re-pointed by
+// promote-build.ps1), while this resolver follows the newest real build so
+// patches land on the build that will be promoted next. Every patch/verify
+// script must resolve the build through here instead of hardcoding a dist path,
+// so a rebuild into a new directory (DSH_OUT_DIR) never desyncs patches from
+// the running build again.
 //
 // Usage as CLI:  node scripts/resolve-dist.mjs   -> prints JSON on stdout
 import { readdirSync, statSync } from 'node:fs'
