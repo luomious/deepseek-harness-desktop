@@ -19,12 +19,11 @@ $root = "D:\Deepseek-Harness"
 $dist = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist'
 $sh = New-Object -ComObject WScript.Shell
 
-# ---- 1. newest build & integrity ----
-$exes = Get-ChildItem $dist -Recurse -Filter "DSH Desktop.exe" -ErrorAction SilentlyContinue
-$newest = ($exes | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
-Check 'newest build exe found' ($null -ne $newest) 'no DSH Desktop.exe under dist'
-$exeDir = $null
-if ($newest) { $exeDir = Split-Path -Parent $newest.FullName }
+# ---- 1. stable entry & integrity (dist\win-unpacked is a junction re-pointed by promote) ----
+$stable = Join-Path $dist 'win-unpacked'
+$exe = Join-Path $stable 'DSH Desktop.exe'
+Check 'stable entry exe exists' (Test-Path $exe) $exe
+$exeDir = $stable
 Check 'app.asar exists' (Test-Path (Join-Path $exeDir 'resources\app.asar')) $exeDir
 $u = Join-Path $exeDir 'resources\app.asar.unpacked'
 Check 'app.asar.unpacked exists' (Test-Path $u) $u
@@ -78,13 +77,13 @@ try {
     Check 'compaction resolved' ($cs.diag.compaction -eq 'resolved') ("compaction=" + $cs.diag.compaction)
 } catch { Check 'compaction resolved' $false 'context-lifecycle route unreachable' }
 
-# ---- 7. shortcuts point to newest ----
+# ---- 7. shortcuts point to stable entry ----
 $okShortcut = $false
 $lnkPath = Join-Path $env:USERPROFILE 'Desktop\DSH Desktop.lnk'
 if (Test-Path $lnkPath) {
     $t = $sh.CreateShortcut($lnkPath).TargetPath
-    if ($newest) { $okShortcut = ($t -eq $newest.FullName) }
-    Check 'desktop shortcut points to newest build' $okShortcut ("shortcut=$t newest=$($newest.FullName)")
+    $okShortcut = ($t -eq $exe)
+    Check 'desktop shortcut points to stable win-unpacked entry' $okShortcut ("shortcut=$t stable=$exe")
 } else { Check 'desktop shortcut exists' $false $lnkPath }
 
 # ---- 8. ollama autostart ----
