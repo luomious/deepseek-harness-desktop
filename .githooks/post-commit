@@ -1,23 +1,11 @@
 #!/bin/sh
-# post-commit hook: warn when the desktop exe (app/resources/app.asar)
-# is stale relative to the src/ source tree.
+# post-commit hook.
 #
-# Runs after every commit. It never blocks the commit (always exits 0);
-# it only prints a warning when src/ is newer than the packed app.asar,
-# which means the local exe is running old code and needs `build-app.ps1`.
-
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-
-PS=""
-for c in powershell pwsh; do
-  if command -v "$c" >/dev/null 2>&1; then
-    PS="$c"
-    break
-  fi
-done
-
-if [ -n "$PS" ] && [ -f "$ROOT/check-exe-stale.ps1" ]; then
-  "$PS" -NoProfile -ExecutionPolicy Bypass -File "$ROOT/check-exe-stale.ps1"
-fi
-
+# The previous version warned when the legacy desktop exe (app/resources/app.asar)
+# was stale relative to src/. That shell has been archived to legacy/ and the
+# referenced check-exe-stale.ps1 no longer exists, so the check was removed
+# (production audit P1-B2: dead hook pointing at a nonexistent script).
+#
+# This hook never blocks the commit (always exits 0). A new-architecture gate
+# (e.g. smoke-test -SkipRuntime) can be wired here when CI is introduced.
 exit 0
