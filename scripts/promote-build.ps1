@@ -20,6 +20,11 @@ $link = Join-Path $dist 'win-unpacked'
 if (-not [System.IO.Path]::IsPathRooted($From)) {
     $From = Join-Path $dist $From
 }
+# electron-builder nests the app under <outDir>\win-unpacked\ when DSH_OUT_DIR is set
+if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
+    $nested = Join-Path $From 'win-unpacked'
+    if (Test-Path (Join-Path $nested 'DSH Desktop.exe')) { $From = $nested }
+}
 if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
     Write-Error "target build missing exe: $(Join-Path $From 'DSH Desktop.exe')"
     exit 1
@@ -51,5 +56,5 @@ foreach ($l in @(
 Write-Host ("promoted win-unpacked -> " + $From) -ForegroundColor Green
 
 # Smoke test the promoted build.
-& (Join-Path $dist '..\..\..\..\..\scripts\smoke-test.ps1')
+& (Join-Path $PSScriptRoot 'smoke-test.ps1')
 exit $LASTEXITCODE
