@@ -204,9 +204,17 @@ async function readPath(ctx, path, signal) {
   }
 }
 
-// promise 级缓存：并发读者合并为一次读；失败不缓存（下次重试有机会）；LRU 封顶。
+// promise 级缓存：并发读者合并为一次读；LRU 封顶。
+// 失败熔断（投产审计 P1-E2）：同一 key 连续失败 FAIL_MAX 次后，本会话内不再重试，
+// 直接返回上次失败文本——避免一张坏图在每个 agent step 重跑最长 180s 的 modlens CLI。
 const cache = new Map()
+const failCache = new Map() // key -> { count, block }
+const FAIL_MAX = 3
 function cached(ctx, key, producer) {
+  const failed = failCache.get(key)
+  if (failed && failed.count >= FAIL_MAX) {
+    return Promise.resolve(failed.block)
+  }
   const hit = cache.get(key)
   if (hit !== undefined) {
     cache.delete(key)
@@ -215,15 +223,28 @@ function cached(ctx, key, producer) {
   }
   const pending = producer().then(
     (entry) => {
-      if (!entry.ok && cache.get(key) === pending) cache.delete(key)
+      if (!entry.ok) {
+        if (cache.get(key) === pending) cache.delete(key)
+        const f = failCache.get(key) || { count: 0, block: entry.block }
+        f.count += 1
+        f.block = entry.block
+        failCache.set(key, f)
+      } else {
+        failCache.delete(key)
+      }
       return entry.block
     },
     (error) => {
       if (cache.get(key) === pending) cache.delete(key)
-      return {
+      const block = {
         type: 'text',
         text: `[图片自动读取失败（modlens）: ${String(error?.message ?? error).slice(0, 300)}]`,
       }
+      const f = failCache.get(key) || { count: 0, block }
+      f.count += 1
+      f.block = block
+      failCache.set(key, f)
+      return block
     },
   )
   cache.set(key, pending)
