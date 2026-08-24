@@ -1,22 +1,19 @@
-# update-shortcuts.ps1 - point every DSH Desktop shortcut at the newest build.
+# update-shortcuts.ps1 - point DSH Desktop shortcuts at the STABLE entry.
 # PURE ASCII ONLY (PS 5.1 reads UTF-8 no-BOM as GBK -> syntax errors).
-# Auto-detects the newest DSH Desktop.exe under the dist tree (LastWriteTime),
-# then updates every .lnk whose target is any DSH Desktop.exe.
-# Optional: -Target <exePath> to point at a specific build instead.
-
-param([string]$Target = '')
+#
+# The stable entry is dist\win-unpacked\DSH Desktop.exe (a junction re-pointed
+# by promote-build.ps1). This script no longer auto-detects the newest build;
+# it only refreshes shortcuts to that fixed path, so the shortcut path never
+# drifts across buildN directories.
 
 $ErrorActionPreference = 'SilentlyContinue'
 $sh = New-Object -ComObject WScript.Shell
 
-if ($Target -eq '') {
-    $exes = Get-ChildItem "D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist" -Recurse -Filter "DSH Desktop.exe" -ErrorAction SilentlyContinue
-    if (-not $exes) { Write-Output 'no DSH Desktop.exe found under dist'; exit 1 }
-    $Target = ($exes | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
-}
-if (-not (Test-Path -LiteralPath $Target)) { Write-Output "target missing: $Target"; exit 1 }
+$target = "D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe"
+$work = "D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked"
 
-$work = Split-Path -Parent $Target
+if (-not (Test-Path -LiteralPath $target)) { Write-Output "stable entry missing: $target"; exit 1 }
+
 $locations = @(
     (Join-Path $env:USERPROFILE 'Desktop'),
     (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'),
@@ -29,7 +26,7 @@ foreach ($d in $locations) {
     Get-ChildItem $d -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
         $sc = $sh.CreateShortcut($_.FullName)
         if ($sc.TargetPath -like "*DSH Desktop*") {
-            $sc.TargetPath = $Target
+            $sc.TargetPath = $target
             $sc.WorkingDirectory = $work
             $sc.Save()
             $updated++
@@ -37,4 +34,4 @@ foreach ($d in $locations) {
         }
     }
 }
-Write-Output "shortcuts updated: $updated -> $Target"
+Write-Output "shortcuts refreshed: $updated -> $target"
