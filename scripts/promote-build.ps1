@@ -14,7 +14,10 @@
 #      to _backups\dist-archive\<ts>\ (keep: new + previous + the currently
 #      running build), so dist never accumulates buildN dirs.
 
-param([Parameter(Mandatory=$true)][string]$From)
+param(
+  [Parameter(Mandatory=$true)][string]$From,
+  [switch]$Force
+)
 
 $ErrorActionPreference = 'Stop'
 $dist = "D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist"
@@ -31,6 +34,21 @@ if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
 if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
     Write-Error "target build missing exe: $(Join-Path $From 'DSH Desktop.exe')"
     exit 1
+}
+
+# ---------- refuse to re-point while the app is running ----------
+# Re-pointing the junction under a live app leaves it as "old exe + new
+# resources" (the exe is resolved at launch, resources are read through the
+# junction). The app must be stopped first; -Force overrides for a deliberate
+# hot-swap (the running instance keeps the old exe until it is restarted).
+$running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like 'DSH Desktop*' -and $_.CommandLine -like '*DSH Desktop.exe*' -and $_.CommandLine -notlike '*--type=*' -and $_.CommandLine -notlike '*server.js*' } |
+    Select-Object -First 1
+if ($running -and -not $Force) {
+    Write-Host ("ABORT: DSH Desktop is running (pid=" + $running.ProcessId + ").") -ForegroundColor Red
+    Write-Host "Stop the app first, then re-run: promote-build.ps1 -From $From" -ForegroundColor Yellow
+    Write-Host "(Use -Force only for a deliberate hot-swap; the running instance keeps the old exe.)" -ForegroundColor Yellow
+    exit 2
 }
 
 # ---------- capture previous target for rollback ----------
@@ -60,8 +78,8 @@ foreach ($l in @(
     }
 }
 
-# ---------- smoke test with rollback ----------
-& $smoke
+# ---------- smoke test with rollback (static only; the app is stopped here) ----------
+& $smoke -SkipRuntime
 $code = $LASTEXITCODE
 if ($code -ne 0) {
     Write-Host ("smoke test FAILED ($code); rolling back to previous target") -ForegroundColor Red

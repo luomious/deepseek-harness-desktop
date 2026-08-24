@@ -4,6 +4,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-test.ps1
 # Prints PASS/FAIL per check and exits non-zero if any check fails.
 
+param([switch]$SkipRuntime)
 $ErrorActionPreference = 'SilentlyContinue'
 $script:fail = 0
 function Check($name, $ok, $detail) {
@@ -59,7 +60,9 @@ $globalGuard = $false
 if ($u) { $globalGuard = [bool](Get-ChildItem (Join-Path $u 'lib') -Filter *.js | Select-String -Pattern '__dsh_critical_guard_state__' -List -Quiet) }
 Check 'critical-guard globalThis shared state' $globalGuard ''
 
-# ---- 6. runtime routes (needs running app) ----
+# ---- 6. runtime routes (needs running app; skipped by promote-build, which
+#        requires the app stopped to avoid stale-exe/new-resources mixed state) ----
+if (-not $SkipRuntime) {
 $port = 43120
 $http = $null
 try { $http = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $port + "/desktop/critical-busy") -TimeoutSec 5 } catch {}
@@ -76,6 +79,7 @@ try {
     $cs = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $port + "/context-lifecycle/status") -TimeoutSec 5
     Check 'compaction resolved' ($cs.diag.compaction -eq 'resolved') ("compaction=" + $cs.diag.compaction)
 } catch { Check 'compaction resolved' $false 'context-lifecycle route unreachable' }
+}
 
 # ---- 7. shortcuts point to stable entry ----
 $okShortcut = $false
