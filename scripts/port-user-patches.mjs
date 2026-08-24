@@ -78,6 +78,18 @@ const FRONTEND_STATIC_NOCACHE = {
   markers: ['dsh-desktop patch: no-cache for dev stability'],
 }
 
+// 工作区目录选择器（dsh-client-ui-directory-picker-browse）：原生选择器按钮按
+// 桥接存在性渲染（不再懒读 URL query，避免 SPA 导航后按钮消失）+ 上一级按钮。
+const DIRECTORY_PICKER = {
+  name: 'dsh-client-ui-directory-picker-browse client.js (native picker + up nav)',
+  canon: join(CANON_DIR, 'dsh-client-ui-directory-picker-browse-client.js'),
+  targets: [
+    join(DEV_ROOT, 'dsh-client-ui-directory-picker-browse', 'lib', 'client.js'),
+    join(PKG_ROOT, 'dsh-client-ui-directory-picker-browse', 'lib', 'client.js'),
+  ],
+  markers: ['typeof window.__DSH_DESKTOP_PICK_DIRECTORY__ === "function"', '"browser.up"', 'ZuhsRW_upButton', 'const parentPath = parent === null'],
+}
+
 function ensureMarkers(content, markers, what) {
   const missing = markers.filter((m) => !content.includes(m))
   if (missing.length) throw new Error(`${what}: 源文件缺少补丁标记 ${missing.join(', ')}`)
@@ -177,7 +189,7 @@ for (const w of WORKSPACES) {
   }
 })()
 
-for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE]) {
+for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE, DIRECTORY_PICKER]) {
   try {
     const content = ensureMarkers(readFileSync(p.canon, 'utf8'), p.markers, p.name)
     for (const t of p.targets) writeIfDifferent(t, content)
