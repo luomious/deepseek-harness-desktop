@@ -1,95 +1,74 @@
 # DeepSeek Harness Desktop
 
-基于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 桌面封装应用。
+基于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 桌面封装应用（DSH Desktop v2 · Electron）。
 
-> 🏭 **当前生产架构（2026-08-23 迁移后）**：桌面应用本体位于 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，构建见 [docs/BUILD.md](docs/BUILD.md)），插件生态在根目录 `plugins/`；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。生产上线方案与已知问题跟踪见 [docs/PRODUCTION-UPGRADE-PLAN.md](docs/PRODUCTION-UPGRADE-PLAN.md)。
+## 当前生产架构（2026-08-23 迁移后）
 
-## ✨ 功能特性
+- **桌面应用本体**：`vendor/deepseek-harness-desktop/dsh-plugin-desktop`（Electron 壳 + 内嵌 DSH 内核，Cordis Host 形态，无独立 DSH 子进程）
+- **Web GUI**：`http://127.0.0.1:43120`（仅回环绑定；端口可配，绑定地址不可配）
+- **运行入口**：`dist\win-unpacked\DSH Desktop.exe`（**junction**，快捷方式永指它；真实构建在 `dist\win-unpacked-build<N>`，由 `scripts/promote-build.ps1` 换版重指）
+- **插件生态**：根目录 `plugins/`（link 加载；改后重启应用或热重载生效）
+- **旧壳**（`src/`、`app/`、`build-app.ps1`，端口 3080）已归档 `legacy/`，不再使用
 
-- 🖥️ **原生桌面体验** — Electron 封装，自动启动/关闭 DSH Web 服务
-- 🔄 **自动检查更新** — 启动后静默检查 npm 最新版本，一键更新 DSH
-- 🧩 **插件管理** — 安装/卸载 npm 远程插件和本地文件夹插件，安装后列表自动刷新，错误提示友好化
-- 🔒 **安全加固** — 全程无 shell 执行、IPC 来源校验、导航白名单、远程内容零权限
-- 📋 **系统菜单** — 文件 / 视图 / 插件 / 帮助
+## 功能特性
 
-## 📦 安装方式
+- 🖥️ 原生桌面体验：自动启动/关闭 DSH Web 服务，单实例三重守卫（端口探测 → 清悬空锁 → 单实例锁）
+- 🔄 更新检查：启动后静默检查最新版本（严格 SemVer + 4KB 上限 + 重定向限制）
+- 🧩 插件管理：install-desktop / 图形化装配；损坏 profile 自愈（`dev_heal_links` / `dev_fix_patch`）
+- 🔒 安全：仅 127.0.0.1 绑定（三层强制）、内核 `/api`+WS 信任栅栏（Host/Origin/Sec-Fetch-Site）、权限白名单、导航锁、日志密钥脱敏
+- 📋 系统菜单（文件/视图/插件/帮助）；关键操作退出保护（`POST /desktop/critical-busy`）
 
-### 方式一：下载打包版（推荐）
-
-1. 前往 [Releases](../../releases) 下载 `DSH-Desktop-Portable.zip`
-2. 解压到任意目录
-3. 双击 `DeepSeek Harness.exe` 运行
-
-### 方式二：从源码构建
-
-```sh
-# 前提：已安装 Node.js 22+ 和 npm
-npm install -g @deepseek-ai/dsh
-
-# 克隆仓库
-git clone https://github.com/luomious/deepseek-harness-desktop.git
-cd deepseek-harness-desktop
-
-# 安装依赖
-cd src && npm install electron electron-builder
-
-# 开发运行
-npx electron .
-
-# 打包
-npx electron-builder --win
-```
-
-## 🚀 使用方式
+## 🚀 使用
 
 | 操作 | 方式 |
-|------|------|
-| 启动 | 双击桌面快捷方式或 `DeepSeek Harness.exe` |
-| 检查更新 | 菜单栏 → 帮助 → 检查更新 |
-| 管理插件 | 菜单栏 → 插件 → 插件管理（Ctrl+P） |
-| 安装远程插件 | 插件管理 → 安装远程插件 → 输入 npm 包名 |
-| 安装本地插件 | 插件管理 → 安装本地插件 → 选择文件夹 |
-| 卸载插件 | 插件管理 → 已安装 → 卸载（核心依赖受保护不可卸载） |
+|---|---|
+| 启动 | 双击桌面快捷方式（指向 `dist\win-unpacked` junction） |
+| 使用 Web UI | `http://127.0.0.1:43120` |
+| 检查更新 | 菜单 → 帮助 → 检查更新 |
+| 管理插件 | 菜单 → 插件 → 插件管理 |
 
-> 💡 **插件管理小贴士**
-> - 安装/卸载后**列表自动刷新**，重启应用后插件生效
-> - 错误提示已友好化：网络问题 / 包不存在 / 依赖冲突等会显示中文说明
-> - 若提示"依赖构建脚本被忽略"（node-pty 等原生模块），说明插件已装好但终端类功能需先批准构建：运行 `pnpm approve-builds` 后重启
-> - 核心依赖（`@deepseek-ai/dsh-base` 等）不会出现在列表中，也无法被误卸载
+> 插件改动生效需**重启应用**（遵守重启守则：由用户明确指示才重启，不自动重启）。
 
-## 🧩 开发自己的 DSH 插件
+## 构建与发布
 
-1. 创建一个文件夹，包含 `package.json`：
-   ```json
-   {
-     "name": "my-dsh-plugin",
-     "version": "1.0.0",
-     "main": "index.js"
-   }
-   ```
-2. 编写插件代码（遵循 DSH Cordis 插件架构）
-3. 打开 DSH Desktop → Ctrl+P → 安装本地插件 → 选择你的文件夹
-4. 重启应用生效
+完整流程见 **[docs/BUILD.md](docs/BUILD.md)**。核心：
 
-## 🏗️ 技术架构
-
-```
-Electron 主进程
-  ├── spawn('dsh web')          → 启动 DSH Web 服务 (端口 3080)
-  ├── 端口就绪检测              → 轮询 127.0.0.1:3080（校验 __DSH_BOOT__ 防占用误判）
-  ├── BrowserWindow.loadURL()   → 加载 DSH Web UI
-  ├── 更新检查                  → 查询 npm registry（semver 比较 + 一键更新）
-  ├── 插件管理                  → node 直执 pnpm add/remove（无 shell，绕开上游注入漏洞）
-  └── 安全防护                  → isDSHOrigin 导航白名单 / IPC 来源校验 / 核心依赖保护
+```powershell
+cd vendor\deepseek-harness-desktop
+git submodule update --init --recursive     # 上游 deepseek-harness 钉版
+corepack yarn install --immutable
+corepack yarn typecheck                     # 必须全绿
+# 打包（生产用，含自动重打补丁）：
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\package-vendor.ps1
+# 换版：停应用 → promote（内置 smoke + 回滚 + 归档三套）
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\promote-build.ps1 -From dist\win-unpacked-build<N>
 ```
 
-## 📋 系统要求
+- ⚠️ 构建完成后**等 1 分钟再启动**（koffi 竞态）；`rebuild-and-restart.ps1` 已加落盘稳定轮询。
+- 验收：`scripts\smoke-test.ps1`（全绿）+ `scripts\verify-patches.ps1`（ALL PASS）。
+
+## 插件开发
+
+1. 在 `plugins/<name>/` 创建插件包（参考现有零依赖 host 模式插件）。
+2. `lib/` 为加载入口；无 `src/` 的插件即"产物即源码"（手写 CJS）。
+3. 改后 `node --check` 校验语法。
+4. 重启应用生效（**严禁对 `@liustack/modlens` 热重载**——会丢 adapter 注册卡死会话）。
+
+## 生产文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/PRODUCTION-READINESS-REVIEW.md](docs/PRODUCTION-READINESS-REVIEW.md) | 投产审计总报告（P0/P1/P2 分级） |
+| [docs/PRODUCTION-EXECUTION-PLAN.md](docs/PRODUCTION-EXECUTION-PLAN.md) | 投产实施方案（执行序列 + 门禁 + 回滚） |
+| [docs/VENDOR-BASELINE.md](docs/VENDOR-BASELINE.md) | 桌面壳基线 pin + 灾难恢复 |
+| [docs/troubleshooting-handbook.md](docs/troubleshooting-handbook.md) | 故障排查手册 |
+
+## 系统要求
 
 - Windows 10/11 (x64)
-- Node.js 22+
-- npm 全局安装 `@deepseek-ai/dsh`
-- pnpm 全局安装（插件管理依赖，`npm install -g pnpm`）
+- Node.js ^22.19.0 或 >=24.0.0（构建机）
+- 运行时无需全局安装 DSH（内核内嵌于壳）
 
-## 📄 许可证
+## 许可证
 
-MIT License — 同 DSH 原项目
+MIT — 同 DSH 原项目

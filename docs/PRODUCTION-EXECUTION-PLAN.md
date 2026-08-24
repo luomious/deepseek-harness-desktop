@@ -108,6 +108,9 @@
 | R8 | README/PROJECT_README 过期（P1-C4） | 重写，指向 `docs/BUILD.md` 与新架构，删旧壳 3080/build-app 表述 | 低 | 文档与实测一致 |
 | R9 | 上游 submodule 未初始化（P1-C5） | 构建入口自检 `git submodule status`，非 commit 前缀则自动初始化或明确报错 | 低 | 从零重建不撞墙 |
 
+> ✅ **状态（2026-08-25）**：**R1–R9 全部完成并提交**。
+> R1/R2（kill-switch + 卸载还原）`plugins/dsh-model-picker-group`、`dsh-model-whitelist`；R3 `scripts/port-user-patches.mjs`（实跑 6/6 OK，canon 权威源）；R4 `profile/desktop/` 字节级回灌（33 deps/27 bundles/tgz/cordis.patch.yml）；R5 `tests/` → `legacy/tests/`（16 文件）；R6 `router-bootstrap.mjs` 补导入（vendored 与运行时副本逐字节一致）+ `PROVENANCE.md`；R7 六脚本代理收敛；R8 `README.md`/`PROJECT_README.md` 重写；R9 `build-vendor.ps1` submodule 自检。**其中 R1/R2/R6 属插件/运行时改动，需重启后实测确认（列阶段 4 验收）。**
+
 ### 需外部/用户决策的 P1（方案书列出，执行需对应方）
 | # | 项 | 依赖 | 建议 |
 |---|---|---|---|
