@@ -450,6 +450,7 @@ window.__ModuleLoader__.load({
 
         ctx.inject(['connection', 'slots'], function (scope) {
           var api = scope.connection && scope.connection.api && scope.connection.api.sessions;
+          var restore = [];
           if (api && typeof api.models === 'function' && !api.models.__dshFiltered) {
             try {
               origModels = api.models.bind(api);
@@ -464,6 +465,7 @@ window.__ModuleLoader__.load({
               };
               filtered.__dshFiltered = true;
               api.models = filtered;
+              restore.push(function () { if (api.models === filtered) api.models = origModels; });
               console.log('[dsh-model-whitelist] api.sessions.models filtered');
             } catch (e) { surfaceError('patch', e); }
           }
@@ -478,6 +480,10 @@ window.__ModuleLoader__.load({
               inject: function () { return { connection: scope.connection }; },
             }, guarded(ModelManager, 'ModelManager'));
           });
+          // P1-E6 卸载还原：恢复原函数（幂等——仅当自己仍持有包装时才还原）。
+          function restoreAll() { for (var i = 0; i < restore.length; i++) restore[i](); }
+          if (typeof ctx.effect === 'function') ctx.effect(function () { return restoreAll; }, 'dsh-model-whitelist: filter restore');
+          return restoreAll;
         });
         console.log('[dsh-model-whitelist] client apply registered hooks');
       } catch (error) {

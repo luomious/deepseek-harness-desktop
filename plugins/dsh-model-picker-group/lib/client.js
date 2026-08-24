@@ -155,9 +155,14 @@ window.__ModuleLoader__.load({
       return value
     }
 
-    // ---------- 无缝接管（无设置卡片，默认永远生效）----------
-    // 设置入口已移除：接管是默认行为，无需开关、无需 localStorage。
-    // 如确需关闭（恢复原始列表），改回 transformModels 的调用条件即可。
+    // ---------- 无缝接管（默认开启；kill-switch: localStorage dsh.model-picker-group.takeover = "off"）----------
+    // 接管默认行为保留（modlens 视觉双胞胎合并 + 静默改道），但提供显式关闭开关
+    // （投产审计 P1-E5）。开关改动后需重新加载页面生效。
+    function takeoverEnabled() {
+      try {
+        return !(typeof localStorage !== 'undefined' && localStorage.getItem('dsh.model-picker-group.takeover') === 'off')
+      } catch { return true }
+    }
 
     // ---------- plugin entry ----------
     function apply(ctx) {
@@ -172,9 +177,14 @@ window.__ModuleLoader__.load({
             return function () { for (var i = 0; i < offs.length; i++) if (typeof offs[i] === 'function') offs[i]() }
           }, 'dsh-model-picker-group: dictionaries')
         }
+        if (!takeoverEnabled()) {
+          console.log('[dsh-model-picker-group] takeover disabled (dsh.model-picker-group.takeover=off)')
+          return
+        }
         ctx.inject(['connection'], function (scope) {
           var sessions = scope.connection && scope.connection.api && scope.connection.api.sessions
-          // 包 models：合并分组 + 改写 current（永远接管，无开关）
+          var restore = []
+          // 包 models：合并分组 + 改写 current（默认接管）
           if (sessions && typeof sessions.models === 'function' && !sessions.models.__dshGrouped) {
             var origModels = sessions.models.bind(sessions)
             var groupedModels = function (req, signal) {
@@ -191,9 +201,10 @@ window.__ModuleLoader__.load({
             }
             groupedModels.__dshGrouped = true
             sessions.models = groupedModels
-            console.log('[dsh-model-picker-group] api.sessions.models wrapped (takeover always-on)')
+            restore.push(function () { if (sessions.models === groupedModels) sessions.models = origModels })
+            console.log('[dsh-model-picker-group] api.sessions.models wrapped (takeover)')
           }
-          // 拦 selectModel：选中普通模型 -> 静默改走它的 modlens 版本（无缝接管）
+          // 拦 selectModel：选中普通模型 -> 静默改走它的 modlens 版本（默认接管）
           if (sessions && typeof sessions.selectModel === 'function' && !sessions.selectModel.__dshGrouped) {
             var origSelect = sessions.selectModel.bind(sessions)
             var groupedSelect = function (req, signal) {
@@ -218,8 +229,14 @@ window.__ModuleLoader__.load({
             }
             groupedSelect.__dshGrouped = true
             sessions.selectModel = groupedSelect
+            restore.push(function () { if (sessions.selectModel === groupedSelect) sessions.selectModel = origSelect })
             console.log('[dsh-model-picker-group] api.sessions.selectModel wrapped (modlens takeover)')
           }
+          // P1-E6 卸载还原：恢复原函数（幂等——仅当自己仍持有包装时才还原）。
+          // 双保险：ctx.effect disposer + inject 回调返回值（Cordis apply 契约）。
+          function restoreAll() { for (var i = 0; i < restore.length; i++) restore[i]() }
+          if (typeof ctx.effect === 'function') ctx.effect(function () { return restoreAll }, 'dsh-model-picker-group: takeover restore')
+          return restoreAll
         })
       } catch (error) {
         console.error('[dsh-model-picker-group] apply error:', error)

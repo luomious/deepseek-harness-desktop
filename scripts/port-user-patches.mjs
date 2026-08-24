@@ -4,13 +4,18 @@
 // 背景与说明见 docs/migration-audit-2026-08-22.md。
 // 覆盖：
 //  1) dsh-client-ui-workspace / dsh-client-ui-conversation 核心客户端补丁
-//     （remoteFlow 洞声明 + 不在项目中工作菜单 + 纯聊天标签）——以全局 dsh 安装（旧系统维护）为权威源；
+//     （remoteFlow 洞声明 + 不在项目中工作菜单 + 纯聊天标签）——以 patches/bundles/ canon 为权威源
+//     （--update-canon 时从全局 dsh 安装刷新，一次性移植输入）；
 //  2) 新壳自身的 drop-target 补丁行保留；
 //  3) ADD_REMOTE「远程连接」菜单入口 + remoteFlow 渲染（还原旧 rc.7 工作区选择流程入口，需新壳 bundle 已有 remoteFlow 洞声明）；
 //  4) desktop profile 的 modlens 无缝接管补丁（与 web 对齐）。
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
+
+// P1-B6: 权威源 = 仓库 canon（git 管理）。仅当显式 --update-canon 时，才从
+// 全局 npm / web profile 的原始安装读取并刷新 canon（一次性移植输入）。
+const UPDATE_CANON = process.argv.includes('--update-canon')
 
 const HOME = process.env.USERPROFILE || process.env.HOME
 if (!HOME) throw new Error('cannot resolve user home')
@@ -25,7 +30,7 @@ const PKG_ROOT = process.env.DSH_PKG_ROOT
 const WORKSPACES = [
   {
     name: 'dsh-client-ui-workspace client.js',
-    src: join(GLOBAL_ROOT, 'dsh-client-ui-workspace', 'lib', 'client.js'),
+    src: join(CANON_DIR, 'dsh-client-ui-workspace-client.js'),
     canon: join(CANON_DIR, 'dsh-client-ui-workspace-client.js'),
     targets: [
       join(DEV_ROOT, 'dsh-client-ui-workspace', 'lib', 'client.js'),
@@ -37,7 +42,7 @@ const WORKSPACES = [
   },
   {
     name: 'dsh-client-ui-conversation client.js',
-    src: join(GLOBAL_ROOT, 'dsh-client-ui-conversation', 'lib', 'client.js'),
+    src: join(CANON_DIR, 'dsh-client-ui-conversation-client.js'),
     canon: join(CANON_DIR, 'dsh-client-ui-conversation-client.js'),
     targets: [
       join(DEV_ROOT, 'dsh-client-ui-conversation', 'lib', 'client.js'),
@@ -49,7 +54,7 @@ const WORKSPACES = [
 
 const MODLENS = {
   name: 'modlens dsh/index.js (desktop profile)',
-  src: join(HOME, '.dsh', 'profiles', 'web', 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js'),
+  src: join(CANON_DIR, 'modlens-dsh-index.js'),
   canon: join(CANON_DIR, 'modlens-dsh-index.js'),
   target: join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js'),
   markers: ['无缝接管补丁'],
@@ -154,10 +159,11 @@ const report = []
 
 for (const w of WORKSPACES) {
   try {
-    let content = ensureMarkers(readFileSync(w.src, 'utf8'), w.markers, w.name)
+    const source = UPDATE_CANON ? w.src : w.canon
+    let content = ensureMarkers(readFileSync(source, 'utf8'), w.markers, w.name)
     if (w.keepDropTarget) content = ensureDropTarget(content)
     if (w.remoteEntry) content = applyRemoteEntry(content)
-    writeIfDifferent(w.canon, content)
+    if (UPDATE_CANON) writeIfDifferent(w.canon, content)
     for (const t of w.targets) writeIfDifferent(t, content)
     for (const t of [w.canon, ...w.targets]) {
       const c = readFileSync(t, 'utf8')
@@ -174,8 +180,9 @@ for (const w of WORKSPACES) {
 
 ;(() => {
   try {
-    const srcContent = ensureMarkers(readFileSync(MODLENS.src, 'utf8'), MODLENS.markers, MODLENS.name)
-    writeIfDifferent(MODLENS.canon, srcContent)
+    const source = UPDATE_CANON ? MODLENS.src : MODLENS.canon
+    const srcContent = ensureMarkers(readFileSync(source, 'utf8'), MODLENS.markers, MODLENS.name)
+    if (UPDATE_CANON) writeIfDifferent(MODLENS.canon, srcContent)
     const targetContent = readFileSync(MODLENS.target, 'utf8')
     if (MODLENS.markers.every((m) => targetContent.includes(m))) {
       report.push(`OK   ${MODLENS.name} (已含补丁)`)
