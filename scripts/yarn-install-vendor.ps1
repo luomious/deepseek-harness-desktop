@@ -1,4 +1,4 @@
-# vendor 依赖更新(升级内置 pnpm 至 11.21.0 等),须在 PTY/普通终端运行
+﻿# vendor 依赖更新(升级内置 pnpm 至 11.21.0 等),须在 PTY/普通终端运行
 $ErrorActionPreference = 'Continue'
 $env:HTTP_PROXY = 'http://127.0.0.1:7897'
 $env:HTTPS_PROXY = 'http://127.0.0.1:7897'

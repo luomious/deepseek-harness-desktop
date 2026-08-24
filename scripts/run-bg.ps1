@@ -1,4 +1,4 @@
-# scripts/run-bg.ps1
+﻿# scripts/run-bg.ps1
 # 安全后台启动：CreateNoWindow = 彻底无控制台黑框（Start-Process -WindowStyle Hidden 挡不住控制台黑框）
 # 用法：powershell -File scripts\run-bg.ps1 <脚本路径> [参数...]
 param([Parameter(Mandatory)][string]$Script, [string[]]$Args)

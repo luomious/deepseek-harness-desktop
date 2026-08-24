@@ -1,4 +1,4 @@
-# 重打包 + 自动重启(由独立计划任务执行,不受会话断开影响)
+﻿# 重打包 + 自动重启(由独立计划任务执行,不受会话断开影响)
 # 流程: 停 exe → package-vendor.ps1 重打包 → 启动新 exe → 验证
 $ErrorActionPreference = 'Continue'
 $log = 'D:\Deepseek-Harness\_backups\rebuild-restart.log'

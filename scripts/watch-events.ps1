@@ -1,10 +1,11 @@
 # scripts/watch-events.ps1
-# WMI 进程启动事件监视：抓取每个新进程（含瞬时）+ 父进程链（终极定位弹窗）
-# 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch-events.ps1 [秒数=300]
+# WMI process-start event watcher: capture every new process (incl. transient)
+# plus its parent chain (used to locate popup windows).
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch-events.ps1 [seconds=300]
 param([int]$Seconds = 300)
 $log = Join-Path $env:TEMP 'dsh-events-watch.log'
 if (Test-Path $log) { Remove-Item $log -Force }
-Add-Content $log "[$(Get-Date -Format 'HH:mm:ss')] 监视开始 $Seconds 秒：请发一条会触发视觉/图片的对话"
+Add-Content $log "[$(Get-Date -Format 'HH:mm:ss')] watching $Seconds s; send a vision/image-triggering message now"
 $deadline = (Get-Date).AddSeconds($Seconds)
 Register-WmiEvent -Class Win32_ProcessStartTrace -SourceIdentifier dshProcTrace -ErrorAction SilentlyContinue
 $seen = @{}
@@ -21,4 +22,4 @@ while ((Get-Date) -lt $deadline) {
   Start-Sleep -Milliseconds 150
 }
 Remove-Event -SourceIdentifier dshProcTrace -ErrorAction SilentlyContinue
-Add-Content $log "[$(Get-Date -Format 'HH:mm:ss')] 监视结束 -> $log"
+Add-Content $log "[$(Get-Date -Format 'HH:mm:ss')] done -> $log"

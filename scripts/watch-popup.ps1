@@ -1,4 +1,4 @@
-# scripts/watch-popup.ps1
+﻿# scripts/watch-popup.ps1
 # 监视新弹出的窗口（定位 cmd/llama-server 弹窗来源）
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch-popup.ps1 [秒数=60]
 # 弹窗时自动记录 进程名+PID+窗口标题 到 %TEMP%\dsh-popup-watch.log

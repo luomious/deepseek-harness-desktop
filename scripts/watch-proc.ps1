@@ -1,4 +1,4 @@
-# scripts/watch-proc.ps1
+﻿# scripts/watch-proc.ps1
 # 进程创建监视：记录新出现的控制台类进程 + 父进程链（定位弹窗 spawn 者）
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\watch-proc.ps1 [秒数=300]
 param([int]$Seconds = 300)

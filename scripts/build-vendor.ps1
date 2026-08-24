@@ -1,4 +1,4 @@
-# DSH Desktop vendor 构建脚本（在用户自己的终端/PTY 中运行；harness shell 受限无法 spawn）
+﻿# DSH Desktop vendor 构建脚本（在用户自己的终端/PTY 中运行；harness shell 受限无法 spawn）
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-vendor.ps1
 $ErrorActionPreference = 'Continue'
 

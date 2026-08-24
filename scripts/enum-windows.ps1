@@ -1,4 +1,4 @@
-# scripts/enum-windows.ps1
+﻿# scripts/enum-windows.ps1
 # 高频可见窗口监视：EnumWindows + IsWindowVisible（权威捕获弹窗，含控制台窗口）
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File scripts\enum-windows.ps1 [秒数=300]
 param([int]$Seconds = 300)

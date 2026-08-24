@@ -30,7 +30,13 @@ export function resolveCurrentExe() {
   const exes = []
   collectExes(DIST, exes)
   if (exes.length === 0) throw new Error('resolve-dist: no DSH Desktop.exe found under ' + DIST)
-  exes.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+  exes.sort((a, b) => {
+    const byTime = statSync(b).mtimeMs - statSync(a).mtimeMs
+    if (byTime !== 0) return byTime
+    // mtime tie: prefer the canonical flat dist/win-unpacked (shorter path),
+    // then lexical order — keeps the pick deterministic instead of arbitrary.
+    return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0)
+  })
   return exes[0]
 }
 

@@ -1,4 +1,4 @@
-# DSH Desktop vendor 打包脚本（electron-builder --dir，win-unpacked）
+﻿# DSH Desktop vendor 打包脚本（electron-builder --dir，win-unpacked）
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vendor.ps1
 $ErrorActionPreference = 'Continue'
 
