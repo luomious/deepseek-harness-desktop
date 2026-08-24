@@ -25,19 +25,47 @@
     "@liustack/modsearch": "^5.4.3",
     "@vectorize-io/hindsight-coding-agents": "^0.3.4",
     "dsh-bash-terminal": "^0.3.14",
-    "dsh-better-sidebar": "^0.13.0",
+    "dsh-better-sidebar": "^0.15.2",
     "dsh-find-plugin": "^0.3.6",
     "dsh-mcp-lens": "file:dsh-mcp-lens-0.1.0-rc.9.tgz",
     "dsh-safe-delete": "^0.2.0",
     "dsh-skills-manager": "link:D:\\Deepseek-Harness\\plugins\\dsh-skills-manager",
     "dsh-tool-search": "^0.1.3",
-    "dshmarket": "^1.17.1"
+    "dshmarket": "^1.17.1",
+    "@dsh-external/dsh-frontend-reload": "link:D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload",
+    "@dsh-external/dsh-hy3-gateway": "link:D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
+    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator"
   },
   "dsh": {
     "profile": {
       "bundles": [
         "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app"
+        "@deepseek-ai/dsh-web-app",
+        "@dsh-external/dsh-web-search-bing",
+        "@dsh-external/dsh-web-fetch-local",
+        "@dsh-external/dsh-session-history",
+        "@dsh-external/dsh-stuck-loop-guard",
+        "@dsh-external/dsh-context-lifecycle",
+        "@liustack/modlens",
+        "@liustack/modsearch",
+        "@dsh-external/dsh-model-picker-group",
+        "@dsh-external/dsh-model-tier-router",
+        "@dsh-external/dsh-model-whitelist",
+        "@dsh-external/dsh-modlens-guard",
+        "dsh-mcp-lens",
+        "dsh-tool-search",
+        "dsh-find-plugin",
+        "@dsh-external/dsh-modlens-autoread",
+        "@dsh-external/dsh-vision-engine",
+        "@dsh-external/dsh-client-ui-skin-maid-atelier",
+        "dsh-better-sidebar",
+        "dsh-skills-manager",
+        "dsh-bash-terminal",
+        "@vectorize-io/hindsight-coding-agents",
+        "@dsh-external/dsh-super-injector",
+        "dshmarket",
+        "@dsh-external/dsh-hy3-gateway",
+        "@dsh-external/dsh-vision-rotator"
       ]
     }
   }

@@ -15,6 +15,19 @@ $log = 'D:\Deepseek-Harness\_backups\build-vendor.log'
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 "=== build start $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Tee-Object -FilePath $log
 
+# P1-C5/R9: verify the pinned upstream submodule is initialized before building.
+$subStatus = git submodule status 2>&1
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "ERROR: git submodule status failed - run: git submodule update --init --recursive" -ForegroundColor Red
+  exit 1
+}
+$uninit = @($subStatus | Where-Object { $_ -match '^[-U]' })
+if ($uninit.Count -gt 0) {
+  Write-Host "WARNING: uninitialized submodules detected ($($uninit.Count)); initializing..." -ForegroundColor Yellow
+  git submodule update --init --recursive 2>&1 | Out-Host
+  if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: submodule update --init --recursive failed" -ForegroundColor Red; exit 1 }
+}
+
 corepack yarn workspace dsh-plugin-desktop build 2>&1 | Tee-Object -FilePath $log -Append
 $code = $LASTEXITCODE
 "=== build exit: $code $(Get-Date -Format 'HH:mm:ss') ===" | Tee-Object -FilePath $log -Append
