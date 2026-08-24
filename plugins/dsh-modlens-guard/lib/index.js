@@ -8,8 +8,8 @@
 // 职责：
 //  1. 立即恢复：把 cordis.patch.yml 里 modlens 配置块中的 `visionProvider: false`
 //     移除（文件层面修复，重启后同样正确）；
-//  2. 热生效：通过 loader 找到 modlens 条目并 entry.update() 以启用状态重建
-//     fiber，无需重启服务即可看到 (modlens vision) 模型；
+//  2. 热生效：已禁用（投产审计降级）。AGENTS.md 严禁热重载 modlens（会丢
+//     adapter 注册、卡死会话）；文件修复后需重启服务才能看到 (modlens vision) 模型；
 //  3. 定时巡查：每 60s 检查一次，若 `visionProvider: false` 再次出现立即恢复，
 //     并写日志 ~/.dsh/super-injector/modlens-guard.log。
 //
@@ -104,21 +104,13 @@ function findModlensEntry(ctx) {
 }
 
 // 让运行中的 modlens 插件用启用状态重建（不重启服务）。
-// 幂等：条目配置已是 { families }（无 visionProvider: false）时为 no-op。
+// ⚠️ 投产审计（2026-08）降级为 no-op：AGENTS.md 明令"严禁对 @liustack/modlens
+// 热重载"——entry.update() 重建 fiber 会丢失 adapter 注册，会话切到 modlens-*
+// 会报 "no adapter registered" 并卡死服务。守卫不应自己制造它要防的故障。
+// 文件层面（fixModlensBlock）已修复，重启后即生效；此处仅记录提示，不再触发热重建。
 async function hotReapply(ctx) {
-  const entry = findModlensEntry(ctx)
-  if (!entry || typeof entry.update !== 'function') {
-    log('hot-apply skipped: modlens entry not found in loader tree')
-    return false
-  }
-  try {
-    await entry.update({ config: { families: FIXED_FAMILIES } }, false, true)
-    log('hot-apply OK: modlens entry rebuilt with visionProvider enabled')
-    return true
-  } catch (error) {
-    log('hot-apply FAILED (文件已修复，重启后仍会生效):', String(error?.stack ?? error))
-    return false
-  }
+  log('hot-apply DISABLED: modlens 热重载会丢 adapter 注册（AGENTS.md 禁令）；文件已修复，重启后生效')
+  return false
 }
 
 // 测试钩子：把 `visionProvider: false` 插回 modlens 配置块（模拟攻击）。
