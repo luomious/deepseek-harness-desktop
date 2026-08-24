@@ -1,8 +1,11 @@
 # ModLens 视觉引擎备忘（免费方案 + 切换指南）
 
 > 记录时间：2026-08-23（最近更新）
-> 当前状态：**阿里云百炼 `qwen3-vl-plus`**（`openai` 槽，已配 key，`max_tokens:4096`）
-> 备用槽：`gemini-api` 已建（`gemini-2.5-flash`，**只差填 apiKey**，填了即可与 openai 并存做故障转移）
+> 当前状态：**双引擎故障转移 `gemini-api → openai → claude-cli`**
+> `gemini-api` 槽：`gemini-3.6-flash`（已配 key + 代理 `http://127.0.0.1:7897` + 实测通过）
+> `openai` 槽：SiliconFlow `Qwen/Qwen3-VL-8B-Instruct`（已配 key + 实测 ~0.9s/次）
+> ⚠️ `gemini-2.5-flash` 已对新用户停用，务必用 `gemini-3.6-flash`
+> 百炼旧配置备份：`C:\Users\机械革命\.modlens\config.json.bak-dashscope-20260823`（切回百炼时从这里取 key）
 > 本地方案：Ollama `qwen2.5vl:7b`（见下"本地引擎"节，存储目录 `D:\ollama-models`）
 
 ## 免费方案速查表（2026-08）
@@ -12,11 +15,11 @@ modlens 共 6 个槽：`openai` / `gemini-api` / `anthropic` / `antigravity-cli`
 
 | 槽位 | 提供商 | 网站 | 免费额度 | 视觉模型 | 共存 |
 |---|---|---|---|---|---|
-| `openai` | 阿里云百炼 DashScope | bailian.console.aliyun.com | 新用户免费额度 | `qwen3-vl-plus` / `qwen-vl-max` | 当前在用 |
-| `openai` | 硅基流动 SiliconFlow | siliconflow.cn | L0 免费档 16 模型 | `Qwen/Qwen2.5-VL-7B-Instruct`、`GLM-4.6V` | 与百炼互斥 |
+| `openai` | 阿里云百炼 DashScope | bailian.console.aliyun.com | 新用户免费额度 | `qwen3-vl-plus` / `qwen-vl-max` | 与 SiliconFlow 互斥 |
+| `openai` | 硅基流动 SiliconFlow | siliconflow.cn | L0 免费档 | `Qwen/Qwen3-VL-8B-Instruct`（✅ 当前在用） | 与百炼互斥 |
 | `openai` | 智谱 BigModel | bigmodel.cn | GLM-4V-Flash 免费 | `glm-4v-flash`（输出上限 1024） | 与百炼互斥 |
 | `openai` | 月之暗面 Moonshot | platform.moonshot.cn | 新用户免费额度 | `moonshot-v1-8k-vision-preview` | 与百炼互斥 |
-| `gemini-api` | Google Gemini | aistudio.google.com | 约 1500 次/天、不过期 | `gemini-2.5-flash` | ✅ 并存 |
+| `gemini-api` | Google Gemini | aistudio.google.com | 约 1500 次/天、不过期 | `gemini-3.6-flash`（✅ 当前在用） | ✅ 并存 |
 | `antigravity-cli` | Google Antigravity | antigravity.google | **免 key**（登录） | `gemini-3.6-flash-low` | ✅ 并存 |
 | `anthropic` | Anthropic | console.anthropic.com | 有限免费额度 | `claude-haiku-4-5` | ✅ 并存 |
 | `kimi-cli` | 月之暗面 Kimi Code | 复用订阅 | 订阅内 | kimi 默认 | ✅ 并存（仅点名） |
@@ -60,22 +63,28 @@ node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dis
 
 ## 其它免费方案（备用）
 
-### Gemini（免费 key，5–10 秒/次，需梯子，✅ 可与当前引擎并存）
+### Gemini（免费 key，需梯子/代理，✅ 当前在用，排在故障转移链首位）
 
 - 领 key：https://aistudio.google.com （免信用卡；免费额度约 1500 次/天、不过期）
+- ⚠️ 新用户只能用 `gemini-3.6-flash`（`gemini-2.5-flash` 已停用）
+- 需要代理：本机代理端口 `127.0.0.1:7897`，已写进 `gemini-api.proxy`
 
 ```
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set gemini-api.apiKey <key>
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set gemini-api.model gemini-3.6-flash
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set gemini-api.proxy http://127.0.0.1:7897
 ```
 
-### SiliconFlow 免费 Qwen2.5-VL（免费，国内直连，⚠️ 会替换当前 openai 槽）
+### SiliconFlow 免费 Qwen3-VL（免费，国内直连，✅ 当前在用）
 
-- 领 key：https://siliconflow.cn （后台选一个免费的 Qwen2.5-VL 模型）
+- 领 key：https://siliconflow.cn （模型已切到 Qwen3-VL 系列；当前用 `Qwen/Qwen3-VL-8B-Instruct`）
+- 当前模型列表可查：`GET https://api.siliconflow.cn/v1/models`（带 key）
+- 连通性自测：`node D:\Deepseek-Harness\scripts\test-siliconflow-vision.mjs`（key 从配置读，不进命令行）
 
 ```
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.baseUrl https://api.siliconflow.cn/v1
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.apiKey <key>
-node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model <免费视觉模型ID>
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model Qwen/Qwen3-VL-8B-Instruct
 ```
 
 ### Moonshot 月之暗面（新用户免费额度，⚠️ 会替换当前 openai 槽）
@@ -88,10 +97,30 @@ node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dis
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model moonshot-v1-8k-vision-preview
 ```
 
-### 海外 OpenAI 兼容口（Groq / OpenRouter / Cloudflare / Together，⚠️ 都替换 openai 槽，需梯子）
+### 海外 OpenAI 兼容口（Groq / OpenRouter，⚠️ 都替换 openai 槽，需梯子，key 存于 `~/.modlens/spare-keys.json`）
 
-- Groq：`config set openai.baseUrl https://api.groq.com/openai/v1`，model `llama-3.2-11b-vision-preview`
-- OpenRouter：`config set openai.baseUrl https://openrouter.ai/api/v1`，model 选免费视觉模型
+- **Groq**（✅ 已实测，key 已存）：model `qwen/qwen3.6-27b`（老 llama-vision 已下线；此模型极便宜非永久免费档，靠新用户额度）
+- **OpenRouter**（✅ 已实测 cost=0，key 已存）：model `nvidia/nemotron-nano-12b-v2-vl:free`（真免费但限速严格，适合兜底）
+
+切换（key 从 spare-keys.json 取，见下文"切到备用口"）：
+
+```
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.baseUrl https://api.groq.com/openai/v1
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.apiKey <groq-key>
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model qwen/qwen3.6-27b
+```
+
+或 OpenRouter：
+
+```
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.baseUrl https://openrouter.ai/api/v1
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.apiKey <openrouter-key>
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model nvidia/nemotron-nano-12b-v2-vl:free
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.proxy http://127.0.0.1:7897
+```
+
+> 备用 key 集中存 `C:\Users\机械革命\.modlens\spare-keys.json`（groq / openrouter 两段，含 baseUrl+apiKey+model），不在工作区、不进 git。
+
 - Cloudflare：`config set openai.baseUrl https://api.cloudflare.com/client/v4/accounts/<account>/ai/v1`，model `@cf/llava-hf/llava-1.5-7b-hf`
 - Together：`config set openai.baseUrl https://api.together.xyz/v1`，model 选免费 Llama-Vision
 

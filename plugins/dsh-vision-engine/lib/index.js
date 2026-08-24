@@ -87,6 +87,29 @@ function writeJson(file, value) {
   writeFileSync(file, JSON.stringify(value, null, 2) + '\n')
 }
 
+// ── 中文配置名乱码自愈 ──
+// 根因（CHANGELOG 2026-08-21）：PowerShell 5.1 用 GBK/非 UTF-8 编码发送 JSON → host 按
+// UTF-8 读 → 中文名落盘成「UTF-8 字节被当 Latin-1 再重编码」的乱码，且每次保存叠加一层。
+// 这里在读取时识别乱码签名（UTF-8 前导/续字节被误读产生的 Latin-1 + C1 控制符，正常
+// 中/英文名不会出现），逆向还原；只有还原出真正的中文（CJK）才采纳，杜绝误伤合法名。
+function looksMojibake(str) {
+  return /[\u00c2-\u00f4\u0080-\u009f]/.test(str)
+}
+function healName(name) {
+  if (typeof name !== 'string' || !name || !looksMojibake(name)) return name
+  let cur = name
+  let recovered = null
+  for (let i = 0; i < 10; i++) {
+    const bytes = Buffer.from(Array.from(cur).map((c) => c.charCodeAt(0) & 0xff))
+    const next = bytes.toString('utf8')
+    if (next === cur) break
+    cur = next
+    if (/[\u4e00-\u9fff]/.test(cur)) { recovered = cur; break }
+  }
+  if (!recovered) return name // 还原不出中文 → 不是中文乱码，保持原样
+  return recovered.replace(/[\u0080-\u009f\ufffd]/g, '') // 清掉残留 C1 控制符/替换符
+}
+
 // ── 配置（profiles）──
 function blankProfile() {
   return { id: '', name: '', kind: 'api', preset: 'custom', slot: 'openai', baseUrl: '', apiKey: '', model: '', structuredOutput: false, maxTokens: 4096 }
@@ -108,6 +131,17 @@ function seedProfiles() {
   if (existsSync(VE_CONFIG)) {
     const cfg = readJson(VE_CONFIG, null)
     if (cfg && Array.isArray(cfg.profiles) && cfg.profiles.length > 0) {
+      // 中文配置名乱码自愈：发现乱码就还原并写回，下次读取即干净（幂等，正常名不动）。
+      let dirty = false
+      for (const p of cfg.profiles) {
+        const healed = healName(p.name)
+        if (healed !== p.name) { p.name = healed; dirty = true }
+      }
+      if (cfg.activeProfile && typeof cfg.activeProfile.name === 'string') {
+        const healed = healName(cfg.activeProfile.name)
+        if (healed !== cfg.activeProfile.name) { cfg.activeProfile.name = healed; dirty = true }
+      }
+      if (dirty) { try { writeJson(VE_CONFIG, cfg) } catch { /* 自愈写回失败不阻断 */ } }
       return { profiles: cfg.profiles, active: typeof cfg.active === 'string' ? cfg.active : cfg.profiles[0].id }
     }
   }

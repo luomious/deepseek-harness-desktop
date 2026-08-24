@@ -1,0 +1,21 @@
+{
+  "name": "@dsh-external/dsh-hy3-gateway",
+  "version": "0.1.0",
+  "description": "Auto-starts the local hy3 OpenAI-compatible gateway (CloudBase free Hunyuan) on DSH startup.",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

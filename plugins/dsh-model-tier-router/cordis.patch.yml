@@ -7,6 +7,8 @@
       name: '@dsh-external/dsh-model-tier-router'
       config:
         enabled: true
+        # 只对子 agent（后台委派）自动切换；主对话里用户已选模型绝不动。
+        subagentOnly: true
         # bidirectional: 高低双向切换；downgrade: 只降级不升级；upgrade: 只升级不降级
         direction: bidirectional
         # 分类不明确（无关键词且长度不足）时用哪个：high 保守 / low 省钱

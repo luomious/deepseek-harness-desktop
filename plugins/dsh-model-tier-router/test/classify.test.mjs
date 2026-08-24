@@ -2,7 +2,7 @@
 // 运行：node plugins/dsh-model-tier-router/test/classify.test.mjs
 import assert from 'node:assert'
 import {
-  classify, decide, applyDecision, extractText, latestUserText, normalizeConfig,
+  classify, decide, applyDecision, extractText, latestUserText, normalizeConfig, isSubagent,
 } from '../lib/index.js'
 
 const cfg = normalizeConfig({})
@@ -72,5 +72,12 @@ const agent = {
   },
 }
 assert.equal(latestUserText(agent), '帮我修复这个 bug')
+
+// ── isSubagent：只认 header.origin === 'subagent' ────────────────────────
+assert.equal(isSubagent({ session: { header: { origin: 'subagent' } } }), true)
+assert.equal(isSubagent({ session: { header: { origin: undefined } } }), false) // 主对话无 origin
+assert.equal(isSubagent({ session: { header: {} } }), false)
+assert.equal(isSubagent({ session: {} }), false)
+assert.equal(isSubagent(null), false)
 
 console.log('ALL TESTS PASSED')

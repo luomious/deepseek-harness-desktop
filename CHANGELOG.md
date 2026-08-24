@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-08-24 视觉引擎配置名乱码根治（复发的 GBK 编码问题）
+
+### 现象与根因
+「图片识别模型」面板里 7 个中文配置名（本地 Ollama / 阿里百炼 / 智谱 / Gemini…）显示成 `ÃÂÂ…` 乱码。
+根因是 08-21 已修问题的复发：PowerShell 5.1 用 GBK（非 UTF-8）编码 POST JSON → host 按 UTF-8 读 →
+中文名落盘成「UTF-8 字节被当 Latin-1 再重编码」的乱码，且每次保存叠加一层；本次已叠到 5 层
+（`~/.modlens/vision-engine.json` 8380 字节 → 修复后 3069 字节，`model`/`baseUrl` 等 ASCII 字段不受影响）。
+
+### 修复
+- 一次性修复：逆向还原 7 个配置名并落盘 UTF-8（备份 `~/.modlens/vision-engine.json.bak-*`），
+  已验证 `GET /vision-engine/config` 返回中文正确。
+- 代码自愈：`plugins/dsh-vision-engine/lib/index.js` 新增 `healName`（识别乱码签名 → 逆向还原，
+  仅当还原出 CJK 才采纳，杜绝误伤合法名），在 `seedProfiles()` 读取时自动修复并写回，幂等。
+
+---
+
 ## 2026-08-24 生产就绪基线 v1.4.0-production（升级方案 P0-P1.5 全部闭环）
 
 ### 本轮交付（生产上线关键项）

@@ -1,0 +1,6 @@
+# Loader insertion for persistent installs (profile bundles).
+# Runtime injection via dev_inject_plugin bypasses this patch.
+- insert:
+    - id: dsh-hy3-gateway
+      name: '@dsh-external/dsh-hy3-gateway'
+      config: {}

@@ -6,6 +6,10 @@
 - **复杂任务**（重构 / 架构 / 调试 / 设计 / 长任务……）→ 走 `high`（保质量）
 - **分类不明确** → 按 `ambiguous` 配置回落（默认 `high`，保守）
 
+> **默认只切子 agent（`subagentOnly: true`）**：主对话里用户已选好的模型**原样保留、绝不动**；
+> 只有后台委派出去的子 agent（`session.header.origin === 'subagent'`）才参与自动切换。
+> 这是「后台自己切、我对话里选的模型不变」的前提。
+
 粒度是「用户轮次」：同一轮内所有 step 复用同一个分类（首个 `agent/request` 分类后按
 `sessionId:turn` 缓存），所以一轮里不会出现「前半句高端、后半句低端」的抖动。
 
@@ -38,6 +42,7 @@ ctx.on('agent/request', async (payload, next) => {
 
 ```yaml
 enabled: true
+subagentOnly: true      # true（默认）：只切子 agent，主对话模型不动；false：连主对话一起切
 direction: bidirectional   # bidirectional | downgrade（只降不升）| upgrade（只升不降）
 ambiguous: high            # 分类不明确时用 high（保守）或 low（省钱）
 minComplexLength: 140      # 文本长度 >= 该值即判复杂
@@ -54,6 +59,8 @@ routes:
   `mimo-v2.5-pro` 与同源 `deepseek-v4-flash` 已作为默认路由配好）。
 - 只有「当前 model 恰好等于某条路由的 high 或 low」时才参与切换；用户手动选了
   路由之外的其他模型 → 完全放行，不干扰。
+- `subagentOnly: true` 时，主对话的 `agent/request` 一律原样返回（passthrough），
+  只有 `session.header.origin === 'subagent'` 的子 agent 才走分类切换。
 
 ## 安装 / 注入
 
@@ -79,8 +86,9 @@ dev_uninject_plugin dsh-model-tier-router
 
 ## 建议 / 限制
 
-- **子代理同样会被路由**（子代理也是独立 agent、独立 `agent/request`），省 token 也覆盖
-  子代理；如需排除，可在 `apply` 里按 `agent.options` 里的 origin 过滤（后续可加开关）。
+- **子代理才会被路由**（默认 `subagentOnly: true`）：子代理是独立 agent、独立
+  `agent/request`，省 token 覆盖子代理；主对话模型始终由用户在对话里选定、不改动。
+  如需连主对话一起切，把 `subagentOnly` 设为 `false`。
 - 分类器是「关键词 + 长度」启发式，不是语义模型；拿不准就用 `dev_model_route_test`
   校准关键词/阈值，默认 `ambiguous: high` 保证不误伤复杂任务。
 - 切换会丢弃 `reasoningEffort`，切回 high 时用模型默认 effort（如需保留 high 的 effort，

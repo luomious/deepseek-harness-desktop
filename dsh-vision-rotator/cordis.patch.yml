@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-vision-rotator
+      name: '@dsh-external/dsh-vision-rotator'
+      config: {}

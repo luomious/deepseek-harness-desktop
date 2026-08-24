@@ -54,6 +54,8 @@ function saveStats(s) {
 // 时靠这里兜底；重启后由 patch 层 config 接管并覆盖）。
 const DEFAULTS = {
   enabled: true,
+  // 只对子 agent（后台委派）做自动切换，绝不改主对话里用户已选好的模型。
+  subagentOnly: true,
   direction: 'bidirectional',   // 'bidirectional' | 'downgrade' | 'upgrade'
   ambiguous: 'high',            // 'high' | 'low'
   minComplexLength: 140,
@@ -79,8 +81,10 @@ export function normalizeConfig(config) {
   const ambiguous = raw.ambiguous === 'low' ? 'low' : raw.ambiguous === 'high' ? 'high' : DEFAULTS.ambiguous
   const minComplexLength = Number.isFinite(Number(raw.minComplexLength)) ? Number(raw.minComplexLength) : DEFAULTS.minComplexLength
   const enabled = raw.enabled !== false
+  const subagentOnly = raw.subagentOnly !== false
   return {
     enabled,
+    subagentOnly,
     direction,
     ambiguous,
     minComplexLength,
@@ -114,6 +118,14 @@ export function latestUserText(agent) {
     if (text) return text
   }
   return ''
+}
+
+// 是否子 agent（后台委派）。判别依据与官方一致（desktop-notifications 同样用
+// session.header.origin === 'subagent' 跳过子代理通知）：主对话的 header 没有
+// origin 字段，子 agent 的 header.origin 恒为 'subagent'。
+export function isSubagent(agent) {
+  const header = agent && agent.session && agent.session.header
+  return !!(header && header.origin === 'subagent')
 }
 
 // 复杂度分类：complex（走 high）| simple（走 low）| ambiguous（走配置回落）。
@@ -232,6 +244,15 @@ export function apply(ctx, config) {
         if (traceLeft > 0) { traceLeft -= 1; log('TRACE no-agent resolved=', JSON.stringify(resolved)) }
         return resolved
       }
+      // 主对话放行：subagentOnly 时，只有子 agent 才参与自动切换；主对话里用户
+      // 已选好的模型原样返回，绝不改写（header.origin !== 'subagent'）。
+      if (state.cfg.subagentOnly && !isSubagent(agent)) {
+        if (traceLeft > 0) {
+          traceLeft -= 1
+          log(`TRACE main-conversation passthrough session=${String(agent && agent.id).slice(0, 8)} model=${resolved.provider}/${resolved.model}`)
+        }
+        return resolved
+      }
       const cls = classifyTurn(agent, payload && payload.turn)
       if (traceLeft > 0) {
         traceLeft -= 1
@@ -259,7 +280,7 @@ export function apply(ctx, config) {
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
     execute: () => {
       const lines = [
-        `enabled=${currentEnabled()}`,
+        `enabled=${currentEnabled()}  subagentOnly=${state.cfg.subagentOnly}`,
         `direction=${state.cfg.direction}  ambiguous=${state.cfg.ambiguous}  minComplexLength=${state.cfg.minComplexLength}`,
         'routes:',
         ...state.cfg.routes.map((r) => `  ${r.provider}  high=${r.high}  low=${r.low}`),
@@ -310,5 +331,5 @@ export function apply(ctx, config) {
     },
   })
 
-  log(`armed: enabled=${cfg.enabled} direction=${cfg.direction} ambiguous=${cfg.ambiguous} routes=${cfg.routes.map((r) => `${r.provider}:${r.high}/${r.low}`).join('|')}`)
+  log(`armed: enabled=${cfg.enabled} subagentOnly=${cfg.subagentOnly} direction=${cfg.direction} ambiguous=${cfg.ambiguous} routes=${cfg.routes.map((r) => `${r.provider}:${r.high}/${r.low}`).join('|')}`)
 }
