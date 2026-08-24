@@ -73,8 +73,8 @@ function srcTree(root: string, depth = 2): string[] {
 }
 
 function gitInfo(root: string): { branch: string; head: string } {
-  const branch = safe(() => execSync('git rev-parse --abbrev-ref HEAD', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), '')
-  const head = safe(() => execSync('git log -1 --pretty=%h %s', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), '')
+  const branch = safe(() => execSync('git rev-parse --abbrev-ref HEAD', { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), '')
+  const head = safe(() => execSync('git log -1 --pretty=%h %s', { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(), '')
   return { branch, head }
 }
 

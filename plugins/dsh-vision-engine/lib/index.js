@@ -228,7 +228,7 @@ function readPasteToPath() {
 // ── CLI ──
 function runCli(args, signal) {
   return new Promise((resolve, reject) => {
-    try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-runCli', argv0: String(args[0] ?? '').slice(0, 120) }) + '\n') } catch {}
+
     const child = spawn(process.execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
@@ -479,7 +479,7 @@ function startOllama() {
     try {
       const exe = ollamaExe()
       if (!existsSync(exe)) { log('ollama.exe 不存在:', exe); return resolve(false) }
-      try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-startOllama', mode: 'vbs' }) + '\n') } catch {}
+
       try {
         // 纯 ASCII 源（%LOCALAPPDATA% 展开，避免中文用户名路径编码问题）
         const vbs =
@@ -515,7 +515,7 @@ function startOllama() {
 function stopOllama() {
   return new Promise((resolve) => {
     try {
-      try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-stopOllama' }) + '\n') } catch {}
+
       const list = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
       const pids = []
       for (const line of String(list.stdout || '').split(/\r?\n/)) {

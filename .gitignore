@@ -1,4 +1,8 @@
-# Electron 运行时二进制（不提交到 git，通过 Release 发布）
+# ============================================================
+# DeepSeek Harness Desktop - .gitignore
+# ============================================================
+
+# Electron runtime binaries (released via Release, not tracked)
 app/
 *.exe
 *.dll
@@ -7,7 +11,7 @@ app/
 *.bin
 locales/
 
-# 临时文件
+# Temporary files
 *.zip
 *.7z
 extracted/
@@ -20,70 +24,55 @@ Thumbs.db
 
 test-plugin/
 
-# 工作区记忆（本地辅助数据，不入库）
+# Workspace memory (local aid data)
 .workbuddy/
 
-# pnpm store（本地依赖缓存，不入库）
+# pnpm store (local dependency cache)
 .pnpm-store/
 
-# 本机开发辅助脚本（含个人路径，不入库）
+# Local dev helper scripts (contain personal paths)
 approve-builds.ps1
 install-dsh-plugins.ps1
 
-# 临时打包/验证脚本目录（不入库）
+# Temporary packaging/verification script directory
 tools/
 
-# DSH web profile 本地备份（回滚用，不入库）
+# DSH web profile local backup (for rollback)
 .dsh-web-profile-*/
 
-# dsh-safe-delete 回收区（运行时生成，不入库）
+# dsh-safe-delete recycle area (generated at runtime)
 .dsh-trash/
 
-# dsh 运行时数据（如 dsh-tool-search.json，不入库）
+# dsh runtime data
 .dsh/
 
-# 本地文档/笔记（不入库）
-docs/
-
-# 本地分析/排查临时目录（如 transcribe 等，不入库）
+# Local analysis/temp directories
 .dsh-analysis/
 
-# 外部仓库 clone（独立 repo，按各自 README 单独拉取，不入库）
+# External repo clone (separate repo, clone per respective README)
 plugins/dsh-routing-suite/
 
-# 插件构建产物（tsdown/tsc 输出，不入库；源码在 src/）
+# Plugin build artifacts (tsdown/tsc output; source in src/)
 plugins/*/lib/**/*.d.ts
 plugins/*/lib/**/*.map
 
-# 插件本地测试脚本（开发自测用，可选保留）
-# plugins/*/test-*.mjs
-
-# agent-presets 本地副本（运行时用 ~/.dsh/.agent-presets，不入库）
+# Agent presets local copy (runtime in ~/.dsh/.agent-presets)
 agent-presets/
 
-# 涓撳畧/鐢熷懡鍛ㄦ湡鎻掍欢杩愯鏃舵暟鎹?涓嶅叆搴擄級
+# Lifecycle/guard plugins runtime data
 dsh-stuck-loop-guard/data/
 dsh-context-lifecycle/data/
 
-# 鎶ゅ崼鎻掍欢鏋勫缓浜х墿锛堟簮鐮佸湪 src/锛?map/.d.ts 涓嶅叆搴擄級
-dsh-stuck-loop-guard/lib/**/*.map
-dsh-stuck-loop-guard/lib/**/*.d.ts
-dsh-context-lifecycle/lib/**/*.map
-dsh-context-lifecycle/lib/**/*.d.ts
-# 守护/生命周期插件运行数据（不入库）
-dsh-stuck-loop-guard/data/
-dsh-context-lifecycle/data/
-
-# 守护插件构建产物（源码在 src/，.map/.d.ts 不入库）
+# Lifecycle/guard plugins build artifacts (source in src/)
 dsh-stuck-loop-guard/lib/**/*.map
 dsh-stuck-loop-guard/lib/**/*.d.ts
 dsh-context-lifecycle/lib/**/*.map
 dsh-context-lifecycle/lib/**/*.d.ts
 
-# �ٷ��¿�Դ�����(vendor,����ʱ���ĵ��������� clone)
+# Vendor desktop shell (separate repo, clone per docs/BUILD.md)
 vendor/
 
-# ��������������
+# Build/runtime caches
 .corepack/
 .yarn-cache/
 .yarn-global/
@@ -91,9 +80,8 @@ vendor/
 .electron-builder-cache/
 _backups/
 .ref-hairyf/
-main.js
 
-# local experiments / secrets / debug logs (not part of the DSH desktop system)
+# Local experiments / secrets / debug logs
 cb-hy3-test/
 hy3-gateway/
 proc-watch.log

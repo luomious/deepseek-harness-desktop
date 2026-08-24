@@ -80,7 +80,7 @@ async function reportVisionUsage(ok) {
 
 function run(command, args, signal) {
   return new Promise((resolve, reject) => {
-    try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'autoread-run', argv0: String(args[0] ?? '').slice(0, 120) }) + '\n') } catch {}
+
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
