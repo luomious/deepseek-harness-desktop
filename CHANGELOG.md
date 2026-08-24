@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-08-24 生产就绪基线 v1.4.0-production（升级方案 P0-P1.5 全部闭环）
+
+### 本轮交付（生产上线关键项）
+| 类 | 内容 |
+|---|---|
+| 压缩 | desktop profile 补 `compaction-basic`/`command-compact`/`context-lifecycle` 强制启用；`compaction=resolved`；固定摘要模型（tokenrhythm01/deepseek-v4-pro-0813）；**智能改进**：活动感知（闲置 24h 不提示）+ 冷却 30min + 驳回后重提门槛 5% |
+| 省 token | tier-router 路由模型 id 修正（`deepseek-v4-flash-0731`/`qwen3.8-max`），自动切换恢复正常（升级前从未触发） |
+| 安全 | 权限白名单（notifications/clipboard-write 放行，其余拒绝）；critical-busy 路由仅 loopback；SSRF 审查达标 |
+| 退出保护 | `critical-guard`（busy 时点 ✕/退出弹窗）；修复 bundler 多 chunk 状态不共享（globalThis 唯一真相源）；**用户实测弹窗通过** |
+| 前端兜底 | 渲染进程连续失败 ≥2 次自动浏览器打开界面 + 恢复对话框 "Open in Browser" 按钮 |
+| 弹窗治理 | windowsHide ×8（subprocess-local/open/default-browser/materializer/vision-engine 等），黑框根治 |
+| 工程化 | 固定入口 `dist\win-unpacked`（junction）+ `promote-build.ps1` 换版；快捷方式固定路径；`smoke-test.ps1` 全量自测 26 项全绿；补丁持久化（apply-winhide/port-user-patches/verify-patches 11 项） |
+| 回归审计 | R-1~R-19 全部处置（bandOf、端口 43120、市场横幅、broken5 清理 206MB、injector 入库等） |
+
+### 构建/入口
+- 当前生产入口：`dist\win-unpacked`（junction → `win-unpacked-build3`），快捷方式固定指向该路径；
+- 换版：`powershell -File scripts\promote-build.ps1 -From <新构建目录>`（应用停止后执行）；
+- 自测：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-test.ps1`。
+
+---
+
 ## 2026-08-24 弹窗根因终结：Ollama 生命周期重写 + 识图引擎切云端（用户决定弃用本地模型）
 
 ### 根因（进程监控实证）
