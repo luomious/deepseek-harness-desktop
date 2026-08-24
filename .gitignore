@@ -92,3 +92,11 @@ vendor/
 _backups/
 .ref-hairyf/
 main.js
+
+# local experiments / secrets / debug logs (not part of the DSH desktop system)
+cb-hy3-test/
+hy3-gateway/
+proc-watch.log
+spawn-trace.log
+patches/wip/
+scripts/test-siliconflow-vision.mjs

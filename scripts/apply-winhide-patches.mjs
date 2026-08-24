@@ -6,25 +6,24 @@
 // live in build outputs and get wiped by every rebuild, so run this after
 // each rebuild:
 //   node scripts/apply-winhide-patches.mjs
-// It re-applies the four dist-level patches (subprocess-local / open /
-// default-browser / materializer). Plugins (vision-engine, autoread,
+// It re-applies the dist-level patches (subprocess-local / open /
+// default-browser / materializer) to BOTH the vendor dev node_modules and the
+// CURRENT build, which is resolved dynamically via scripts/resolve-dist.mjs
+// (same rule as update-shortcuts.ps1). Plugins (vision-engine, autoread,
 // project-brief) are tracked in git and need no re-application.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { VENDOR_ROOT, resolveCurrentBuild } from './resolve-dist.mjs'
 
-const VENDOR = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop'
-const OLD_NM = 'dist/win-unpacked/resources/app.asar.unpacked/node_modules'
-const NEW_NM = 'dist/win-unpacked-new/resources/app.asar.unpacked/node_modules'
-const OLD_LIB = 'dist/win-unpacked/resources/app.asar.unpacked/lib'
-const NEW_LIB = 'dist/win-unpacked-new/resources/app.asar.unpacked/lib'
+const VENDOR = VENDOR_ROOT
+const build = resolveCurrentBuild()
 
 const patches = [
   {
     name: 'dsh-subprocess-local',
     targets: [
       join(VENDOR, 'node_modules', '@deepseek-ai', 'dsh-subprocess-local', 'lib', 'index.js'),
-      join(VENDOR, OLD_NM, '@deepseek-ai', 'dsh-subprocess-local', 'lib', 'index.js'),
-      join(VENDOR, NEW_NM, '@deepseek-ai', 'dsh-subprocess-local', 'lib', 'index.js'),
+      join(build.nodeModules, '@deepseek-ai', 'dsh-subprocess-local', 'lib', 'index.js'),
     ],
     marker: 'windowsHide: true',
     anchor: 'detached: platform !== "win32"',
@@ -34,8 +33,7 @@ const patches = [
     name: 'open',
     targets: [
       join(VENDOR, 'node_modules', 'open', 'index.js'),
-      join(VENDOR, OLD_NM, 'open', 'index.js'),
-      join(VENDOR, NEW_NM, 'open', 'index.js'),
+      join(build.nodeModules, 'open', 'index.js'),
     ],
     marker: 'windowsHide = true',
     anchor: 'childProcessOptions.windowsVerbatimArguments = true;',
@@ -45,8 +43,7 @@ const patches = [
     name: 'default-browser',
     targets: [
       join(VENDOR, 'node_modules', 'default-browser', 'windows.js'),
-      join(VENDOR, OLD_NM, 'default-browser', 'windows.js'),
-      join(VENDOR, NEW_NM, 'default-browser', 'windows.js'),
+      join(build.nodeModules, 'default-browser', 'windows.js'),
     ],
     marker: 'windowsHide: true',
     anchor: "'/v',\n\t\t'ProgId',\n\t]);",
@@ -55,8 +52,7 @@ const patches = [
   {
     name: 'materializer (lib/main.js)',
     targets: [
-      join(VENDOR, OLD_LIB, 'main.js'),
-      join(VENDOR, NEW_LIB, 'main.js'),
+      join(build.lib, 'main.js'),
     ],
     marker: 'windowsHide: true,',
     anchor: 'detached: process.platform !== "win32",\n\t\tstdio: [',
@@ -92,5 +88,6 @@ for (const p of patches) {
     console.log('PATCHED ' + p.name + ' -> ' + file)
   }
 }
+console.log('current build: ' + build.buildDir)
 console.log('done: ' + patched + ' patched, ' + skipped + ' already-ok, ' + failed + ' failed')
 process.exit(failed === 0 ? 0 : 1)

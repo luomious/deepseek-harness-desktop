@@ -5,7 +5,8 @@
 $ErrorActionPreference = 'Continue'
 $usr = $env:USERPROFILE
 $dev  = 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\node_modules\@deepseek-ai'
-$pkg  = 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked\resources\app.asar.unpacked\node_modules\@deepseek-ai'
+$build = (& node (Join-Path $PSScriptRoot 'resolve-dist.mjs')) | ConvertFrom-Json
+$pkg  = Join-Path $build.nodeModules '@deepseek-ai'
 $rows = @()
 function Add-Check([string]$name, [bool]$ok, [string]$detail) { $script:rows += [pscustomobject]@{ Item=$name; Status=$(if($ok){'PASS'}else{'FAIL'}); Evidence=$detail } }
 
@@ -41,7 +42,7 @@ Add-Check 'super-injector-loadcache' ((Get-Content "$usr\.dsh\profiles\desktop\n
 $h1 = (Get-Content 'D:\Deepseek-Harness\plugins\dsh-routing-suite\injector\lib\index.js' -Raw -Encoding UTF8).Contains('H1 fix:')
 $h3 = (Get-Content 'D:\Deepseek-Harness\plugins\dsh-vision-engine\lib\index.js' -Raw -Encoding UTF8).Contains("const segs = norm.split('/').filter")
 Add-Check 'security-fixes' ($h1 -and $h3) ("H1=" + $h1 + " H3=" + $h3)
-Add-Check 'desktop-shortcut-icon' (Test-Path 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe') 'lnk points to exe (built-in icon fallback)'
+Add-Check 'desktop-shortcut-icon' (Test-Path $build.exe) 'lnk points to exe (built-in icon fallback)'
 Add-Check 'audit-doc' (Test-Path 'D:\Deepseek-Harness\docs\migration-audit-2026-08-22.md') 'exists'
 Add-Check 'scripts' ((Test-Path 'D:\Deepseek-Harness\scripts\port-user-patches.mjs') -and (Test-Path 'D:\Deepseek-Harness\scripts\guard-destructive.ps1') -and (Test-Path 'D:\Deepseek-Harness\scripts\fix-security.mjs')) 'port+guard+security'
 

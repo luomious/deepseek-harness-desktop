@@ -6,6 +6,59 @@
 
 ---
 
+## 2026-08-24 弹窗根因终结：Ollama 生命周期重写 + 识图引擎切云端（用户决定弃用本地模型）
+
+### 根因（进程监控实证）
+「重启后发消息弹 3 个 cmd 窗口」的真凶**不是** dsh 的 spawn，而是 **Ollama 自身**：
+`ollama serve` 每次启动（应用启动自启 / 面板切回本地）会拉一批探测子进程
+（`llama-server --list-devices`、`ollama gpu-discover` ×2、模型 runner），每个都创建**可见**控制台，
+且 Win11「默认终端」把它们路由到 Windows Terminal/OpenConsole 显示（proc-watch.log 全程抓到）。
+「发第一条消息看到 3 个」= 启动时自启 ollama 的探测风暴；叠加另一个会话并发跑命令/识图，观感更多。
+
+### 并查实第二个 bug：stopOllama 泄漏（显卡空转元凶）
+旧 `taskkill /F /IM ollama.exe` 打不到 `llama-server.exe`（UI 子系统）→ 每次云端↔本地切换泄漏
+一个满载模型的 runner：实测残留 3 个孤儿、显存 7.7GB、GPU 70%+ 空转（用户看到的"没识图显卡也在跑"）。
+
+### 修复（`plugins/dsh-vision-engine/lib/index.js`，随 01:14 重启已生效）
+| 项 | 内容 |
+|---|---|
+| `startOllama` 重写 | 改 **wscript+VBS 静默启动**（写 `~/.modlens/ollama-serve-silent.vbs` 后 `wscript //B` 执行，纯 ASCII 源、%LOCALAPPDATA% 展开）；对照实验确认启动风暴期 WindowsTerminal/OpenConsole 托管不再出现；VBS 失败回退直连 spawn。**01:55 用户实测终验**：切回本地完整走一遍启动风暴（7 个探测子进程），零可见窗口（旧路径同场景 3+ 个）；随后切回云端，进程零残留 |
+| `stopOllama` 重写 | `tasklist /FO CSV` 枚举 `ollama.exe`+`llama-server.exe` 全部 PID → 逐个 `taskkill /F /PID /T`；实测切换后零残留 |
+| 底层追踪 | build2 与旧 dist 的 `dsh-subprocess-local` 补 spawn 追踪（`D:/Deepseek-Harness/spawn-trace.log`）+ 两处 taskkill 补 `windowsHide` |
+
+### 用户决定：弃用本地模型（2026-08-24 01:46）
+- 识图引擎切 **百炼 `qwen3-vl-plus`**（p-bailian-vl-plus），实测识别正常（4.4s，描述准确，key 有效）。
+- 全部 ollama/llama-server 进程已杀净；**开机自启 `Ollama Serve.vbs` 已删除**（覆盖 08-23"自启永久保留"的旧决定，用户明确不再用本地）。
+- 效果：显存 7.7GB→1.1GB，GPU 5%；Ollama 系弹窗与显卡空转从此消失。
+- 若将来要回本地：面板切回「本地 Ollama」即可（新代码静默启动 + 干净停止），需重装/保留 Ollama 程序。
+
+### 遗留（不阻塞）
+- agent 工具（rg/powershell/taskkill 等）经 dsh 子进程层拉起时，`windowsHide`(SW_HIDE) 在个别场景仍可能被看见一瞬（干净 Electron 父进程对照实验证明参数本身有效，真实应用内差异未完全收敛）。根治原型：`patches/wip/koffi-noconsole-spawn/koffi-final.cjs`（koffi 直调 CreateProcessW + CREATE_NO_WINDOW，管道/退出码已打通，收尾待办）。
+
+---
+
+## 2026-08-24 构建链路统一：单一事实源 + 旧构建归档（根治"补丁打在旧目录/重启无变化"）
+
+- **根因**：打包输出目录是动态的（`package-dir.mjs` 的 `DSH_OUT_DIR`，旧产物被锁定时换新目录，本次为
+  `win-unpacked-build2`），而补丁/校验脚本写死了 `win-unpacked` / `win-unpacked-new` 路径 → 重建后补丁打到旧目录，
+  运行中的新构建没打补丁 → 重启无变化。
+- **修复**：新增 `scripts/resolve-dist.mjs` 单一事实源（与 `update-shortcuts.ps1` 同源：dist 下最新
+  `DSH Desktop.exe`）；`port-user-patches.mjs` / `apply-winhide-patches.mjs` / `verify-patches.ps1` /
+  `verify-features.ps1` / `rebuild-and-restart.ps1` 全部改为通过它解析构建目录，不再写死 dist 路径。
+- **归档**：旧构建（`win-unpacked`、两个 `win-unpacked-new`、`.icon-ico`）统一移入
+  `_backups/dist-archive/20260824-014115/`；dist 仅保留当前 `win-unpacked-build2`。
+- **端口澄清**：新壳默认端口 = `43120`（`src/desktop-port.ts` `DESKTOP_DEFAULT_WEB_PORT`），非动态；
+  旧壳 `3080` 已退役。
+- **文档**：重写 `docs/BUILD.md`；新增 `docs/README.md` 索引（区分当前有效 / 历史归档）；
+  `PRODUCTION-UPGRADE-PLAN.md` 加状态更新 banner；`AGENTS.md` 策展区"当前入口"改为 build2。
+- **模型补丁恢复（0.1.1-rc.2 迁移"待跟进"项清零）**：`dsh-client-ui-settings-models` 的「获取可用模型」弹窗
+  筛选（`pickQuery` 按名称/ID 过滤 + 无匹配空态 + **默认全不选**）与「模型目录」搜索（`filterModels` 双编辑器
+  catalogQuery）均已重新实现；`dsh-host-frontend-static` 补回 no-cache；canon 存 `patches/bundles/`，接入
+  `port-user-patches.mjs`（重建后重跑即恢复）。审计确认其余旧补丁已迁移或自动退役（serve-bundle-retry 目标代码
+  重构消失、node-pty 上游已内置 try/catch、client-bundle-retry 前端已切 Vite、modlens/safe-delete 目标已不存在）。
+
+---
+
 ## 2026-08-23 弹窗治理 + 退出保护机制 + Ollama 自启 + 生产上线方案（详见 docs/PRODUCTION-UPGRADE-PLAN.md）
 
 - **弹窗治理（windowsHide ×8）**：插件 3 处（vision-engine 读图 / autoread 读图 / project-brief git）+ 桌面应用 4 处（dsh-subprocess-local / profile-materializer / open / default-browser）+ 源码 1 处（profile-materializer.ts）。启动 / 切换视觉模型 / 读图 / 打开外链全程无黑框（实测 hwnd=0）。

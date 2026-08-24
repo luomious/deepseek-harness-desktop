@@ -10,16 +10,17 @@
 //  4) desktop profile 的 modlens 无缝接管补丁（与 web 对齐）。
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { resolveCurrentBuild } from './resolve-dist.mjs'
 
 const HOME = process.env.USERPROFILE || process.env.HOME
 if (!HOME) throw new Error('cannot resolve user home')
 const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai')
 const CANON_DIR = 'D:/Deepseek-Harness/patches/bundles'
 const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
-// 支持 DSH_PKG_ROOT 覆盖打包目录（重打包到新目录后对新产物重打补丁）
+// 支持 DSH_PKG_ROOT 覆盖打包目录；否则自动解析"当前最新构建"（与 update-shortcuts.ps1 同源）。
 const PKG_ROOT = process.env.DSH_PKG_ROOT
   ? process.env.DSH_PKG_ROOT.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
-  : 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/dist/win-unpacked/resources/app.asar.unpacked/node_modules/@deepseek-ai'
+  : resolveCurrentBuild().nodeModules.replace(/\\/g, '/') + '/@deepseek-ai'
 
 const WORKSPACES = [
   {
@@ -52,6 +53,29 @@ const MODLENS = {
   canon: join(CANON_DIR, 'modlens-dsh-index.js'),
   target: join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js'),
   markers: ['无缝接管补丁'],
+}
+
+// 核心 settings-models「获取可用模型」弹窗筛选补丁（0.1.1-rc.2 重新实现）。
+// 以 canon 副本为权威源，写到 dev + 当前打包构建；重建后重跑本脚本即恢复。
+const SETTINGS_MODELS = {
+  name: 'dsh-client-ui-settings-models client.js (fetch-dialog search)',
+  canon: join(CANON_DIR, 'dsh-client-ui-settings-models-client.js'),
+  targets: [
+    join(DEV_ROOT, 'dsh-client-ui-settings-models', 'lib', 'client.js'),
+    join(PKG_ROOT, 'dsh-client-ui-settings-models', 'lib', 'client.js'),
+  ],
+  markers: ['dsh-desktop patch: fetch-dialog search', 'dsh-desktop patch: fetch-dialog default none', 'dsh-desktop patch: model-catalog search', 'filterModels', 'catalogQuery', 'pickQuery', 'modelsSearch'],
+}
+
+// 前端静态资源 no-cache（防浏览器缓存旧 index.html/前端产物）。
+const FRONTEND_STATIC_NOCACHE = {
+  name: 'dsh-host-frontend-static index.js (no-cache)',
+  canon: join(CANON_DIR, 'dsh-host-frontend-static-index.js'),
+  targets: [
+    join(DEV_ROOT, 'dsh-host-frontend-static', 'lib', 'index.js'),
+    join(PKG_ROOT, 'dsh-host-frontend-static', 'lib', 'index.js'),
+  ],
+  markers: ['dsh-desktop patch: no-cache for dev stability'],
 }
 
 function ensureMarkers(content, markers, what) {
@@ -152,6 +176,17 @@ for (const w of WORKSPACES) {
     report.push(`FAIL ${MODLENS.name}: ${e.message}`)
   }
 })()
+
+for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE]) {
+  try {
+    const content = ensureMarkers(readFileSync(p.canon, 'utf8'), p.markers, p.name)
+    for (const t of p.targets) writeIfDifferent(t, content)
+    report.push(`OK   ${p.name}`)
+  } catch (e) {
+    failed += 1
+    report.push(`FAIL ${p.name}: ${e.message}`)
+  }
+}
 
 console.log(report.join('\n'))
 process.exitCode = failed ? 1 : 0

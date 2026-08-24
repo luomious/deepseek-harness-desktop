@@ -11,7 +11,7 @@
 //
 // 安全：apiKey 只在 host 侧读写，浏览器只见“已保存/未设置”；额度/测试请求全部 host 发起。
 // 纯 node 内置模块，零依赖；配置写前重读文件，避免与 modlens 自带设置卡互相覆盖。
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -194,6 +194,7 @@ function readPasteToPath() {
 // ── CLI ──
 function runCli(args, signal) {
   return new Promise((resolve, reject) => {
+    try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-runCli', argv0: String(args[0] ?? '').slice(0, 120) }) + '\n') } catch {}
     const child = spawn(process.execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
@@ -433,11 +434,33 @@ function startupDir() {
   return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
 }
 const OLLAMA_AUTOSTART_VBS = join(startupDir(), 'Ollama Serve.vbs')
+const OLLAMA_START_VBS = join(homedir(), '.modlens', 'ollama-serve-silent.vbs')
+// 实测(2026-08-24)：node spawn 直接拉 `ollama serve` 后，Ollama 0.32 内部会再拉
+// 一批子进程（llama-server --list-devices / gpu-discover ×2 / 模型 runner），每个
+// 都弹可见控制台，且 Win11 默认终端会把它们路由到 Windows Terminal/OpenConsole
+// 显示 → 用户看到 3+ 个"cmd 窗口"。改用 wscript+VBS 静默启动（与开机自启同路径，
+// WshShell.Run style=0），00:58 对照实验确认整批子进程不再弹窗。
 function startOllama() {
   return new Promise((resolve) => {
     try {
       const exe = ollamaExe()
       if (!existsSync(exe)) { log('ollama.exe 不存在:', exe); return resolve(false) }
+      try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-startOllama', mode: 'vbs' }) + '\n') } catch {}
+      try {
+        // 纯 ASCII 源（%LOCALAPPDATA% 展开，避免中文用户名路径编码问题）
+        const vbs =
+          'Set sh = CreateObject("WScript.Shell")\r\n' +
+          'sh.Environment("PROCESS")("OLLAMA_MODELS") = "D:\\ollama-models"\r\n' +
+          'sh.Environment("PROCESS")("OLLAMA_CONTEXT_LENGTH") = "8192"\r\n' +
+          'sh.Run sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") & " serve", 0, False\r\n'
+        mkdirSync(dirname(OLLAMA_START_VBS), { recursive: true })
+        writeFileSync(OLLAMA_START_VBS, vbs, { encoding: 'utf8' })
+        const child = spawn('wscript.exe', ['//B', OLLAMA_START_VBS], { detached: true, stdio: 'ignore', windowsHide: true })
+        child.unref()
+        return resolve(true)
+      } catch (error) {
+        log('VBS 静默启动失败，回退直接 spawn:', String(error))
+      }
       const child = spawn(exe, ['serve'], {
         detached: true,
         stdio: 'ignore',
@@ -449,12 +472,26 @@ function startOllama() {
     } catch { resolve(false) }
   })
 }
+// 旧版 `taskkill /F /IM ollama.exe` 有两个洞：
+//  ① /IM 只匹配 ollama.exe，打不到 llama-server.exe（模型 runner，UI 子系统），
+//     云端→本地切换后 runner 残留，一直占显存、GPU 空转（实测残留 2 个孤儿）；
+//  ② /IM 对无控制台的 UI 子系统进程可能漏杀。
+// 改为：tasklist 枚举 ollama.exe + llama-server.exe 全部 PID，逐个 /PID /T 杀。
+// （本机 Ollama 完全由 vision-engine 托管，全杀无误伤风险。）
 function stopOllama() {
   return new Promise((resolve) => {
     try {
-      const p = spawn('taskkill', ['/F', '/IM', 'ollama.exe'], { windowsHide: true, stdio: 'ignore' })
-      p.on('close', () => resolve(true))
-      p.on('error', () => resolve(false))
+      try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'vision-engine-stopOllama' }) + '\n') } catch {}
+      const list = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      const pids = []
+      for (const line of String(list.stdout || '').split(/\r?\n/)) {
+        const m = line.match(/^"([^"]+)","(\d+)"/)
+        if (m && /^(ollama|llama-server)\.exe$/i.test(m[1])) pids.push(m[2])
+      }
+      for (const pid of pids) {
+        spawnSync('taskkill', ['/F', '/PID', pid, '/T'], { windowsHide: true, stdio: 'ignore' })
+      }
+      resolve(true)
     } catch { resolve(false) }
   })
 }

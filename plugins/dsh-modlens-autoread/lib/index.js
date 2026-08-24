@@ -17,7 +17,7 @@
 //  3. 幂等与健壮：同一附件/路径只读一次（promise 级缓存，失败不缓存）；任何
 //     异常降级为原 decision，绝不让 agent 步骤失败。
 import { spawn } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
@@ -80,6 +80,7 @@ async function reportVisionUsage(ok) {
 
 function run(command, args, signal) {
   return new Promise((resolve, reject) => {
+    try { appendFileSync('D:/Deepseek-Harness/spawn-trace.log', JSON.stringify({ ts: new Date().toISOString(), src: 'autoread-run', argv0: String(args[0] ?? '').slice(0, 120) }) + '\n') } catch {}
     const child = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,

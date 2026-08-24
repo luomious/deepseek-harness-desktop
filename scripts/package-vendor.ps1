@@ -18,5 +18,14 @@ Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 
 corepack yarn workspace dsh-plugin-desktop package:dir 2>&1 | Tee-Object -FilePath $log -Append
 $code = $LASTEXITCODE
+if ($code -eq 0) {
+  # After packaging, re-apply every dist patch to the freshly built output
+  # (idempotent; resolve-dist auto-targets the newest build). This closes the
+  # old "rebuild -> patches land on the old dir -> restart shows no change" bug.
+  "=== re-apply patches (port-user + winhide + verify) ===" | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\port-user-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\apply-winhide-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\verify-patches.ps1 2>&1 | Tee-Object -FilePath $log -Append
+}
 "=== package exit: $code $(Get-Date -Format 'HH:mm:ss') ===" | Tee-Object -FilePath $log -Append
 exit $code

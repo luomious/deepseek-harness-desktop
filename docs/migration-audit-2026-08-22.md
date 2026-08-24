@@ -2,6 +2,8 @@
 
 > 日期：2026-08-23　作者：DSH Agent（本会话）　关联脚本：`scripts/port-user-patches.mjs`、`scripts/fix-injector-loadcache.mjs`、`scripts/verify-core.mjs`
 > 本文档被 `scripts/port-user-patches.mjs` 引用；请勿删除。
+>
+> ⚠️ 历史文档（2026-08-24 起）：文中 `win-unpacked` 等构建路径已过时；当前构建由 `scripts/resolve-dist.mjs` 动态解析（见 `docs/BUILD.md`）。
 
 ## 1. 背景
 
@@ -70,8 +72,8 @@
 | 2 | 补丁固化机制：`port-user-patches.mjs` 未进 vendor yarn patch / build 流程，**重打包后补丁会再次消失**（8/23 已发生一次） | 待加固 | 转成 `vendor/patches/dsh-client-ui-workspace@0.1.1-rc.2.patch` 等，或挂进 `package-vendor.ps1` / `rebuild-and-restart.ps1` |
 | 3 | settings-models 搜索 ×2 / serve-bundle-retry / frontend-static-nocache 补丁：新壳 bundle 无 | 待决策 | 迁移进 vendor patches 或正式放弃（新壳机制已部分覆盖） |
 | 4 | 旧壳 `buildDshEnv()`（CODEBUDDY_SAFE_DELETE/GENIE_TRASH_DIR/NODE_OPTIONS shim 清理）新壳无对应 | 待评估 | WorkBuddy 宿主场景仍有 shim 注入风险 |
-| 5 | 权限白名单（notifications/clipboard-write）新壳无 `setPermissionRequestHandler` | 待评估 | Electron 默认放行，安全面变宽 |
-| 6 | 原生目录选择器 worker.cjs UTF-16 bug：新壳 bundle 内仍含 buggy line | 待确认 | 确认新壳是否仍走 `dsh-host-directory-picker-native` 路径 |
+| 5 | 权限白名单（notifications/clipboard-write） | ✅ 已确认新壳有（`main.ts:462-466` `setPermissionRequestHandler/CheckHandler`，白名单 notifications/clipboard-write/clipboard-sanitized-write） | 无需处理 |
+| 6 | 原生目录选择器 worker.cjs UTF-16 bug | ✅ 已确认：`worker.cjs:24` 只查低字节判 NUL，U+0100~U+02FF 等字符会截断路径；中文/常规路径不受影响；属 vendor 三方包 | 建议不改/上报上游 |
 | 7 | `profile/desktop/` 模板 stale（bundles 仅 2 项 vs 实际 25 项）：重跑 install-desktop.ps1 会产出裸 profile | 待回写 | 把装配批次固化进 `scripts/staged-profile-assemble.ps1`，模板保持最小 |
 | 8 | `plugins/dsh-routing-suite` 从未入库（.gitignore）；`patches/` + 两个修复脚本未 git 提交 | 待提交 | 建议提交或归档，防换机丢失 |
 | 9 | super-injector 注册表 `~/.dsh/super-injector/registry.json` 全局共享，双 profile 共用有竞态 | 观察 | 无即时风险 |

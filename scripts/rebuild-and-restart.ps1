@@ -14,8 +14,8 @@ Start-Sleep -Seconds 5
 & powershell -NoProfile -ExecutionPolicy Bypass -File 'D:\Deepseek-Harness\scripts\package-vendor.ps1' *>> $log
 "重打包 exit: $LASTEXITCODE" | Tee-Object -FilePath $log -Append
 
-# 3. 验证产物
-$exe = 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist\win-unpacked\DSH Desktop.exe'
+# 3. 验证产物（自动解析 dist 下最新构建，与 update-shortcuts.ps1 同源）
+$exe = ((& node 'D:\Deepseek-Harness\scripts\resolve-dist.mjs') | ConvertFrom-Json).exe
 if (Test-Path $exe) {
   "新 exe: $((Get-Item $exe).LastWriteTime.ToString('HH:mm:ss')) / $([math]::Round((Get-Item $exe).Length/1MB,1)) MB" | Tee-Object -FilePath $log -Append
 } else {

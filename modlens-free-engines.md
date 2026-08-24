@@ -1,9 +1,27 @@
 # ModLens 视觉引擎备忘（免费方案 + 切换指南）
 
-> 记录时间：2026-08-21（最近更新）
-> 当前状态：**本地 Ollama `qwen2.5vl:7b`**（已实测通过，热读 8–45 秒/次）
-> 说明：本地模型解决了 glm-4v-flash 输出上限 1024 token 导致密集截图（如整页模型列表）读失败的问题。
-> 存储目录：`D:\ollama-models`（环境变量 `OLLAMA_MODELS`，Ollama 服务需带该变量启动）
+> 记录时间：2026-08-23（最近更新）
+> 当前状态：**阿里云百炼 `qwen3-vl-plus`**（`openai` 槽，已配 key，`max_tokens:4096`）
+> 备用槽：`gemini-api` 已建（`gemini-2.5-flash`，**只差填 apiKey**，填了即可与 openai 并存做故障转移）
+> 本地方案：Ollama `qwen2.5vl:7b`（见下"本地引擎"节，存储目录 `D:\ollama-models`）
+
+## 免费方案速查表（2026-08）
+
+modlens 共 6 个槽：`openai` / `gemini-api` / `anthropic` / `antigravity-cli` / `claude-cli` / `kimi-cli`。
+**`openai` 槽只有一个**（任意 OpenAI 兼容端点，后配覆盖前者）；其余槽互相独立、自动组成故障转移链。
+
+| 槽位 | 提供商 | 网站 | 免费额度 | 视觉模型 | 共存 |
+|---|---|---|---|---|---|
+| `openai` | 阿里云百炼 DashScope | bailian.console.aliyun.com | 新用户免费额度 | `qwen3-vl-plus` / `qwen-vl-max` | 当前在用 |
+| `openai` | 硅基流动 SiliconFlow | siliconflow.cn | L0 免费档 16 模型 | `Qwen/Qwen2.5-VL-7B-Instruct`、`GLM-4.6V` | 与百炼互斥 |
+| `openai` | 智谱 BigModel | bigmodel.cn | GLM-4V-Flash 免费 | `glm-4v-flash`（输出上限 1024） | 与百炼互斥 |
+| `openai` | 月之暗面 Moonshot | platform.moonshot.cn | 新用户免费额度 | `moonshot-v1-8k-vision-preview` | 与百炼互斥 |
+| `gemini-api` | Google Gemini | aistudio.google.com | 约 1500 次/天、不过期 | `gemini-2.5-flash` | ✅ 并存 |
+| `antigravity-cli` | Google Antigravity | antigravity.google | **免 key**（登录） | `gemini-3.6-flash-low` | ✅ 并存 |
+| `anthropic` | Anthropic | console.anthropic.com | 有限免费额度 | `claude-haiku-4-5` | ✅ 并存 |
+| `kimi-cli` | 月之暗面 Kimi Code | 复用订阅 | 订阅内 | kimi 默认 | ✅ 并存（仅点名） |
+
+> 海外免费 OpenAI 兼容口还有 Groq（`llama-3.2-vision`）、OpenRouter、Cloudflare Workers AI、Together —— 都走 `openai` 槽。
 
 ## 当前已配置（本地引擎）
 
@@ -59,6 +77,23 @@ node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dis
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.apiKey <key>
 node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model <免费视觉模型ID>
 ```
+
+### Moonshot 月之暗面（新用户免费额度，⚠️ 会替换当前 openai 槽）
+
+- 领 key：https://platform.moonshot.cn
+
+```
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.baseUrl https://api.moonshot.cn/v1
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.apiKey <key>
+node "C:\Users\机械革命\.dsh\profiles\web\node_modules\@liustack\modlens\dist\main.js" config set openai.model moonshot-v1-8k-vision-preview
+```
+
+### 海外 OpenAI 兼容口（Groq / OpenRouter / Cloudflare / Together，⚠️ 都替换 openai 槽，需梯子）
+
+- Groq：`config set openai.baseUrl https://api.groq.com/openai/v1`，model `llama-3.2-11b-vision-preview`
+- OpenRouter：`config set openai.baseUrl https://openrouter.ai/api/v1`，model 选免费视觉模型
+- Cloudflare：`config set openai.baseUrl https://api.cloudflare.com/client/v4/accounts/<account>/ai/v1`，model `@cf/llava-hf/llava-1.5-7b-hf`
+- Together：`config set openai.baseUrl https://api.together.xyz/v1`，model 选免费 Llama-Vision
 
 ### Antigravity CLI（免 key，15–40 秒/次，需梯子登录，✅ 可与当前引擎并存）
 
