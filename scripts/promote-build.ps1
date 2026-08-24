@@ -1,26 +1,29 @@
-# promote-build.ps1 - atomically point the stable dist\win-unpacked junction at a build.
+# promote-build.ps1 - atomically switch the stable dist\win-unpacked junction,
+# verify with smoke test (rollback on failure), then prune old buildN dirs.
 # PURE ASCII ONLY (PS 5.1 reads UTF-8 no-BOM as GBK -> syntax errors).
 #
 # Usage:
-#   .\promote-build.ps1 -From dist\win-unpacked-build4
+#   .\promote-build.ps1 -From dist\win-unpacked-build20260824xxxx
 #
-# The desktop shortcut always points at dist\win-unpacked\DSH Desktop.exe (a
-# directory junction). Promoting only re-points the junction, so the shortcut
-# path never changes and no buildN directory ever becomes the "current" entry.
-# After re-pointing, runs the smoke test. The previously linked build stays on
-# disk untouched as a rollback point.
+# Lifecycle guarantees:
+#   1. The desktop shortcut always points at dist\win-unpacked\DSH Desktop.exe
+#      (a junction); promoting only re-points the junction, never the shortcut.
+#   2. If the smoke test fails, the junction rolls back to the previous target
+#      (the app keeps working on the last known-good build).
+#   3. After a successful promote, older win-unpacked-build* dirs are archived
+#      to _backups\dist-archive\<ts>\ (keep: new + previous + the currently
+#      running build), so dist never accumulates buildN dirs.
 
 param([Parameter(Mandatory=$true)][string]$From)
 
 $ErrorActionPreference = 'Stop'
 $dist = "D:\Deepseek-Harness\vendor\deepseek-harness-desktop\dsh-plugin-desktop\dist"
 $link = Join-Path $dist 'win-unpacked'
+$archiveRoot = 'D:\Deepseek-Harness\_backups\dist-archive'
+$smoke = Join-Path $PSScriptRoot 'smoke-test.ps1'
 
-# Normalize From to a full path if relative
-if (-not [System.IO.Path]::IsPathRooted($From)) {
-    $From = Join-Path $dist $From
-}
-# electron-builder nests the app under <outDir>\win-unpacked\ when DSH_OUT_DIR is set
+# ---------- resolve target ----------
+if (-not [System.IO.Path]::IsPathRooted($From)) { $From = Join-Path $dist $From }
 if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
     $nested = Join-Path $From 'win-unpacked'
     if (Test-Path (Join-Path $nested 'DSH Desktop.exe')) { $From = $nested }
@@ -30,7 +33,11 @@ if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
     exit 1
 }
 
-# Re-point the junction (rmdir removes the link only, never the target).
+# ---------- capture previous target for rollback ----------
+$prevTarget = ''
+if (Test-Path $link) { $prevTarget = (Get-Item $link -Force).Target }
+
+# ---------- re-point junction ----------
 if (Test-Path $link) { cmd /c rmdir "$link" | Out-Null }
 cmd /c mklink /J "$link" $From | Out-Null
 if (-not (Test-Path (Join-Path $link 'DSH Desktop.exe'))) {
@@ -38,7 +45,7 @@ if (-not (Test-Path (Join-Path $link 'DSH Desktop.exe'))) {
     exit 1
 }
 
-# Shortcuts always target the stable path; refresh anyway to be safe.
+# ---------- refresh shortcuts (fixed stable path) ----------
 $sh = New-Object -ComObject WScript.Shell
 foreach ($l in @(
     (Join-Path $env:USERPROFILE 'Desktop\DSH Desktop.lnk'),
@@ -53,8 +60,53 @@ foreach ($l in @(
     }
 }
 
+# ---------- smoke test with rollback ----------
+& $smoke
+$code = $LASTEXITCODE
+if ($code -ne 0) {
+    Write-Host ("smoke test FAILED ($code); rolling back to previous target") -ForegroundColor Red
+    if ($prevTarget -ne '') {
+        cmd /c rmdir "$link" | Out-Null
+        cmd /c mklink /J "$link" $prevTarget | Out-Null
+        Write-Host ("rolled back win-unpacked -> " + $prevTarget) -ForegroundColor Yellow
+    }
+    exit 1
+}
 Write-Host ("promoted win-unpacked -> " + $From) -ForegroundColor Green
 
-# Smoke test the promoted build.
-& (Join-Path $PSScriptRoot 'smoke-test.ps1')
-exit $LASTEXITCODE
+# ---------- prune old builds (keep new + previous + running, archive rest) ----------
+$runningPath = ''
+$proc = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like 'DSH Desktop*' -and $_.CommandLine -like '*DSH Desktop.exe*' -and $_.CommandLine -notlike '*--type=*' } |
+    Select-Object -First 1
+if ($proc) { $runningPath = $proc.ExecutablePath }
+
+function BuildRootOf([string]$path) {
+    # <dist>\win-unpacked-buildN\win-unpacked -> <dist>\win-unpacked-buildN
+    $p = Split-Path -Parent $path
+    if ((Split-Path -Leaf $p) -eq 'win-unpacked') { $p = Split-Path -Parent $p }
+    return $p
+}
+$keep = @()
+$newRoot = BuildRootOf $From
+if ($prevTarget -ne '') { $keep += (BuildRootOf $prevTarget) }
+if ($runningPath -ne '') { $keep += (BuildRootOf $runningPath) }
+$keep += $newRoot
+$keep = $keep | Select-Object -Unique
+
+$ts = Get-Date -Format 'yyyyMMddHHmmss'
+$builds = Get-ChildItem $dist -Directory -Filter 'win-unpacked-build*' -ErrorAction SilentlyContinue
+foreach ($b in $builds) {
+    $real = (Resolve-Path $b.FullName -ErrorAction SilentlyContinue).Path
+    if ($keep -contains $real) { continue }
+    $archiveDir = Join-Path $archiveRoot $ts
+    New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+    $dest = Join-Path $archiveDir $b.Name
+    try {
+        Move-Item -LiteralPath $b.FullName -Destination $dest -Force
+        Write-Host ("archived old build: " + $b.Name + " -> " + $dest) -ForegroundColor DarkYellow
+    } catch {
+        Write-Host ("skip archiving (in use?): " + $b.Name + " : " + $_.Exception.Message) -ForegroundColor DarkYellow
+    }
+}
+exit 0

@@ -32,6 +32,12 @@ if ($code -eq 0) {
   node D:\Deepseek-Harness\scripts\port-user-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\apply-winhide-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\verify-patches.ps1 2>&1 | Tee-Object -FilePath $log -Append
+  # Auto-promote: point the stable junction at this fresh build (smoke-test with
+  # rollback on failure, then prune old buildN dirs). Next launch = this build.
+  "=== auto-promote ($env:DSH_OUT_DIR) ===" | Tee-Object -FilePath $log -Append
+  powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\promote-build.ps1 -From $env:DSH_OUT_DIR 2>&1 | Tee-Object -FilePath $log -Append
+  $promoteCode = $LASTEXITCODE
+  if ($promoteCode -ne 0) { $code = $promoteCode }
 }
 "=== package exit: $code $(Get-Date -Format 'HH:mm:ss') ===" | Tee-Object -FilePath $log -Append
 exit $code
