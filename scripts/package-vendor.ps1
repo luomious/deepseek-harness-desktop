@@ -1,4 +1,4 @@
-﻿# DSH Desktop vendor 打包脚本（electron-builder --dir，win-unpacked）
+# DSH Desktop vendor 打包脚本（electron-builder --dir，win-unpacked）
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vendor.ps1
 $ErrorActionPreference = 'Continue'
 
@@ -15,6 +15,12 @@ $env:ELECTRON_BUILDER_CACHE = 'D:\Deepseek-Harness\.electron-builder-cache'
 $log = 'D:\Deepseek-Harness\_backups\package-vendor.log'
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 "=== package start $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Tee-Object -FilePath $log
+
+# 2026-08-24: 必须输出到新 buildN 目录（dist\win-unpacked 是 junction 固定入口，
+# 不设 DSH_OUT_DIR 会让 electron-builder 写穿 junction 覆盖当前构建）。
+# 打包后用 promote-build.ps1 -From <该目录> 换版。
+$env:DSH_OUT_DIR = "dist/win-unpacked-build$(Get-Date -Format 'yyyyMMddHHmm')"
+"=== DSH_OUT_DIR=$env:DSH_OUT_DIR ===" | Tee-Object -FilePath $log -Append
 
 corepack yarn workspace dsh-plugin-desktop package:dir 2>&1 | Tee-Object -FilePath $log -Append
 $code = $LASTEXITCODE
