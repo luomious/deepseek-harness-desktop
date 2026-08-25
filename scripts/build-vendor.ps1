@@ -2,6 +2,14 @@
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-vendor.ps1
 $ErrorActionPreference = 'Continue'
 
+# Node 24 module auto-detection loads corepack's yarn.js as ESM, where its
+# webpack runtime cannot dynamic-require (release drill 2026-08-25). Pin the
+# cache dir's module type to CommonJS.
+$YARN_CACHE = Join-Path $env:COREPACK_HOME 'v1\yarn\4.18.0'
+if (-not (Test-Path (Join-Path $YARN_CACHE 'package.json'))) {
+  Set-Content -Path (Join-Path $YARN_CACHE 'package.json') -Value '{ "name": "yarn", "version": "4.18.0", "type": "commonjs" }' -Encoding ascii
+}
+
 # P1-B7: proxy from env (DSH_PROXY first, existing HTTP(S)_PROXY respected),
 # fallback to the machine-local default. No longer clamps a fixed proxy.
 if (-not $env:HTTP_PROXY) { $env:HTTP_PROXY = if ($env:DSH_PROXY) { $env:DSH_PROXY } else { 'http://127.0.0.1:7897' } }
@@ -10,6 +18,14 @@ if (-not $env:NO_PROXY) { $env:NO_PROXY = 'localhost,127.0.0.1' }
 $env:COREPACK_HOME = 'D:\Deepseek-Harness\.corepack'
 $env:YARN_CACHE_FOLDER = 'D:\Deepseek-Harness\.yarn-cache'
 $env:YARN_GLOBAL_FOLDER = 'D:\Deepseek-Harness\.yarn-global'
+
+# Node 24 module auto-detection loads corepack's yarn.js as ESM, where its
+# webpack runtime cannot dynamic-require (release drill 2026-08-25). Pin the
+# cache dir's module type to CommonJS.
+$YARN_CACHE = Join-Path $env:COREPACK_HOME 'v1\yarn\4.18.0'
+if (-not (Test-Path (Join-Path $YARN_CACHE 'package.json'))) {
+  Set-Content -Path (Join-Path $YARN_CACHE 'package.json') -Value '{ "name": "yarn", "version": "4.18.0", "type": "commonjs" }' -Encoding ascii
+}
 
 $log = 'D:\Deepseek-Harness\_backups\build-vendor.log'
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'

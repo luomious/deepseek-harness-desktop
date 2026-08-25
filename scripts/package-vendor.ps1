@@ -14,6 +14,14 @@ $env:YARN_GLOBAL_FOLDER = 'D:\Deepseek-Harness\.yarn-global'
 $env:ELECTRON_CACHE = 'D:\Deepseek-Harness\.electron-cache'
 $env:ELECTRON_BUILDER_CACHE = 'D:\Deepseek-Harness\.electron-builder-cache'
 
+# Node 24 module auto-detection loads corepack's yarn.js as ESM, where its
+# webpack runtime cannot dynamic-require (release drill 2026-08-25). Pin the
+# cache dir's module type to CommonJS so yarn always loads in CJS mode.
+$YARN_CACHE = Join-Path $env:COREPACK_HOME 'v1\yarn\4.18.0'
+if (-not (Test-Path (Join-Path $YARN_CACHE 'package.json'))) {
+  Set-Content -Path (Join-Path $YARN_CACHE 'package.json') -Value '{ "name": "yarn", "version": "4.18.0", "type": "commonjs" }' -Encoding ascii
+}
+
 $log = 'D:\Deepseek-Harness\_backups\package-vendor.log'
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 "=== package start $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Tee-Object -FilePath $log

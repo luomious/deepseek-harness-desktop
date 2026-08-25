@@ -8,6 +8,12 @@ if (-not $env:NO_PROXY) { $env:NO_PROXY = 'localhost,127.0.0.1' }
 $env:COREPACK_HOME = 'D:\Deepseek-Harness\.corepack'
 $env:YARN_CACHE_FOLDER = 'D:\Deepseek-Harness\.yarn-cache'
 $env:YARN_GLOBAL_FOLDER = 'D:\Deepseek-Harness\.yarn-global'
+# Node 24 module auto-detection loads corepack's yarn.js as ESM (release drill
+# 2026-08-25). Pin the cache dir's module type to CommonJS.
+$YARN_CACHE = Join-Path $env:COREPACK_HOME 'v1\yarn\4.18.0'
+if (-not (Test-Path (Join-Path $YARN_CACHE 'package.json'))) {
+  Set-Content -Path (Join-Path $YARN_CACHE 'package.json') -Value '{ "name": "yarn", "version": "4.18.0", "type": "commonjs" }' -Encoding ascii
+}
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 corepack yarn install 2>&1 | Select-Object -Last 10
 "yarn install exit: $LASTEXITCODE"
