@@ -59,7 +59,7 @@ foreach ($plug in @('file-explorer','skills-manager','model-whitelist','vision-e
 }
 # 2026-08-25: double-channel assembly cleanup + session-title config regression
 $reg = Get-Content "$usr\.dsh\super-injector\registry.json" -Raw -Encoding UTF8
-$stale = @('dsh-vision-engine','dsh-modlens-autoread','dsh-session-watchdog','dsh-project-brief','dsh-force-reasoning-effort','dsh-vision-rotator')
+$stale = @('dsh-vision-engine','dsh-modlens-autoread','dsh-session-watchdog','dsh-project-brief','dsh-force-reasoning-effort','dsh-vision-rotator','dsh-self-maintenance')
 $found = @($stale | Where-Object { $reg.Contains($_) })
 Add-Check 'registry-no-double-channel' ($found.Count -eq 0) ("stale=" + ($found -join ','))
 $tp = Get-Content 'D:\Deepseek-Harness\profile\desktop\cordis.patch.yml' -Raw -Encoding UTF8
@@ -74,6 +74,12 @@ $hyg = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\package.json
 Add-Check 'hygiene-bundle-patch' ($hyg.Contains('"bundle"') -and $hyg.Contains('./cordis.patch.yml') -and (Test-Path 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml')) 'bundle patch declared'
 $hygPatch = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml' -Raw -Encoding UTF8
 Add-Check 'hygiene-config' ($hygPatch.Contains('warnBytes') -and $hygPatch.Contains('scanIntervalMs')) 'warnBytes+scanIntervalMs configured'
+# 2026-08-26: dsh-self-maintenance (in-app smart health check, replaces scheduled task)
+$smSrc = 'D:\Deepseek-Harness\plugins\dsh-self-maintenance\lib\index.js'
+$smOk = (Test-Path $smSrc) -and (Get-Content $smSrc -Raw -Encoding UTF8).Contains('statfsSync')
+$tpkg = Get-Content 'D:\Deepseek-Harness\profile\desktop\package.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+$smRegistered = ($tpkg.'dsh'.profile.bundles -contains '@dsh-external/dsh-self-maintenance') -and ($tpkg.dependencies.PSObject.Properties.Name -contains '@dsh-external/dsh-self-maintenance')
+Add-Check 'self-maintenance-source' ($smOk -and $smRegistered) 'plugin+template bundle registered'
 Add-Check 'title-config-max512' ($tp.Contains('maxOutputTokens: 512') -and $rtp.Contains('maxOutputTokens: 512')) '512 in template+runtime'
 
 # ---- runtime health (WARN-only; skip if app not serving) ----

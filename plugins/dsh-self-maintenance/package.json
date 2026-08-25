@@ -1,0 +1,18 @@
+{
+  "name": "@dsh-external/dsh-self-maintenance",
+  "version": "0.1.0",
+  "description": "智能自检守护：磁盘/会话/健康分级判断，健康时静默，异常时通知（零依赖 host 模式）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3"
+  }
+}

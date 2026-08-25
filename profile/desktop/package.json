@@ -13,7 +13,9 @@
     "@dsh-external/dsh-modlens-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-modlens-guard",
     "@dsh-external/dsh-project-brief": "link:D:\\Deepseek-Harness\\plugins\\dsh-project-brief",
     "@dsh-external/dsh-remote-workspace": "link:D:\\Deepseek-Harness\\plugins\\dsh-remote-workspace",
+    "@dsh-external/dsh-self-maintenance": "link:D:\\Deepseek-Harness\\plugins\\dsh-self-maintenance",
     "@dsh-external/dsh-session-history": "link:D:\\Deepseek-Harness\\plugins\\dsh-session-history",
+    "@dsh-external/dsh-session-hygiene": "link:D:\\Deepseek-Harness\\plugins\\dsh-session-hygiene",
     "@dsh-external/dsh-session-watchdog": "link:D:\\Deepseek-Harness\\plugins\\dsh-session-watchdog",
     "@dsh-external/dsh-stuck-loop-guard": "link:D:\\Deepseek-Harness\\dsh-stuck-loop-guard",
     "@dsh-external/dsh-super-injector": "file:D:/Deepseek-Harness/plugins/dsh-routing-suite/dsh-external-dsh-super-injector-0.3.3.tgz",
@@ -34,6 +36,7 @@
     "dshmarket": "^1.17.1",
     "@dsh-external/dsh-frontend-reload": "link:D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload",
     "@dsh-external/dsh-hy3-gateway": "link:D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
+    "@dsh-external/dsh-host-services": "link:D:\\Deepseek-Harness\\plugins\\dsh-host-services",
     "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator"
   },
   "dsh": {
@@ -41,9 +44,12 @@
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
+        "@dsh-external/dsh-host-services",
         "@dsh-external/dsh-web-search-bing",
         "@dsh-external/dsh-web-fetch-local",
         "@dsh-external/dsh-session-history",
+        "@dsh-external/dsh-session-hygiene",
+        "@dsh-external/dsh-self-maintenance",
         "@dsh-external/dsh-stuck-loop-guard",
         "@dsh-external/dsh-context-lifecycle",
         "@liustack/modlens",
