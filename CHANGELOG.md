@@ -6,6 +6,41 @@
 
 ---
 
+## 2026-08-25 界面变透明 + 未响应 + 打不了字：根因定位与彻底修复（待重启生效）
+
+### 现象
+重启后界面变透明、"DSH Desktop 未响应"、输入框打不了字；快捷方式 `--disable-gpu` 已加仍复发。
+
+### 根因（三重）
+1. **GameViewer Virtual Display Adapter**（`ROOT\DISPLAY\0000`，Started）+ spacedesk 虚拟显示驱动
+   干扰 Chromium GPU 合成 → 渲染器挂起（未响应/打不了字）。
+2. **Advanced 壳窗口 = 全透明背景 + Mica 材质**（`window-options.ts` / `electron-platform.ts`）：
+   Mica 是 DWM 效果，依赖 GPU 合成；GPU 被禁用/损坏时整窗变全透明。
+3. `--disable-gpu` 只在快捷方式参数里 → **应用内自重启（托盘/更新/恢复流程）不带参数**，
+   GPU 重新启用，问题循环复发。
+
+### 修复（dist 补丁，幂等可重打）
+- 新增 `scripts/apply-gpu-opaque-patches.mjs`（已接入 `package-vendor.ps1` 流水线，
+  `verify-patches.ps1` 新增 3 项校验，全部通过）：
+  1. `lib/main.js`：进程内 `app.disableHardwareAcceleration()` + `disable-gpu` 开关
+     ——覆盖所有启动路径，不再依赖快捷方式参数；
+  2. `lib/electron-runtime-*.js`：GPU 禁用时 win32 高级窗口回退为不透明深色底
+     （`#202124`）并跳过 Mica（客户端各 surface 本就绘制 `--dsw-alias-bg-base`）；
+  3. 同 chunk：`refreshThemeMaterial` 的 `setBackgroundMaterial("mica")` 同条件守卫。
+  - 逃生开关：`DSH_DESKTOP_FORCE_GPU=1` 可恢复 GPU + Mica（建议先禁用虚拟显示适配器再试）。
+- 已对当前构建 `win-unpacked-build202608250957` 应用并 `node --check` 通过；**需重启生效**。
+
+### 待用户操作
+- 管理员权限禁用虚拟显示适配器（根治）：`pnputil /disable-device "ROOT\DISPLAY\0000"`
+  （会停用 GameViewer 串流虚拟屏；需要时 `pnputil /enable-device` 恢复）。
+- 当前挂起实例：点"关闭程序"，再从快捷方式重启。
+
+### 观测到的另一异常（不影响本修复）
+agent 的 `shell` 工具误拉起 `DSH Desktop.exe`（报 duplicate instance）；`pwsh` 工具正常，
+暂以 `pwsh` 替代，待独立会话追查 DSH 核心 shell 后端解析。
+
+---
+
 ## 2026-08-25 投产审计修复全量落地 + 运行时验收通过
 
 ### 审计背景

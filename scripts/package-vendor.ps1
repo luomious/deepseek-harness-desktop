@@ -42,6 +42,7 @@ if ($code -eq 0) {
   "=== re-apply patches (port-user + winhide + verify) ===" | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\port-user-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\apply-winhide-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\apply-gpu-opaque-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\verify-patches.ps1 2>&1 | Tee-Object -FilePath $log -Append
   # Auto-promote: point the stable junction at this fresh build (smoke-test with
   # rollback on failure, then prune old buildN dirs). Promote is only safe with
