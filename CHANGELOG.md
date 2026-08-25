@@ -59,9 +59,13 @@
 - 验证：`registry-no-double-channel` 回归守卫；重启后无 duplicate route 警告。
 
 ### 遗留观察项
-- 新建会话标题生成结果待日常观察（配置已生效，重启后无新报错）。
-- `dsh-session-hygiene` bundle 声明由并行维护者补齐，重启后已正常启动（`/session-hygiene/report`）。
+- 新建会话标题生成结果待日常观察（配置已生效，重启后无新报错；`verify-features.ps1` 49/49 含 `startup-title-ok` 运行时日志扫描自动追踪）。
+- `dsh-session-hygiene` bundle 声明由并行维护者补齐，重启后已正常启动（`/session-hygiene/report` 200；回归链：`hygiene-bundle-patch` + `hygiene-config` + `endpoint/session-hygiene/report`）。
 - `shell` 工具 duplicate-instance 问题（已知，patch #15 已登记，验证前用 pwsh 兜底）。
+### verify-features.ps1 回归链（41→49 项）
+- 新增 `hygiene-config`（warnBytes/scanIntervalMs 断言）、`title-config-max512`（512 在模板+运行时）。
+- 运行时健康（app 在线时自动追加，不阻断）：4 个端点均 200；`startup-title-ok`（重启后无 maxOutputTokens 标题失败）、`hygiene-errors`（重启后无 hygiene [E]）。
+- 历史旧记录（pre-restart）已过滤，仅检测重启后新产生的错误，避免误报。
 
 ---
 

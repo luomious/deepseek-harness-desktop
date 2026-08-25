@@ -72,6 +72,32 @@ $bl = $rpk.'dsh'.profile.bundles
 Add-Check 'runtime-bundles-full' ($bl.Count -ge 29 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene') ("count=" + $bl.Count)
 $hyg = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\package.json' -Raw -Encoding UTF8
 Add-Check 'hygiene-bundle-patch' ($hyg.Contains('"bundle"') -and $hyg.Contains('./cordis.patch.yml') -and (Test-Path 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml')) 'bundle patch declared'
+$hygPatch = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml' -Raw -Encoding UTF8
+Add-Check 'hygiene-config' ($hygPatch.Contains('warnBytes') -and $hygPatch.Contains('scanIntervalMs')) 'warnBytes+scanIntervalMs configured'
+Add-Check 'title-config-max512' ($tp.Contains('maxOutputTokens: 512') -and $rtp.Contains('maxOutputTokens: 512')) '512 in template+runtime'
+
+# ---- runtime health (WARN-only; skip if app not serving) ----
+$ok = $null
+try { $ok = (Invoke-WebRequest -Uri 'http://127.0.0.1:43120/' -UseBasicParsing -TimeoutSec 3).StatusCode } catch {}
+if ($ok -eq 200) {
+  foreach ($ep in @('/vision-engine/config','/vision-rotator','/session-hygiene/report','/host-services/status')) {
+    $code = -1
+    try { $code = (Invoke-WebRequest -Uri "http://127.0.0.1:43120$ep" -UseBasicParsing -TimeoutSec 8).StatusCode } catch { $code = -1 }
+    Add-Check "endpoint$ep" ($code -eq 200) "http $code"
+  }
+  $today = [datetime]::Today.ToString('yyyy-MM-dd')
+  $errLog = Join-Path (Join-Path $env:APPDATA 'DSH Desktop\logs') "dsh-$today.error.log"
+  if (Test-Path $errLog) {
+    $recent = Get-Content $errLog -Tail 500 -ErrorAction SilentlyContinue
+    # only count failures AFTER restart (post-23:xx when 512 config became active)
+    $titleFail = @($recent | Where-Object { $_ -match "$today (23:[3-5]\d|2[4-9]|3)" -and $_ -match 'title output reached maxOutputTokens' })
+    if ($titleFail.Count -gt 0) { Write-Warning "startup-title-ok WARN: $($titleFail.Count) title failure(s) after restart (last: ~$($titleFail[-1].Substring(0,23)))" }
+    Add-Check 'startup-title-ok' ($titleFail.Count -eq 0) ("post-restart failures: " + $titleFail.Count)
+    $hygErr = @($recent | Where-Object { $_ -match "$today (23:[3-5]\d|2[4-9]|3)" -and $_ -match '\[E\].*session-hygiene' })
+    if ($hygErr.Count -gt 0) { Write-Warning "hygiene-errors WARN: $($hygErr.Count) hygiene [E] after restart" }
+    Add-Check 'hygiene-errors' ($hygErr.Count -eq 0) ("post-restart [E]: " + $hygErr.Count)
+  }
+}
 $rows | Format-Table -AutoSize -Wrap | Out-String -Width 210
 $fail = ($rows | Where-Object { $_.Status -eq 'FAIL' }).Count
 "TOTAL $($rows.Count), FAIL $fail"
