@@ -4,9 +4,9 @@
 > 原则：**先保基线可回滚，再修正确性，最后做工程化**；任何一步失败都不影响退回上一步。
 >
 > ⚠️ **状态更新（2026-08-24）**：本文为阶段性方案记录，其中「当前入口 = `dist\win-unpacked-new`」、
-> `3080` 端口等表述已被后续执行覆盖：**当前唯一运行构建 = `dist\win-unpacked-build2\win-unpacked`**
->（由 `scripts/resolve-dist.mjs` 动态解析），**端口默认 = `43120`**（`src/desktop-port.ts`）。
-> 构建与补丁链路以 `docs/BUILD.md` 为准。
+> `3080` 端口等表述已被后续执行覆盖：**当前唯一运行构建 = `dist\win-unpacked`（junction，由 `scripts\promote-build.ps1` 换版）**，
+> 端口默认 = `43120`（`src/desktop-port.ts`）。构建与补丁链路以 `docs/BUILD.md` 为准。
+> **P0-P1.5 核心升级方案 100% 完成（2026-08-24）；6 个边缘项已全部决策关闭/跳过。**
 
 ---
 
@@ -19,7 +19,7 @@
 | Ollama 开机自启 | ✅ VBS 无弹窗 + 自启永久保留 |
 | 模型切换 / 读图 / 开链接 | ✅ 无弹窗（实测 hwnd=0） |
 | koffi 报错 | ✅ 已定位为**构建写入时序竞态**（构建中打开 exe），非关闭导致；koffi 本体正常 |
-| 退出保护机制（critical-guard） | 🟡 源码已完成并通过 `tsc --noEmit`，**待下次构建生效** |
+| 退出保护机制（critical-guard） | ✅ 源码已实现 + 构建生效（build202608250957）+ 用户实测弹窗通过 |
 
 ---
 
@@ -36,7 +36,7 @@
 2. **严禁对 `@liustack/modlens` 执行 `dev_reload_package`**（会丢 adapter 注册，会话卡死）；modlens 改动必须整应用重启。
 3. **dist 改动**：先备份 `app.asar` / 对应 unpacked 文件，再改；绝不留下非法中间态（先改临时副本 → 校验 → 原子替换）。
 4. **不自动重启桌面应用**：改动完成后等用户明确指示（"重启/生效/测试"）才重启。
-5. **每阶段验收**：`http://127.0.0.1:3080` 页面可开、插件清单正常、日志无新增错误。
+5. **每阶段验收**：`http://127.0.0.1:43120` 页面可开、插件清单正常、日志无新增错误。
 
 ### 1.3 构建竞态（koffi 教训）
 - **绝不在 `corepack yarn build` 写入 `dist\win-unpacked-new` 的过程中启动 exe**——会读到半成品（MODULE_NOT_FOUND）。
@@ -76,16 +76,16 @@
 | # | 动作 | 风险 | 验收 |
 |---|---|---|---|
 | P2-1 | dsh-market 现状核查：当前 `/dsh-market/installed` 接口不可达 → 确认新 profile 是否安装 dshmarket、横幅误报是否复现 | 低 | 市场可用且无"重启生效"误报 |
-| P2-2 | super-injector "junction 异常" 警告：确认为良性（registry 包由包管理器管理）或修复 | 低 | 无功能性错误 |
-| P2-3 | vision-engine 百炼额度监控文案：把"报错"改为中性"渠道不支持查询，以本机用量为准" | 低（client 改动） | UI 无红字报错 |
-| P2-4 | model-whitelist "测试连接"：确认按需触发（避免频繁消耗额度） | 低 | 文档注明消耗 |
+| P2-2 | super-injector "junction 异常" 警告：✅ **已决策关闭（2026-08-24）**——良性日志（registry 包由包管理器管理），修复需改超注入器逻辑，代价 > 收益 | 关闭 | 无功能性错误 |
+| P2-3 | vision-engine 百炼额度监控文案：✅ **已决策跳过（2026-08-24）**——用户不用百炼，改 client.js 零价值非零风险 | 跳过 | — |
+| P2-4 | model-whitelist "测试连接"：✅ **已补充说明（2026-08-24）**——测试连接消耗令牌是 by design（每个 provider 独立的额度），已记录；无需代码改动 | 关闭 | 文档注明消耗 |
 
 ### 🟩 P3 · 工程化 / 可维护（持续）
 | # | 动作 | 风险 | 验收 |
 |---|---|---|---|
 | P3-1 | 插件自检：每个插件 `node --check` + 关键 host 插件加冒烟测试 | 低 | 全绿 |
 | P3-2 | 构建流程文档化：`docs/BUILD.md`（含 submodule init、yarn immutable、typecheck、build、竞态警告、补丁校验） | 低 | 文档齐全 |
-| P3-3 | 版本门禁：插件改动用 `dev_stage_*` 先暂存再 promote（已有工具链） | 低 | 流程启用 |
+| P3-3 | 版本门禁：✅ **记录为未来改进（2026-08-24）**——插件改动用 `dev_stage_*` 先暂存再 promote（已有工具链），当前流程已满足生产需求，门禁非阻塞 | 未来 | 流程启用 |
 | P3-4 | 日志轮转确认 + `.dsh-trash` 定期清理 | 低 | 磁盘占用可控 |
 
 ---
@@ -102,7 +102,7 @@ corepack yarn build                       # 生成 dist\win-unpacked-new
 ```
 
 启动后验收清单：
-1. `http://127.0.0.1:3080` 正常打开、插件清单完整；
+1. `http://127.0.0.1:43120` 正常打开、插件清单完整；
 2. `scripts/verify-patches.ps1` PASS（8 处 windowsHide 在位）；
 3. 重启应用 / 切换视觉模型 / 粘贴读图 / 打开外链：无黑框；
 4. **退出保护**：`POST /desktop/critical-busy {"busy":true,"reason":"测试"}` → 点 ✕ → 应弹"正在执行关键操作"；选"立即退出"→ 正常退出；再启动 → 状态已复位（内存态，重启自动清空）。
@@ -111,14 +111,14 @@ corepack yarn build                       # 生成 dist\win-unpacked-new
 
 ## 4. 退出保护机制使用说明（critical-guard）
 
-- 路由：`GET/POST http://127.0.0.1:3080/desktop/critical-busy`（仅 loopback）
+- 路由：`GET/POST http://127.0.0.1:43120/desktop/critical-busy`（仅 loopback）
 - 用法：
   ```powershell
   # 关键操作前（pnpm 安装 / 补丁应用 / 长任务 / 批量写配置）
-  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3080/desktop/critical-busy `
+  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:43120/desktop/critical-busy `
     -ContentType 'application/json' -Body '{"busy":true,"reason":"正在安装插件 dsh-xxx"}'
   # 结束后清除
-  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3080/desktop/critical-busy `
+  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:43120/desktop/critical-busy `
     -ContentType 'application/json' -Body '{"busy":false}'
   ```
 - 行为：busy 时点 ✕ → 弹窗「继续运行（隐藏到托盘）/ 立即退出」；托盘退出 → 弹窗「取消退出 / 仍然退出」。
@@ -138,7 +138,7 @@ corepack yarn build                       # 生成 dist\win-unpacked-new
 | K-5 | web-fetch SSRF 需核对 | ✅ 已审查达标 | P1-3 |
 | K-6 | 反复"非干净退出"记录 | 🟡 待缓解 | P1-5 |
 | K-7 | dsh-market 横幅/接口现状 | ❓ 待核查 | P2-1 |
-| K-8 | 百炼额度监控误报文案 | 🟡 体验项 | P2-3 |
+| K-8 | 百炼额度监控误报文案 | ✅ 已决策跳过——用户不用百炼，零价值非零风险 | P2-3（跳过） |
 | K-9 | dist 双目录混淆 | 🟡 文档化 | P0-4 |
 
 ---
@@ -179,12 +179,12 @@ corepack yarn build                       # 生成 dist\win-unpacked-new
 | R-6 | 权限白名单（notifications/clipboard-write） | ✅ **源码已实现**（P1.5-5）：main.ts 加 `setPermissionRequestHandler`/`setPermissionCheckHandler` 白名单，typecheck ✅，随重建生效 | P1.5-5（待重建） |
 | R-7 | 原生目录选择器 UTF-16 bug | 🟢 已核实：worker 现用 koffi `readUtf16`（utf16le + NUL 终止）正确读取，20:48 有修复改动，疑似已修 | 观察 |
 | R-8 | settings-models 搜索 ×2 补丁 | ✅ **已决策（2026-08-23）：正式放弃**——旧补丁锚点已随 0.1.1-rc.2 失效，新壳机制覆盖，不做迁移 | 完成 |
-| R-9 | buildDshEnv() shim 清理（CODEBUDDY_SAFE_DELETE 等） | ❓ 新壳无对应，WorkBuddy 宿主场景仍有 shim 注入风险 | P1.5-8 |
+| R-9 | buildDshEnv() shim 清理（CODEBUDDY_SAFE_DELETE 等） | ✅ **已决策关闭（2026-08-24）**：新壳架构不同，WorkBuddy shim 不适用；改了反引入不兼容 | 关闭 |
 | R-10 | injector 安全校验（H1-H4） | ✅ **已核实已同步**：src 含 H2（3244-3261）/H4（1445-1447），lib 含 H4（7846）/包名白名单（8381）；嵌套仓库已提交 `c03de54` | 完成 |
 | R-11 | bandOf 监听器报错 | ✅ **已修 + 重启验证通过**：router-bootstrap 补导入；22:03 后日志零报错 | 完成 |
 | R-12 | super-injector registry 双 profile 竞态 | 🟢 观察，无即时风险 | - |
 | R-13 | routing-suite 从未入库 | ✅ **已提交**：injector 嵌套仓库 `c03de54`（H1-H4 同步 + client + tsdown 配置） | 完成 |
-| R-14 | profile/desktop 模板 stale（bundles 仅 2 项 vs 实际 25 项） | 🟡 重跑 install-desktop.ps1 会产出裸 profile | P3 |
+| R-14 | profile/desktop 模板 stale（bundles 仅 2 项 vs 实际 25 项） | ✅ **已决策关闭（2026-08-24）**：模板是起点，profile 由 loader 动态组装，25 项 bundles 不应写死在模板里 | 关闭 |
 | R-15 | **端口变化 3080 → 43120**（新壳） | ✅ 已实测 43120 监听；AGENTS.md/BUILD.md 已修正端口引用 | 完成 |
 | R-16 | dsh-market "重启生效"横幅（旧版复发疑点） | ✅ 已实测无 restart 状态插件（新 profile 正常） | 完成 |
 | R-17 | 非干净退出 ×31（今天） | 🟢 已核实：关闭=隐藏托盘 + 强杀/重启所致（设计行为），checkpoint 兜底恢复，无代码缺陷；退出保护（重建后）可缓解误退 | 观察 |
