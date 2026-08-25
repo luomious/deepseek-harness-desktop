@@ -804,21 +804,37 @@ window.__ModuleLoader__.load({
       // 幂等挂载：热重载/重复挂载时先清理旧轮询与监听，防止累积（防 CPU 空转）
       if (window.__VE_POLLERS__) {
         window.clearInterval(window.__VE_POLLERS__.timer);
+        if (window.__VE_POLLERS__._cancelRaf) window.__VE_POLLERS__._cancelRaf();
         document.removeEventListener('input', window.__VE_POLLERS__.onInput, true);
         document.removeEventListener('focusin', window.__VE_POLLERS__.onFocusIn, true);
         window.removeEventListener('scroll', window.__VE_POLLERS__.onScroll, true);
         window.removeEventListener('resize', window.__VE_POLLERS__.onResize);
         document.removeEventListener('keydown', window.__VE_POLLERS__.onKey);
       }
-      var onInput = function () { window.setTimeout(render, 40); };
-      var onFocusIn = function () { window.setTimeout(render, 40); };
+      // 事件驱动 + rAF 节流：同一帧内多次 input/focusin 只渲染一次；
+      // 后台标签页 rAF 暂停（省电），替代原 900ms 固定轮询。
+      var __veRaf = null;
+      function scheduleRender() {
+        if (__veRaf) return;
+        __veRaf = window.requestAnimationFrame(function () {
+          __veRaf = null;
+          render();
+        });
+      }
+      var onInput = function () { scheduleRender(); };
+      var onFocusIn = function () { scheduleRender(); };
       window.__VE_POLLERS__ = {
         onInput: onInput,
         onFocusIn: onFocusIn,
         onScroll: renderPositions,
         onResize: renderPositions,
         onKey: onKey,
-        timer: window.setInterval(function () { render(); }, 900)
+        _cancelRaf: function () {
+          if (__veRaf) { window.cancelAnimationFrame(__veRaf); __veRaf = null; }
+        },
+        // 低频兜底（3s，原 900ms）：仅覆盖“编辑器直接改 value 不触发
+        // input/focusin”的边角场景；render() 无预览时 early-return，开销可忽略。
+        timer: window.setInterval(function () { render(); }, 3000)
       };
       document.addEventListener('input', onInput, true);
       document.addEventListener('focusin', onFocusIn, true);
