@@ -43,3 +43,16 @@
 - id: dsh-context-lifecycle
   disabled: false
 
+
+
+# 已卸载插件（@dsh-external/dsh-bandof-diag）：disabled 阻断其 bundle patch 自装配
+- id: dsh-bandof-diag
+  disabled: true
+
+# 2026-08-25: route web search/fetch to the local bing plugin.
+# modsearch's firecrawl is IP-flagged on this network; this row overrides the
+# searchProvider: modsearch row shipped inside @liustack/modsearch/cordis.patch.yml.
+- id: web
+  config:
+    searchProvider: bing
+    fetchProvider: bing-fetch
