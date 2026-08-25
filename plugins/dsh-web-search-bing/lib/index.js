@@ -1,11 +1,14 @@
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
 
 const BING_SEARCH_URL = 'https://www.bing.com/search';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 const MAX_BYTES = 1_000_000;
 const MAX_REDIRECTS = 5;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** 与 dsh-web-fetch-local 同源的 SSRF 地址校验（内联复制，避免跨包依赖）。 */
 function isPrivateAddress(ip) {
@@ -36,7 +39,7 @@ function isPrivateAddress(ip) {
   return false;
 }
 
-async function assertPublicUrl(url) {
+async function resolvePublicRecords(url) {
   const host = url.hostname;
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error(`blocked private-network target: ${host}`);
@@ -48,6 +51,60 @@ async function assertPublicUrl(url) {
       throw new Error(`blocked private-network target: ${host} -> ${address}`);
     }
   }
+  return records.map((r) => r.address);
+}
+
+/**
+ * P1-D1: 连接与校验共用同一次解析(IP 直连,Host/servername 保留原域名),
+ * 消除 DNS rebinding TOCTOU(与 dsh-web-fetch-local 同款修复)。
+ */
+function requestViaIp(proto, host, port, ip, headers, signal) {
+  const mod = proto === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      {
+        host: ip,
+        port: port || (proto === 'https:' ? 443 : 80),
+        servername: proto === 'https:' ? host : undefined,
+        method: 'GET',
+        headers: { ...headers, Host: `${host}${port ? ':' + port : ''}` },
+        signal,
+      },
+      (res) => resolve(res)
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function requestStream(url, signal, headers) {
+  const ips = await resolvePublicRecords(url);
+  let lastError = null;
+  for (const ip of ips) {
+    try {
+      return await requestViaIp(url.protocol, url.hostname, url.port, ip, headers, signal);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error(`no reachable address for ${url.hostname}`);
+}
+
+/** 流式收集响应体,超过上限立即截断。 */
+async function collectBody(res) {
+  const chunks = [];
+  let total = 0;
+  let truncated = false;
+  for await (const chunk of res) {
+    total += chunk.length;
+    if (total > MAX_BYTES) {
+      truncated = true;
+      res.destroy();
+      break;
+    }
+    chunks.push(chunk);
+  }
+  return { buf: Buffer.concat(chunks), truncated };
 }
 
 function decodeHtml(text) {
@@ -93,21 +150,30 @@ class BingSearchProvider {
   async search(request, signal) {
     const query = String(request.query ?? '').trim();
     if (query === '') throw new Error('bing search needs a non-empty query');
-    const url = `${BING_SEARCH_URL}?q=${encodeURIComponent(query)}&count=10&setlang=zh-hans`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      },
-      signal,
-    });
-    if (!response.ok) throw new Error(`Bing search failed (HTTP ${response.status})`);
-    const html = await response.text();
-    const sources = parseBing(html);
-    if (sources.length === 0) {
-      throw new Error('Bing returned no parseable results (the page structure may have changed)');
+    const url = new URL(`${BING_SEARCH_URL}?q=${encodeURIComponent(query)}&count=10&setlang=zh-hans`);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new Error('request timed out')), DEFAULT_TIMEOUT_MS);
+    const combined = signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal;
+    try {
+      const res = await requestStream(
+        url,
+        combined,
+        { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }
+      );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        throw new Error(`Bing search failed (HTTP ${res.statusCode})`);
+      }
+      const { buf, truncated } = await collectBody(res);
+      const html = buf.toString('utf8');
+      const sources = parseBing(html);
+      if (sources.length === 0) {
+        throw new Error('Bing returned no parseable results (the page structure may have changed)');
+      }
+      return { sources, truncated };
+    } finally {
+      clearTimeout(timer);
     }
-    return { sources, truncated: false };
   }
 }
 
@@ -131,54 +197,59 @@ class BingFetchProvider {
       throw new Error(`unsupported protocol: ${url.protocol}`);
     }
 
-    let redirects = 0;
-    let response;
-    for (;;) {
-      await assertPublicUrl(url);
-      response = await fetch(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        },
-        signal,
-        redirect: 'manual',
-      });
-      if (response.status >= 300 && response.status < 400) {
-        await response.arrayBuffer().catch(() => null);
-        if (redirects >= MAX_REDIRECTS) throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
-        const location = response.headers.get('location');
-        if (!location) break;
-        let next;
-        try {
-          next = new URL(location, url);
-        } catch (e) {
-          break;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new Error('request timed out')), DEFAULT_TIMEOUT_MS);
+    const combined = signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal;
+    try {
+      let redirects = 0;
+      let res;
+      for (;;) {
+        res = await requestStream(
+          url,
+          combined,
+          { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }
+        );
+        if (res.statusCode >= 300 && res.statusCode < 400) {
+          res.resume();
+          if (redirects >= MAX_REDIRECTS) throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
+          const location = res.headers.location;
+          if (!location) break;
+          let next;
+          try {
+            next = new URL(location, url);
+          } catch (e) {
+            break;
+          }
+          if (next.protocol !== 'http:' && next.protocol !== 'https:') break;
+          url = next;
+          redirects++;
+          continue;
         }
-        if (next.protocol !== 'http:' && next.protocol !== 'https:') break;
-        url = next;
-        redirects++;
-        continue;
+        break;
       }
-      break;
-    }
 
-    const statusCode = response.status;
-    const contentType = response.headers.get('content-type') ?? '';
-    let kind = 'text';
-    let content;
-    if (contentType.includes('text/html')) {
-      kind = 'html';
-      content = await response.text();
-    } else if (/text\/|json|xml|javascript/.test(contentType)) {
-      kind = 'text';
-      content = await response.text();
-    } else {
-      kind = 'text';
-      const length = response.headers.get('content-length');
-      content = `[binary content: ${contentType}${length === null ? '' : `, ${length} bytes`}]`;
+      const statusCode = res.statusCode ?? 0;
+      const contentType = String(res.headers['content-type'] ?? '');
+      const { buf, truncated } = await collectBody(res);
+      const text = buf.toString('utf8');
+      let kind = 'text';
+      let content;
+      if (contentType.includes('text/html')) {
+        kind = 'html';
+        content = text;
+      } else if (/text\/|json|xml|javascript/.test(contentType)) {
+        kind = 'text';
+        content = text;
+      } else {
+        kind = 'text';
+        const length = res.headers['content-length'];
+        content = `[binary content: ${contentType}${length === undefined ? '' : `, ${length} bytes`}]`;
+      }
+      if (truncated) content = content.slice(0, MAX_BYTES);
+      return { statusCode, url: url.href, body: { kind, content }, truncated };
+    } finally {
+      clearTimeout(timer);
     }
-    if (content.length > MAX_BYTES) content = content.slice(0, MAX_BYTES);
-    return { statusCode, url: response.url || url.href, body: { kind, content } };
   }
 }
 

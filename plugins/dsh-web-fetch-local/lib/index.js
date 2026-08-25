@@ -1,9 +1,12 @@
 import { lookup } from 'node:dns/promises';
 import net from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
 
 const USER_AGENT = 'deepseek-harness/0.0.1';
 const MAX_BYTES = 1_000_000;
 const MAX_REDIRECTS = 5;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** True for loopback, private, link-local, CGNAT, multicast, and reserved IPv4/IPv6. */
 function isPrivateAddress(ip) {
@@ -18,7 +21,7 @@ function isPrivateAddress(ip) {
     if (v === '::' || v === '::1') return true;
     if (v.startsWith('fc') || v.startsWith('fd')) return true;   // ULA fc00::/7
     if (v.startsWith('fe8') || v.startsWith('fe9') || v.startsWith('fea') || v.startsWith('feb')) return true; // link-local fe80::/10
-    if (v.startsWith('fec') || v.startsWith('fed') || v.startsWith('fee') || v.startsWith('fef')) return true; // site-local fec0::/10 (deprecated)
+    if (v.startsWith('fec') || v.startsWith('fed') || v.startsWith('fee') || v.startsWith('fef')) return true; // site-local fec0::/10
     if (v.startsWith('2001:db8')) return true;                    // documentation 2001:db8::/32
     if (v.startsWith('64:ff9b')) return true;                     // NAT64 well-known prefix
     if (v.startsWith('ff')) return true;                          // multicast ff00::/8
@@ -37,11 +40,10 @@ function isPrivateAddress(ip) {
 }
 
 /**
- * Reject private-network targets before any request is made.
- * 解析全部地址而非仅第一个：任一地址为私网即拒绝，
- * 避免「公网/私网混合 A 记录」或 DNS rebinding 首次解析命中公网的情形。
+ * Resolve every A/AAAA record and reject the target if ANY is private.
+ * @returns the resolved public address list for IP-direct connection.
  */
-async function assertPublicUrl(url) {
+async function resolvePublicRecords(url) {
   const host = url.hostname;
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error(`blocked private-network target: ${host}`);
@@ -53,9 +55,55 @@ async function assertPublicUrl(url) {
       throw new Error(`blocked private-network target: ${host} -> ${address}`);
     }
   }
+  return records.map((r) => r.address);
 }
 
-/** 单次跟随后的重定向地址复查（redirect: 'manual' 时 fetch 不会自动跟随）。 */
+/**
+ * P1-D1: connect DIRECTLY to a resolved (already validated) public IP, keeping
+ * the original hostname in the Host header and TLS servername. The validation
+ * and the connection share ONE DNS resolution, closing the DNS-rebinding TOCTOU
+ * window between assertPublicUrl() and the fetch()'s own second resolution.
+ */
+function requestViaIp(proto, host, port, ip, headers, signal) {
+  const mod = proto === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = mod.request(
+      {
+        host: ip,
+        port: port || (proto === 'https:' ? 443 : 80),
+        servername: proto === 'https:' ? host : undefined,
+        method: 'GET',
+        headers: { ...headers, Host: `${host}${port ? ':' + port : ''}` },
+        signal,
+      },
+      (res) => resolve(res)
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function requestStream(url, signal) {
+  const ips = await resolvePublicRecords(url);
+  let lastError = null;
+  for (const ip of ips) {
+    try {
+      return await requestViaIp(
+        url.protocol,
+        url.hostname,
+        url.port,
+        ip,
+        { 'user-agent': USER_AGENT, 'accept': 'text/html,text/plain,application/json,*/*' },
+        signal
+      );
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error(`no reachable address for ${url.hostname}`);
+}
+
+/** 单次跟随后的重定向地址复查。 */
 function resolveRedirect(url, location) {
   if (!location) return null;
   try {
@@ -65,6 +113,23 @@ function resolveRedirect(url, location) {
   } catch (e) {
     return null;
   }
+}
+
+/** 流式收集响应体并在超过上限时立即截断(W2: 不再整读后截断,防内存耗尽)。 */
+async function collectBody(res) {
+  const chunks = [];
+  let total = 0;
+  let truncated = false;
+  for await (const chunk of res) {
+    total += chunk.length;
+    if (total > MAX_BYTES) {
+      truncated = true;
+      res.destroy();
+      break;
+    }
+    chunks.push(chunk);
+  }
+  return { buf: Buffer.concat(chunks), truncated };
 }
 
 class LocalFetchProvider {
@@ -79,43 +144,40 @@ class LocalFetchProvider {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error(`unsupported protocol: ${url.protocol}`);
     }
-
-    let redirects = 0;
-    let response;
-    for (;;) {
-      await assertPublicUrl(url);
-      response = await fetch(url, {
-        redirect: 'manual',
-        signal,
-        headers: {
-          'user-agent': USER_AGENT,
-          'accept': 'text/html,text/plain,application/json,*/*',
-        },
-      });
-      // 重定向：每跳重新校验目标地址，防公网 → 内网 302 跳转绕过
-      if (response.status >= 300 && response.status < 400) {
-        await response.arrayBuffer().catch(() => null);
-        if (redirects >= MAX_REDIRECTS) throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
-        const next = resolveRedirect(url, response.headers.get('location'));
-        if (!next) throw new Error(`unsupported redirect target from ${url.href}`);
-        url = next;
-        redirects++;
-        continue;
+    // 默认超时(W3: 防 slowloris 无限挂起;调用方 signal 与本地超时叠加)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new Error('request timed out')), DEFAULT_TIMEOUT_MS);
+    const combined = signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal;
+    try {
+      let redirects = 0;
+      let res;
+      for (;;) {
+        res = await requestStream(url, combined);
+        // 重定向：每跳对新地址重新解析+复查(同样单次解析直连),防公网→内网 302 绕过
+        if (res.statusCode >= 300 && res.statusCode < 400) {
+          res.resume();
+          if (redirects >= MAX_REDIRECTS) throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
+          const next = resolveRedirect(url, res.headers.location);
+          if (!next) throw new Error(`unsupported redirect target from ${url.href}`);
+          url = next;
+          redirects++;
+          continue;
+        }
+        break;
       }
-      break;
+      const { buf, truncated } = await collectBody(res);
+      const content = buf.subarray(0, MAX_BYTES).toString('utf8');
+      const ct = String(res.headers['content-type'] || '').toLowerCase();
+      const kind = ct.includes('html') || ct.includes('text') || content.includes('<html') ? 'html' : 'text';
+      return {
+        url: url.href,
+        statusCode: res.statusCode ?? 0,
+        body: { kind, content },
+        truncated,
+      };
+    } finally {
+      clearTimeout(timer);
     }
-
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const truncated = bytes.length > MAX_BYTES;
-    const content = bytes.subarray(0, MAX_BYTES).toString('utf8');
-    const ct = (response.headers.get('content-type') || '').toLowerCase();
-    const kind = ct.includes('html') || ct.includes('text') || content.includes('<html') ? 'html' : 'text';
-    return {
-      url: response.url || url.href,
-      statusCode: response.status,
-      body: { kind, content },
-      truncated,
-    };
   }
 }
 

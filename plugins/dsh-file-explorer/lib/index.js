@@ -200,18 +200,27 @@ function trusted(req) {
 }
 
 /**
- * 路径允许范围：本机个人开发机允许浏览本地驱动器(C:/D:/E:)——
- * trusted()(回环 + Origin 同源)已做请求校验兜底;主目录内路径用 realpath 前缀校验,防 junction/symlink 逃逸(M1)。
+ * 路径允许范围（P1-D2 收紧）：默认仅允许用户主目录内（realpath 后前缀校验，
+ * 防 junction/symlink 逃逸），与文件头"所有路径必须落在主目录内"注释一致。
+ * 需要浏览主目录之外的路径时，二选一显式开启：
+ *   - DSH_FILE_EXPLORER_ROOTS="D:\a;E:\b"  附加允许根白名单（分号分隔）
+ *   - DSH_FILE_EXPLORER_UNRESTRICTED=1     全盘浏览（保留大小/二进制/隐藏过滤）
+ * 请求侧仍有 trusted()（回环 + Origin 同源 + sec-fetch-site）兜底。
  */
+const EXTRA_ROOTS = (process.env.DSH_FILE_EXPLORER_ROOTS || '')
+  .split(';').map((s) => s.trim()).filter(Boolean).map((s) => s.replace(/[\\/]+$/, ''))
 function isPathAllowed(abs) {
   if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true
-  // 本地绝对盘符路径放行(纯字符串判断)
-  if (abs && abs.length >= 3 && abs[1] === ':' && (abs[2] === '\\' || abs[2] === '/') && /^[A-Za-z]$/.test(abs[0])) return true
-  try {
-    const real = realpathSync(abs)
-    const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
-    return real === homeNorm || real.startsWith(homeNorm + '\\') || real.startsWith(homeNorm + '/')
-  } catch { return false }
+  let real
+  try { real = realpathSync(abs) } catch { return false }
+  const homeNorm = resolve(HOME).replace(/[\\/]+$/, '')
+  if (real === homeNorm || real.startsWith(homeNorm + '\\') || real.startsWith(homeNorm + '/')) return true
+  for (const root of EXTRA_ROOTS) {
+    let rootNorm
+    try { rootNorm = resolve(root).replace(/[\\/]+$/, '') } catch { continue }
+    if (real === rootNorm || real.startsWith(rootNorm + '\\') || real.startsWith(rootNorm + '/')) return true
+  }
+  return false
 }
 
 export function apply(ctx) {
