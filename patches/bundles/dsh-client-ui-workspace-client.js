@@ -2409,9 +2409,18 @@ window.__ModuleLoader__.load({
 				return result.value;
 			};
 			const startChatSession = async () => {
-				const result = await ctx.sessions.create({});
-				if (result.ok) ctx.sessions.open(result.value.sessionId);
-				else console.warn("[ui-workspace] start chat session failed:", result.error);
+				// 「不在项目中工作」：显式指定宿主 home 作为会话 cwd（host.describe 的 home 字段），
+				// 避免走宿主默认 cwd（ApiProxyService 固定 process.cwd()，桌面端=当前项目目录），
+				// 使会话 cwd 不在任何已注册工作区内 → 不被任何工作区认领（未分组/纯聊天）。
+				// 注意：ctx.sessions.create 成功返回 sessionId（字符串）、失败抛异常（非 {ok,value}），
+				// 因此必须 try/catch + 用返回值 open，否则会话创建后不会自动打开（侧栏不可见=「没反应」）。
+				const home = hostDescription.getSnapshot()?.home;
+				try {
+					const sessionId = await ctx.sessions.create(home === void 0 ? {} : { cwd: home });
+					ctx.sessions.open(sessionId);
+				} catch (error) {
+					console.warn("[ui-workspace] start chat session failed:", error);
+				}
 			};
 			const flowSource = (hole) => ({
 				getSnapshot: () => ctx.slots.entries(hole).length > 0,

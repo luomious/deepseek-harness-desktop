@@ -117,8 +117,11 @@ function patchCoreRemoteFlowSlots(content) {
 
 // ── 纯聊天（不指定工作区）入口：工作区菜单「不在项目中工作」选项 ──
 // 根因：需求要求在「添加工作区…」菜单提供「不在项目中工作」选项，选择后创建
-// 无工作区（纯聊天）会话——session.create 不传 workspaceId/cwd，宿主用默认 cwd
-// （桌面端为 home）创建会话且不挂到任何工作区。dsh 升级会覆盖核心文件，故登记自愈。
+// 无工作区（纯聊天）会话——session.create 不传 workspaceId/cwd 时，宿主会回退到
+// ApiProxyService 固定的 defaults.cwd = process.cwd()（桌面端=当前项目目录），
+// 导致会话被当前项目工作区认领。修复：客户端显式用 host.describe 返回的 home 作为
+// cwd 创建会话（home 不在任何已注册工作区内 → 不挂到任何工作区，显示为未分组/纯聊天）。
+// dsh 升级会覆盖核心文件，故登记自愈。
 function patchCoreChatOnlyWorkspace(content) {
   const MARK = 'const ADD_CHAT = "::add-chat";';
   const pairs = [
@@ -148,7 +151,7 @@ function patchCoreChatOnlyWorkspace(content) {
       '\t\t\t\t\t\t\t\trenderDirectoryFlow: (owner) => renderSlot("sidebar.workspaces.directoryFlow", owner),\n\t\t\t\t\t\t\t\tstartChatSession,\n\t\t\t\t\t\t\t\taddOnly: true,'],
     // 9) apply 内定义 startChatSession（复用 ctx.sessions）
     ['\t\t\tconst searchSessions = async (query, signal) => {\n\t\t\t\tconst result = await ctx.sessions.search(query, signal);\n\t\t\t\tif (!result.ok) throw new Error(result.error.message);\n\t\t\t\treturn result.value;\n\t\t\t};',
-      '\t\t\tconst searchSessions = async (query, signal) => {\n\t\t\t\tconst result = await ctx.sessions.search(query, signal);\n\t\t\t\tif (!result.ok) throw new Error(result.error.message);\n\t\t\t\treturn result.value;\n\t\t\t};\n\t\t\tconst startChatSession = async () => {\n\t\t\t\tconst result = await ctx.sessions.create({});\n\t\t\t\tif (result.ok) ctx.sessions.open(result.value.sessionId);\n\t\t\t\telse console.warn("[ui-workspace] start chat session failed:", result.error);\n\t\t\t};'],
+      '\t\t\tconst searchSessions = async (query, signal) => {\n\t\t\t\tconst result = await ctx.sessions.search(query, signal);\n\t\t\t\tif (!result.ok) throw new Error(result.error.message);\n\t\t\t\treturn result.value;\n\t\t\t};\n\t\t\tconst startChatSession = async () => {\n\t\t\t\t// ctx.sessions.create 成功返回 sessionId（字符串）、失败抛异常（非 {ok,value}），\n\t\t\t\t// 必须 try/catch + 用返回值 open，否则会话创建后不自动打开（侧栏不可见=「没反应」）。\n\t\t\t\tconst home = hostDescription.getSnapshot()?.home;\n\t\t\t\ttry {\n\t\t\t\t\tconst sessionId = await ctx.sessions.create(home === void 0 ? {} : { cwd: home });\n\t\t\t\t\tctx.sessions.open(sessionId);\n\t\t\t\t} catch (error) {\n\t\t\t\t\tconsole.warn("[ui-workspace] start chat session failed:", error);\n\t\t\t\t}\n\t\t\t};'],
     // 10) browserInjected 注入 startChatSession
     ['\t\t\t\tstartSession: (workspaceId) => {\n\t\t\t\t\tctx.workspaces.startSession(workspaceId);\n\t\t\t\t},\n\t\t\t\topen: (sessionId) => {',
       '\t\t\t\tstartSession: (workspaceId) => {\n\t\t\t\t\tctx.workspaces.startSession(workspaceId);\n\t\t\t\t},\n\t\t\t\tstartChatSession,\n\t\t\t\topen: (sessionId) => {'],

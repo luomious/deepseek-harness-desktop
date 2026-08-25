@@ -1,4 +1,8 @@
-# dsh-maintenance.ps1 - Periodic health maintenance for DSH Desktop.
+# dsh-maintenance.ps1 - OFFLINE FALLBACK maintenance for DSH Desktop.
+# 2026-08-26: normal runtime health is covered IN-APP by the three-layer
+# maintenance architecture (startup zombie cleanup + dsh-session-hygiene +
+# dsh-self-maintenance hourly check). This script is only needed when the
+# app cannot start at all; NO scheduled task required. See AGENTS.md.
 # PURE ASCII ONLY (PS 5.1 reads UTF-8 no-BOM as GBK -> syntax errors).
 # Run manually or via Windows Task Scheduler (see USAGE below).
 #
@@ -14,7 +18,7 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $PSScriptRoot
-$log = Join-Path $root '_backups\maintenance-20260825.log'
+$log = Join-Path $root ('_backups\maintenance-' + (Get-Date -Format 'yyyyMMdd') + '.log')
 
 function Log($msg) {
     $ts = Get-Date -Format 'HH:mm:ss'
@@ -25,23 +29,34 @@ Log "=== DSH Maintenance start ==="
 
 # --- 1. Zombie process cleanup ---
 Log "--- Zombie process check ---"
-$zombies = Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowTitle -eq '' -and $_.WorkingSet64 -lt 80MB }
-# Keep the process holding port 43120 (the active instance)
-$portOwner = $null
-try {
-    $portOwner = Get-NetTCPConnection -LocalPort 43120 -State Listen -ErrorAction Stop |
-        Select-Object -First 1 -ExpandProperty OwningProcess
-} catch {}
-$toKill = $zombies | Where-Object { $_.Id -ne $portOwner }
-if ($toKill) {
-    Log "Found $($toKill.Count) zombie DSH Desktop process(es), killing..."
-    foreach ($p in $toKill) {
-        Stop-Process -Id $p.Id -Force
-        Log "  killed PID $($p.Id) (started $($p.StartTime.ToString('HH:mm:ss')), WS $([int]($p.WorkingSet64/1MB))MB)"
-    }
+# Safety: skip zombie cleanup entirely while a healthy instance is running.
+# A live app has child processes (renderer/GPU/utility) with empty titles and
+# small working sets that would be misidentified as zombies and killed,
+# corrupting the running UI. Only the port holder was protected before; the
+# children were not.
+$activeMain = Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowTitle -ne '' }
+if ($activeMain) {
+    Log "DSH Desktop running (main window visible) - skipping zombie cleanup"
 } else {
-    Log "No zombie processes found"
+    $zombies = Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowTitle -eq '' -and $_.WorkingSet64 -lt 80MB }
+    # Keep the process holding port 43120 (the active instance)
+    $portOwner = $null
+    try {
+        $portOwner = Get-NetTCPConnection -LocalPort 43120 -State Listen -ErrorAction Stop |
+            Select-Object -First 1 -ExpandProperty OwningProcess
+    } catch {}
+    $toKill = $zombies | Where-Object { $_.Id -ne $portOwner }
+    if ($toKill) {
+        Log "Found $($toKill.Count) zombie DSH Desktop process(es), killing..."
+        foreach ($p in $toKill) {
+            Stop-Process -Id $p.Id -Force
+            Log "  killed PID $($p.Id) (started $($p.StartTime.ToString('HH:mm:ss')), WS $([int]($p.WorkingSet64/1MB))MB)"
+        }
+    } else {
+        Log "No zombie processes found"
+    }
 }
 
 # --- 2. Large session file check ---

@@ -1,0 +1,10 @@
+# dsh-session-hygiene bundle patch: session size monitoring.
+- insert:
+    - id: dsh-session-hygiene
+      name: '@dsh-external/dsh-session-hygiene'
+      config:
+        enabled: true
+        warnBytes: 4194304
+        errorBytes: 8388608
+        scanIntervalMs: 3600000
+        idleHours: 24
