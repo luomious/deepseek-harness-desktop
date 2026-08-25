@@ -20,10 +20,14 @@
  *  3. Cooldown: at most one rotation per minute; no rapid flapping.
  *  4. Zero model-context cost: no tools registered, only a webServer status
  *     route and a post-execute hook.
+ *  5. NEVER block the host event loop: all probes are async. (2026-08-25:
+ *     execFileSync curl probes froze the desktop UI for 6-21 s every probe
+ *     interval; see CHANGELOG "卡死定案".)
  */
 
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { promisify } from 'node:util'
 
 export const name = '@dsh-external/dsh-vision-rotator'
 export const inject = ['webServer']
@@ -154,19 +158,23 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     } catch { return null }
   }
 
-  // ── Health probe (curl.exe models-list, ~1-3 s each) ──────────────────
-  function probeOne(baseUrl: string, apiKey: string, proxy?: string): boolean {
+  // ── Health probe (curl.exe models-list, ~1-3 s each, ASYNC) ───────────
+  // 2026-08-25: was execFileSync — blocked the shared kernel/UI main thread
+  // for up to 15 s per unreachable provider on every probe cycle (window
+  // freeze + "not responding" + blank content, every 5 minutes). Now async.
+  const execFileAsync = promisify(execFile)
+  async function probeOne(baseUrl: string, apiKey: string, proxy?: string): Promise<boolean> {
     const args = ['-sS', '-m', '12', '-o', 'NUL', '-w', '%{http_code}']
     if (proxy) args.push('-x', proxy)
     args.push('-H', `Authorization: Bearer ${apiKey}`)
     args.push(baseUrl + '/models')
     try {
-      const code = execFileSync('curl.exe', args, { encoding: 'utf8', timeout: 15_000, windowsHide: true })
-      return code.trim() === '200'
+      const { stdout } = await execFileAsync('curl.exe', args, { encoding: 'utf8', timeout: 15_000, windowsHide: true })
+      return stdout.trim() === '200'
     } catch { return false }
   }
 
-  function runProbeCycle() {
+  async function runProbeCycle() {
     const spares = loadSpares()
 
     // Merge all known providers into health map
@@ -185,7 +193,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
       h.proxy = p.proxy; h.priority = p.priority ?? 99
 
       h.lastCheck = Date.now()
-      const ok = probeOne(p.baseUrl, p.apiKey, p.proxy)
+      const ok = await probeOne(p.baseUrl, p.apiKey, p.proxy)
       if (ok) {
         h.consecutiveFailures = 0
         h.lastSuccess = Date.now()
@@ -224,7 +232,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
           health.set(synthId, h)
         }
         h.lastCheck = Date.now()
-        const ok = probeOne(cur.baseUrl, cur.apiKey)
+        const ok = await probeOne(cur.baseUrl, cur.apiKey)
         if (ok) { h.consecutiveFailures = 0; h.lastSuccess = Date.now(); h.status = 'healthy'; h.lastError = undefined }
         else { h.consecutiveFailures++; h.status = h.consecutiveFailures >= 5 ? 'dead' : 'degraded'; h.lastError = 'probe failed' }
         currentProviderId = synthId
@@ -300,7 +308,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
 
   // ── Timers ────────────────────────────────────────────────────────────
   const probeTimer = setInterval(() => {
-    try { runProbeCycle() } catch (e) { log(`probe error: ${String(e)}`) }
+    void runProbeCycle().catch((e: unknown) => log(`probe error: ${String(e)}`))
   }, config.probeIntervalMs)
 
   ctx.effect(() => () => { clearInterval(probeTimer); offHook() }, 'vision-rotator: timers+hook')
@@ -342,5 +350,5 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     'vision-rotator: status route',
   )
 
-  setTimeout(() => { try { runProbeCycle() } catch (e) { log(`init probe: ${String(e)}`) } }, 3000)
+  setTimeout(() => { void runProbeCycle().catch((e: unknown) => log(`init probe: ${String(e)}`)) }, 3000)
 }
