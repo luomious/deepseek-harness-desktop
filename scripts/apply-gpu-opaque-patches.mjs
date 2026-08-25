@@ -1,31 +1,14 @@
 #!/usr/bin/env node
-// scripts/apply-gpu-opaque-patches.mjs - re-apply GPU/opaque-window patches (idempotent).
+// scripts/apply-gpu-opaque-patches.mjs - re-apply GPU/opaque-window/zombie patches (idempotent).
 //
-// Background (2026-08-25, thorough fix for transparent window + Not Responding):
-// This machine has a virtual display adapter (GameViewer) that breaks Chromium
-// GPU composition. The advanced desktop shell creates its main window with
-// backgroundColor "#00000000" + backgroundMaterial "mica": Mica is a DWM effect
-// that REQUIRES working GPU composition, so with GPU disabled (or broken by the
-// virtual display) the window becomes fully transparent and the renderer hangs
-// ("DSH Desktop not responding", cannot type).
-//
-// These patches:
+// Patches (all survive rebuilds via package-vendor.ps1 -> verify-patches.ps1):
 //   1. lib/main.js          : force-disable GPU acceleration inside the app
-//                             (works for EVERY launch path: shortcut, tray,
-//                             auto-update restart - not only shortcut args).
-//   2. lib/electron-runtime-*.js : make the advanced win32 window OPAQUE with
-//                             a dark base color whenever GPU is force-disabled
-//                             (Mica is skipped; the client surfaces already
-//                             paint --dsw-alias-bg-base on top).
-//   3. same chunk           : skip refreshThemeMaterial -> setBackgroundMaterial
-//                             ("mica") under the same condition.
+//   2. lib/main.js          : zombie orphan cleanup on startup (pre-port-probe)
+//   3. lib/electron-runtime-*.js : opaque win32 window + conditional mica
+//   4. lib/electron-runtime-*.js : guarded refreshThemeMaterial
+//   5. lib/main.js          : occlusion + backgrounding switches
 //
-// Escape hatch: set DSH_DESKTOP_FORCE_GPU=1 to restore GPU acceleration + Mica
-// (e.g. after the virtual display adapter is disabled device-wise).
-//
-// The compiled runtime chunk carries a content hash in its file name, so it is
-// located dynamically. Run after each rebuild:
-//   node scripts/apply-gpu-opaque-patches.mjs
+// Run after each rebuild:  node scripts/apply-gpu-opaque-patches.mjs
 // (package-vendor.ps1 calls this automatically right after apply-winhide-patches.)
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -62,6 +45,34 @@ const patches = [
     ].join('\n'),
   },
   {
+    // 2026-08-25: when the app freezes and the user force-kills it, Electron
+    // child processes (renderer/GPU/utility) often survive as orphans and hold
+    // port 43120. A fresh launch then sees the port occupied, assumes another
+    // live instance is serving, and silently quits.
+    //
+    // This patch inserts a zombie-cleanup function and calls it BEFORE the
+    // existing duplicate-instance port probe.
+    name: 'zombie-orphan cleanup (lib/main.js)',
+    file: join(build.lib, 'main.js'),
+    marker: 'ZombieCleanup(',
+    anchor: '/** Start one Electron process and leave lifetime to the mounted desktop plugin. */\nasync function start() {',
+    replacement: [
+      'function ZombieCleanup() {',
+      '\tconst _exe = process.execPath || process.argv[0]; if (!_exe) return;',
+      "\tconst _ps = _exe.replace(/'/g, \"''\");",
+      "\tconst _cmd = \"Get-Process | Where-Object { $_.Path -eq '\" + _exe + \"' -and $_.Id -ne \" + process.pid + \" } | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }\";",
+      "\ttry { require('child_process').execFileSync('powershell.exe', ['-NoProfile','-NonInteractive','-Command', _cmd], { encoding: 'utf8', timeout: 8000, windowsHide: true }); } catch {}",
+      '\tconst _now = Date.now(); while (Date.now() - _now < 2000) {',
+      "\t\ttry { require('child_process').execFileSync('powershell.exe', ['-NoProfile','-NonInteractive','-Command', \"(Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne \" + process.pid + \" } | Measure-Object).Count\"], { encoding: 'utf8', timeout: 3000, windowsHide: true }).trim() === '0' ? undefined : void 0; } catch {}",
+      "\t\tAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);",
+      '\t}',
+      '}',
+      '/** Start one Electron process and leave lifetime to the mounted desktop plugin. */',
+      'async function start() {',
+      '\tZombieCleanup(); // Clean orphaned child processes from previous crash BEFORE port probe',
+    ].join('\n'),
+  },
+  {
     name: 'opaque win32 window (electron-runtime)',
     file: findRuntimeChunk(build.lib),
     marker: `${GPU_ENV_MARKER} ? "#00000000"`,
@@ -87,11 +98,6 @@ const patches = [
     ].join('\n'),
   },
   {
-    // 2026-08-25 round 2: the opaque window STILL went transparent after a
-    // hang. Remaining culprit: Chromium's native window occlusion detection,
-    // which virtual display adapters (GameViewer ROOT\DISPLAY\0000) corrupt.
-    // The window is falsely reported as occluded, Chromium stops presenting
-    // frames (freeze -> "not responding") and the DWM surface goes blank.
     name: 'occlusion switches (lib/main.js)',
     file: join(build.lib, 'main.js'),
     marker: 'CalculateNativeWinOcclusion',
