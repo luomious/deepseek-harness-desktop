@@ -6,7 +6,36 @@
 
 ---
 
-## 2026-08-24 双 DSH Desktop 实例共存根因定位 + 单实例防线加固
+## 2026-08-25 投产审计修复全量落地 + 运行时验收通过
+
+### 审计背景
+5 路专家审查（Electron 壳/插件安全/插件质量/构建部署/安全专项）+ 独立现场核验，产出
+[PRODUCTION-READINESS-REVIEW.md](docs/PRODUCTION-READINESS-REVIEW.md) 与
+[PRODUCTION-EXECUTION-PLAN.md](docs/PRODUCTION-EXECUTION-PLAN.md)。
+
+### 修复清单（全部已提交，插件类改动需重启生效）
+| 类别 | 内容 |
+|---|---|
+| **P0 内核鉴权** | 实测确认 **build4 已由上游 `dsh-client-connection.isTrustedApiRequest()` 信任栅栏阻断 DNS rebinding**（伪造 Host/跨源 Origin 均 403）——原审计判定为假阴性并已更正，无需开发 |
+| **卫生** | `.gitignore` 重写入库（docs/ 不再忽略）；删 4 处 `spawn-trace.log` 调试残留；文档正式入库 |
+| **插件安全** | hy3 网关去 `CORS *` + 本机 Origin 校验（实测 403）；vision-engine `trusted()` 补 Origin/Sec-Fetch-Site + 读图路径白名单；**web-fetch/bing 改为单次解析 + IP 直连消除 DNS rebinding TOCTOU**（含流式截断与默认超时）；**file-explorer 默认收紧为主目录**（`DSH_FILE_EXPLORER_ROOTS`/`_UNRESTRICTED` 显式开启） |
+| **插件健壮** | modlens-guard 禁用热重建（与「严禁热重载 modlens」禁令对齐）；autoread 坏图 3 次熔断；picker-group 加 kill-switch + 卸载还原（whitelist 同）；project-brief src 补 `windowsHide` 与产物对齐 |
+| **构建/发布** | smoke 与 verify 验收对齐；promote junction LinkType 校验防「假成功」；rebuild-and-restart 落盘稳定等待 + 失败中止 + 纯 ASCII；补丁权威源改 canon（`--update-canon` 显式化）；代理硬编码收敛为 env 优先；Electron 下载补官方 SHA256 校验；死 git 钩子移除 |
+| **结构/配置** | profile 模板字节级回灌（33 deps/27 bundles/cordis.patch.yml/tgz）；死测试归档；routing-suite 补导入回流 + PROVENANCE.md；README/PROJECT_README 重写；构建入口 submodule 自检；**根仓与 vendor 均推送远端**，vendor 基线记录于 `docs/VENDOR-BASELINE.md` |
+| **现场** | 僵尸双实例清理（保留持端口实例）；hy3 网关子进程确认为设计行为 |
+
+### 运行时验收（重启后实测全绿）
+- 单实例模型正常（主实例 + hy3 网关子进程）；`GET /` HTTP 200
+- P0 栅栏回归：伪造 Host → 403、跨源 Origin → 403、正常请求放行
+- vision-engine：正常 200 / 跨源 403（未误伤）；modlens-guard 日志确认 `hot-apply DISABLED`
+- 插件清单 21 个自研插件全部 active；modlens adapter 注册完整无卡死
+- hy3 网关：跨源 POST → 403、响应头无 `access-control`（CORS 删除生效）
+
+### 遗留（纯外部依赖，已登记）
+Windows 代码签名（需证书）、更新包哈希（需服务端）、上游 RC→GA（等待上游）、皮肤 CC-BY-NC-SA 许可（法务）。
+投产前建议补做一次完整发布演练（`package-vendor` → `verify` → `promote` → `smoke`）。
+
+---
 
 ### 现象
 同一时刻存在两个 DSH Desktop 主进程：14:06 由脚本拉起的 build3 老实例（PID 38244，

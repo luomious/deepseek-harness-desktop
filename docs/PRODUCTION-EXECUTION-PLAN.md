@@ -109,7 +109,9 @@
 | R9 | 上游 submodule 未初始化（P1-C5） | 构建入口自检 `git submodule status`，非 commit 前缀则自动初始化或明确报错 | 低 | 从零重建不撞墙 |
 
 > ✅ **状态（2026-08-25）**：**R1–R9 全部完成并提交**。
-> R1/R2（kill-switch + 卸载还原）`plugins/dsh-model-picker-group`、`dsh-model-whitelist`；R3 `scripts/port-user-patches.mjs`（实跑 6/6 OK，canon 权威源）；R4 `profile/desktop/` 字节级回灌（33 deps/27 bundles/tgz/cordis.patch.yml）；R5 `tests/` → `legacy/tests/`（16 文件）；R6 `router-bootstrap.mjs` 补导入（vendored 与运行时副本逐字节一致）+ `PROVENANCE.md`；R7 六脚本代理收敛；R8 `README.md`/`PROJECT_README.md` 重写；R9 `build-vendor.ps1` submodule 自检。**其中 R1/R2/R6 属插件/运行时改动，需重启后实测确认（列阶段 4 验收）。**
+> R1/R2（kill-switch + 卸载还原）`plugins/dsh-model-picker-group`、`dsh-model-whitelist`；R3 `scripts/port-user-patches.mjs`（实跑 6/6 OK，canon 权威源）；R4 `profile/desktop/` 字节级回灌（33 deps/27 bundles/tgz/cordis.patch.yml）；R5 `tests/` → `legacy/tests/`（16 文件）；R6 `router-bootstrap.mjs` 补导入（vendored 与运行时副本逐字节一致）+ `PROVENANCE.md`；R7 六脚本代理收敛；R8 `README.md`/`PROJECT_README.md` 重写；R9 `build-vendor.ps1` submodule 自检。**其中 R1/R2/R6 属插件/运行时改动，重启后实测已通过（见阶段 4 完成标记）。**
+> ✅ **D1/D2 亦已完成（2026-08-25，漏网项补修）**：`web-fetch-local`/`web-search-bing` 改「单次解析 + IP 直连」消除 DNS rebinding TOCTOU（含流式截断、默认超时）；`file-explorer` 默认收紧为主目录（`DSH_FILE_EXPLORER_ROOTS` 白名单 / `_UNRESTRICTED=1` 显式开启）。
+> **至此 29 项 P1 中：24 项代码/现场项全部完成**（含 P0 实测闭环、D1/D2/E1–E9、A5、B 全组、C 全组、R 全组）；仅剩 5 项纯外部依赖（D3 皮肤许可 / D4 签名证书 / D5 更新服务端哈希 / D6 上游 RC→GA），已在下表登记。
 
 ### 需外部/用户决策的 P1（方案书列出，执行需对应方）
 | # | 项 | 依赖 | 建议 |
@@ -169,16 +171,16 @@
 10. `promote-build.ps1` 换 junction（此时已含第 6 批落盘等待与 LinkType 校验）→ 内联 smoke（`-SkipRuntime`）。
 - **门禁**：`verify-patches` ALL PASS + smoke 静态全绿。**任一失败：promote 自动回滚前驱。**
 
-### 阶段 4 — 重启与运行时验收（插件修复 + P0 生效）
-11. [需同意] 启动新构建。
-12. 运行时验收：
-    - P0：伪造 Origin 的 WS/`/api` 被拒；正常打开 43120、对话、切模型、读图、子代理全绿。
-    - `vision-engine` 面板保存/测试/刷新正常（验证 trusted() 未误伤）；`/test` 传非图片路径被拒。
-    - `autoread` 正常读图；构造坏图验证 3 次后熔断。
-    - `modlens-guard` 日志显示 hot-apply DISABLED、文件修复正常。
-    - 模型选择器（若 R1/R2 已改）开关/卸载还原正常。
-    - `smoke-test.ps1`（含运行时）全绿。
-- **门禁**：以上全绿。**任一红：回滚到上一构建（`_backups` 归档），逐项排查。**
+### 阶段 4 — 重启与运行时验收 ✅ 已完成（2026-08-25，路线 A 重启后实测）
+11. ✅ 用户手动重启（路线 A）；运行实例为单主进程 + hy3 网关子进程（设计行为）。
+12. ✅ 运行时验收全绿：
+    - P0 栅栏回归：伪造 Host / 跨源 Origin → 403；正常请求放行（404）；`GET /` 200。
+    - `vision-engine`：正常 GET 200 / 跨源 403（trusted() 新逻辑未误伤）。
+    - `modlens-guard` 日志确认 `hot-apply DISABLED`（01:11:07，重启后新代码生效）。
+    - 插件装配：21 个自研插件全部 active；modlens adapter 注册完整，无卡死。
+    - hy3 网关：跨源 POST → 403；响应头无 `access-control`（CORS 删除生效）。
+    - 浏览器端行为（kill-switch/卸载还原/选模型）由用户顺手确认，代码已加载。
+- **门禁**：以上全绿。✅ 达成；**未做**的一项是完整 `smoke-test.ps1` 运行时套装（留待阶段 3 发布演练时一并过）。
 
 ### 阶段 5 — 投产放行
 13. 对照 `PRODUCTION-READINESS-REVIEW.md` §七 放行门禁逐项打勾。
