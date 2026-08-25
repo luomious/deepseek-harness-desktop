@@ -16,18 +16,46 @@ generator: @dsh-external/dsh-project-brief
 - 修改代码前先读本文件与 `PROJECT_README.md` / `CHANGELOG.md`，遵循既有插件/补丁模式，不重复造轮子。
 - 对全局 node_modules 的修改必须登记到 `src/lib/patch-manifest.js` 自愈清单，否则 `npm i -g @deepseek-ai/dsh` 升级即丢失。
 - **严禁对 `@liustack/modlens`（服务端插件，adapter 注册只在启动时发生）执行 `dev_reload_package` 热重载**：会丢失 adapter 注册，会话切到 `modlens-*` 报 `no adapter registered for provider "modlens-*"` 并卡死服务；modlens 代码改动必须完全重启桌面应用。
-- 启动自愈（`reconcilePatches` + 原生目录选择器补丁）已移到 `main.js` 端口检查**之前**：无论 3080 是否被占用（网页版/残留进程）都会执行。若某补丁对某版本 dsh 失效，优先更新锚点或登记自动退役（如 `dsh-core-client-bundle-retry` 对 0.1.1-rc.2 的 Vite 前端），不要只删清单项。
+- 启动自愈（`reconcilePatches` + 原生目录选择器补丁）已移到 `main.js` 端口检查**之前**：无论 43120 是否被占用（网页版/残留进程）都会执行。若某补丁对某版本 dsh 失效，优先更新锚点或登记自动退役（如 `dsh-core-client-bundle-retry` 对 0.1.1-rc.2 的 Vite 前端），不要只删清单项。
 - 长任务用 goal（`create_goal`）自动续跑；跨会话守护用 daemon-loop 插件（如 `dsh-session-watchdog`）。
 - 建新插件优先克隆/借鉴 `plugins/` 与 `dsh-stuck-loop-guard`、`dsh-context-lifecycle` 的零依赖 host 模式。
 - **关键操作退出保护**：在不可中断操作（pnpm 安装 / 补丁应用 / 长任务）开始前调用 `POST http://127.0.0.1:43120/desktop/critical-busy`，body `{"busy":true,"reason":"..."}`；结束后 body `{"busy":false}`（仅 loopback）。⚠️ **新壳端口为 43120（非 3080）**，随壳版本可能变化，先用 `Get-NetTCPConnection -State Listen` 确认。
 - **Windows 子进程铁律**：桌面壳无控制台，任何 `spawn`/`execFile`/`execSync` 必须带 `windowsHide:true`，否则闪黑框（已修 8 处，见 CHANGELOG 2026-08-23）。dist 改动先备份再改；重建后跑 `scripts/verify-patches.ps1` 校验。
 - 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`。
 
+## 工作流程铁律（read → plan → patch → verify → review，策展 · 2026-08-25 新增）
+
+> 全工作区 agent 生效；与「协作指南」「安全守则」叠加生效。本节为策展区，brief 自动生成不得覆盖。
+
+1. **五段流程（任何非只读改动必走）**
+   - **read**：先读相关文件/目录结构/本文件，确认改动属于哪一层——桌面壳 `src/` / DSH 内核服务层 / 插件 `plugins/` / 前端 client bundle；先看框架再写代码。
+   - **plan**：按下方固定模板输出书面方案，**不执行任何写入**。
+   - **门禁**：用户明确批准（"可以/执行/没问题"）才执行；用户明说"直接做/不用问"可跳门禁，但不可跳第 2 条。
+   - **patch**：按已批准方案执行；中途要绕路就停下回到 plan，说明原因重新确认。
+   - **verify + review**：给出可核验证据（`node --check`/读回/测试/页面复查），并回答自检三问——门禁过了吗？验证证据是什么？相似问题扫了吗（第 3 条）？
+2. **每次操作先做风险收益评估**（写/删/装/重启前）：收益＝解决什么问题；风险＝影响面/可逆性/是否波及运行中服务；等级＝低/中/高。高风险另需四件套：先备份 → `scripts/guard-destructive.ps1` 预检 → `critical-busy` → 用户确认。
+3. **相似问题排查**：每修复一个问题，用 grep/read 扫全项目同类模式（同样的误用/缺参/越层/编码坑），列出疑似清单并**询问用户是否一并修复**，禁止静默顺手改。
+4. **架构层级纪律**：前端/客户端不得直接访问数据库、文件系统、操作系统能力，必须走服务层 API；插件经 host ctx，不直碰内核内部；全局 node_modules 改动必须登记 `src/lib/patch-manifest.js`；新功能先问"有没有现成机制"（patch-manifest / super-injector / guard 脚本），不重复造轮子。
+5. **自迭代**：发现条款碍事或过时，只在 review 阶段提出修订建议，用户批准后修改，不得静默变更本节。
+
+**plan 固定模板**：目标 ｜ 涉及文件 ｜ 改动点 ｜ 验证方式 ｜ 回滚方式 ｜ 风险收益（第 2 条格式）。
+
 ## 架构与关键路径（策展）
 
 - **当前架构**：桌面应用本体在 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，Electron）。**当前入口 = `dist\win-unpacked`（junction，快捷方式永指它，由 `scripts\promote-build.ps1` 换版重指）；真实构建为 `dist\win-unpacked-build<N>`，补丁脚本经 `scripts\resolve-dist.mjs` 定位最新构建。勿写死/归档 junction 目标，勿再产生 buildN 歧义**。插件生态在根目录 `plugins/`（link 加载，改后重启 dsh 生效）；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。
 - Web GUI（http://127.0.0.1:43120，新壳端口；旧壳为 3080）由桌面应用内嵌 DSH 内核提供；客户端 bundle（`dsh-client-ui-*/lib/client.js`）按请求读盘 + `no-cache`，改完刷新浏览器即生效。
 - 插件在 `plugins/`，经 `dsh-super-injector`（`dev_inject_plugin`/`dev_install_package`/`dev_reload_package`）运行时注入、热重载、持久化装配。
+
+## 三层维护架构（策展 · 2026-08-26 定稿）
+
+> 日常健康不依赖人工/计划任务，全部内置于应用；`scripts/dsh-maintenance.ps1` 仅作离线兜底。
+
+1. **启动自愈**（`lib/main.js` 补丁）：`ZombieCleanup()` 在端口探测前清理上次崩溃的孤儿进程；`src/main.ts` 端口空闲时自动接管陈旧 lockfile。
+2. **实时卫生**（`dsh-session-hygiene` bundle）：周期扫描会话文件，>4MB 提醒 / >8MB 强告警（桌面通知 + 会话注入，24h 去重），`/session-hygiene/report` 报表。
+3. **每小时智能自检**（`dsh-self-maintenance` bundle）：磁盘剩余（<5GB warn / <2GB error）+ 会话体积聚合判断，健康时静默，`/self-maintenance/status` 心跳快照。只观测 + 通知，绝不删文件。
+
+- 大会话归档：内核**无归档 API**，用 `scripts/archive-big-sessions.ps1`（默认 dry-run，只移 闲置>24h 且 >8MB 的会话到 `_backups/archived-sessions-*`，可移回恢复）。
+- 巡检日志：`_backups/maintenance-<yyyyMMdd>.log`（仅手动/兜底跑时产生）。
 
 ## 构建 / 部署（策展）
 
@@ -41,6 +69,7 @@ generator: @dsh-external/dsh-project-brief
 - daemon-loop 插件不要把永不解析的服务写进 `inject`（如 compaction）；用 `ctx.reflect.get(...)` 惰性解析。
 - DSH 文件沙箱为 workspace-write：文件工具只能写 `D:\Deepseek-Harness`；写全局 npm 用 shell。
 - `run-all.js` 在沙箱内因 `spawnSync` 管道被 EPERM 全红，属环境限制，单独跑各测试文件为准。
+- **打包壳下 `shell` 工具曾静默假成功（2026-08-25 定案，补丁 #15）**：根因 = `dsh-sandbox-local` 的 windows-acl 运行器把 `process.execPath`（打包后=应用 exe）当 node 用，每次 `shell` 调用拉起重复实例被守卫劝退（退出码 0 但命令未执行）。修复已登记 `apply-winhide-patches.mjs`（marker `nodeForWindowsAclRunner`）；验证生效前一律用 `pwsh` 兜底、勿信 `shell` 的退出码 0。
 
 
 ## overview
@@ -55,70 +84,39 @@ generator: @dsh-external/dsh-project-brief
 ## structure
 
 <!-- brief:auto:structure:start -->
-- `.dsh/`
-- `.workbuddy/`
-- `agent-presets/`
-- `app/`
-- `branding/`
-- `docs/`
-- `dsh-context-lifecycle/`
-- `dsh-stuck-loop-guard/`
-- `plugins/`
-- `scripts/`
-- `src/`
-- `tests/`
-- `tools/`
-- `AGENTS.md`
-- `CHANGELOG.md`
-- `LICENSE`
-- `PROJECT_README.md`
-- `README.md`
-- `apply-icon.ps1`
-- `approve-builds.ps1`
-- `build-app.ps1`
-- `check-exe-stale.ps1`
-- `console.log('A-done')`
-- `install-dsh-plugins.ps1`
-- `modlens-free-engines.md`
+- `_backups/` — 构建归档与临时备份（gitignore；`dist-archive/` 下保留最近 2 份旧构建）
+- `agent-presets/` — agent 预设模板（gitignore，运行时在 `~/.dsh/.agent-presets`）
+- `assets/` — 图标等静态资源（含 `icon.ico`，供 `package.json` 构建引用）
+- `docs/` — 项目文档（索引见 `docs/README.md`；历史文档已标记"归档"）
+- `dsh-context-lifecycle/` — 根级守护插件：token 生命周期管理（零依赖 host 模式）
+- `dsh-stuck-loop-guard/` — 根级守护插件：失败循环守卫（零依赖 host 模式）
+- `dsh-vision-rotator/` — 根级插件：视觉引擎轮转（与 `plugins/dsh-vision-engine` 配合）
+- `hy3-gateway/` — 实验性 HY3 网关服务（gitignore；被 `plugins/dsh-hy3-gateway` 硬编码引用，路径不可移动）
+- `legacy/` — 旧 Electron 壳归档（含旧 `src/`、`app/`、`tests/`、`build-app.ps1` 等，勿当作现状）
+- `patches/` — 补丁系统（`bundles/` 已验证补丁、`reference/` 参考补丁、`wip/` 开发中补丁）
+- `plugins/` — 插件生态（24 个插件，经 `dsh-super-injector` 运行时注入/热重载；登记表见 `plugins/INVENTORY.md`）
+- `profile/` — DSH web profile 模板与配置
+- `scripts/` — 构建/维护/验证脚本（35 个，含 `promote-build`、`verify-patches`、`dsh-maintenance` 等）
+- `tools/` — 一次性调试脚本（gitignore，草稿区）
+- `vendor/` — DSH Desktop 上游仓库（gitignore，单独 clone；构建走 `scripts/package-vendor.ps1`）
 
-**src/ 结构**:
-- `src/main.js`
-- `src/package.json`
-- `src/patch-dsh-native-picker.js`
-- `src/preload.js`
-- `src/assets/icon.ico`
-- `src/assets/icon.png`
-- `src/lib/brain.js`
-- `src/lib/build-lock.js`
-- `src/lib/dsh-service.js`
-- `src/lib/error-codes.js`
-- `src/lib/error-log.js`
-- `src/lib/icon-guard.js`
-- `src/lib/loop-detect.js`
-- `src/lib/npm-paths.js`
-- `src/lib/patch-manifest.js`
-- `src/lib/plugin-manager.js`
-- `src/lib/safe-mode.js`
-- `src/lib/update-check.js`
-- `src/lib/version.js`
-- `src/lib/window-ui.js`
-- `src/renderer/loading.html`
+**根级文件**:
+- `.githooks/` — git hooks 目录（`core.hooksPath=.githooks`，pre-commit 语法检查 + post-commit）
+- `AGENTS.md` — agent 项目说明（本文档）
+- `CHANGELOG.md` — 变更日志
+- `package.json` — vendor dsh-plugin-desktop manifest 的影子副本（非构建入口，详见 docs/README.md）
+- `PROJECT_README.md` — 项目 README
+- ~~`modlens-free-engines.md`~~ — 已合并至 `docs/modlens-free-engines.md` 并删除根级副本（2026-08-25）
 
-**插件 (plugins/)**:
-- `dsh-deep-whale-main`
-- `dsh-file-explorer`
-- `dsh-model-picker-group`
-- `dsh-model-whitelist`
-- `dsh-modlens-guard`
-- `dsh-project-brief`
-- `dsh-remote-workspace`
-- `dsh-routing-suite`
-- `dsh-session-history`
-- `dsh-session-watchdog`
-- `dsh-skills-manager`
-- `dsh-system-notify`
-- `dsh-web-fetch-local`
-- `dsh-web-search-bing`
+**插件 (plugins/) — 24 个**:
+- `dsh-bandof-diag` / `dsh-deep-whale-main` / `dsh-file-explorer`
+- `dsh-force-reasoning-effort` / `dsh-frontend-reload` / `dsh-host-services`
+- `dsh-hy3-gateway` / `dsh-model-picker-group` / `dsh-model-tier-router`
+- `dsh-model-whitelist` / `dsh-modlens-autoread` / `dsh-modlens-guard`
+- `dsh-project-brief` / `dsh-remote-workspace` / `dsh-routing-suite`
+- `dsh-self-maintenance` / `dsh-session-history` / `dsh-session-hygiene`
+- `dsh-session-watchdog` / `dsh-skills-manager` / `dsh-system-notify`
+- `dsh-vision-engine` / `dsh-web-fetch-local` / `dsh-web-search-bing`
 <!-- brief:auto:structure:end -->
 
 ## stack
@@ -131,7 +129,9 @@ generator: @dsh-external/dsh-project-brief
 ## commands
 
 <!-- brief:auto:commands:start -->
-（package.json 无 scripts）
+- 根 `package.json` 含 20 个 vendor scripts（build/typecheck/test 等），但根目录无 tsconfig/src/lib，**不可在根目录运行**。
+- 实际构建/验证入口：`scripts/package-vendor.ps1`（构建）、`scripts/check-all.ps1`（一键验证）、`scripts/verify-patches.ps1`（补丁校验）。
+- git hooks：`core.hooksPath=.githooks`，pre-commit 自动 `node --check` 暂存区 JS 文件。
 <!-- brief:auto:commands:end -->
 
 ## mechanisms

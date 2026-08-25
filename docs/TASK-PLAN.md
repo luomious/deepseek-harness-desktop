@@ -54,17 +54,26 @@ win-unpacked → win-unpacked-prev（或 _archive）→ staging → win-unpacked
 - [x] 插件 `node --check` 全检：0 错误
 - [x] 日志按天轮转且体积小（0.4MB 内），无需额外处理
 
-### D. P2 优化（上线后，低风险）
-- [ ] 百炼额度监控文案：把"报错"改为中性"渠道不支持查询，以本机用量为准"
-- [ ] super-injector "junction 异常"警告确认为良性（或修复）
-- [ ] `Electron.lnk`（开始菜单）处理：统一或删除
+### D. P2 优化（2026-08-26 收官逐项关闭）
+- [x] 百炼额度监控文案：**带理由关闭**——overlay 仓全库检索无该文案来源，属上游内核
+      client UI（dsh-client-ui-settings-models）内置措辞，overlay 层无法修改；
+      如上游后续开放 locale 覆盖再议。
+- [x] super-injector "junction 异常"警告：**已关闭**——警告源在第三方包内，触发条件是
+      registry.json 残留注入条目；2026-08-25 已清空 registry 通道且
+      verify-features `registry-no-double-channel` 守卫（含全部 7 插件名单），
+      触发条件不复存在；重启后日志复查零警告作最终证据。
+- [x] `Electron.lnk`（开始菜单）处理：**已关闭**——2026-08-26 检查开始菜单快捷方式，
+      清理多余 Electron.lnk（见 CHANGELOG 收官条目）。
 
-### E. P3 工程化（持续）
-- [ ] 全部插件 `node --check` 语法全检
-- [ ] 日志轮转/大小确认
-- [ ] 版本门禁（dev_stage_* 先暂存再 promote）
-- [ ] 旧壳 legacy/ 与 dist 冗余目录的归档策略
-- [ ] `routing-suite` / 补丁脚本已提交确认（防换机丢失）
+### E. P3 工程化（2026-08-26 收官逐项关闭）
+- [x] 全部插件 `node --check` 语法全检 → `check-all.ps1` Step 1 + CI（.github/workflows/check.yml）
+- [x] 日志轮转/大小确认 → 按天轮转，单文件 <0.5MB（实测）
+- [x] 版本门禁（dev_stage_*）→ **带理由关闭**：发布门禁已由
+      `promote-build.ps1`（运行中禁换 junction + 回滚）+ `smoke-test.ps1` 覆盖，
+      dev_stage 暂存流程未使用过，不引入无用机制
+- [x] 旧壳 legacy/ 与 dist 冗余目录归档策略 → legacy/ 已归档；
+      dist 由 junction + `promote-build` 自动归档（保留新/前/运行中三份）
+- [x] `routing-suite` / 补丁脚本已提交确认 → 全部在 git（2026-08-26 git log 核实）
 
 ## 3. 全量自测脚本说明（scripts/smoke-test.ps1）
 

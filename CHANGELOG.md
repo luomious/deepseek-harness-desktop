@@ -6,6 +6,59 @@
 
 ---
 
+## 2026-08-26 生产收尾（最终收敛：协议统一 + 智能维护内置 + 冗余清理 + 文档定稿）
+
+> 目标：遗留项全清、长期运行零人工依赖、单一事实源、仓库无冗余。全程五段流程，执行日志见 `tools/wrap-up-execution-log.md`（gitignore）。
+
+### 1. 协议一致性（单一事实源收敛完成）
+- 删除 `dsh-model-whitelist` 残留死代码 `isLocalHostname`（定义后零调用；全库扫描确认
+  `trusted/readBody/isLocalHostname` 唯一来源 = `dsh-host-services`）。
+- 装配通道核验：`registry.json` 为空（无双通道）、模板 `profile/desktop/package.json`
+  与运行时逐字节一致（fc 无差异）。
+- 大会话归档机制核实：内核 `dsh-session` **无归档 API**（仅 delete/detach），
+  故新增 `scripts/archive-big-sessions.ps1`（默认 dry-run，只移 闲置>24h 且 >8MB，
+  可移回恢复，失败自动跳过）。首轮归档 1 个：`session-a74ea214`（17.55MB，闲置 55h）。
+
+### 2. dsh-self-maintenance：每日巡检升级为应用内智能自检（不再需要计划任务/管理员）
+- 新插件 `plugins/dsh-self-maintenance`（零依赖 daemon-loop，`inject:['timer']` + 全惰性解析）：
+  每小时一轮，纯进程内判断（不 spawn 外部命令）——磁盘 `statfsSync`（<5GB warn / <2GB error）
+  + 会话体积两层轻扫（`sessions/<workspace>/<session>` 布局，聚合阈值判断），
+  健康时静默，异常 24h 去重通知（Electron Notification），`/self-maintenance/status` 心跳。
+  **只观测 + 通知，绝不删/移/改用户文件。**
+- 登记：模板 `profile/desktop/package.json` dependency + bundles（运行时在重启窗口装配）。
+- 回归守卫：`verify-features.ps1` +`self-maintenance-source`；
+  `registry-no-double-channel` 名单 +`dsh-self-maintenance`（现 7 插件）。
+- `AGENTS.md` 新增「三层维护架构」策展区；`dsh-maintenance.ps1` /
+  `install-maintenance-task.ps1` 降级为"离线兜底/可选"（头部注释 + scripts/README 同步）。
+- 验证：`node --check` ✅；纯函数单测（fixture + 真实目录：149 会话/194.6MB/3 个 >8MB，
+  与 hygiene 报表吻合）✅；活体注入 200 + 心跳 ✅；`verify-features` 50/50 ✅。
+
+### 3. 执行中发现并处置的问题（详见执行日志 #1-#7）
+- **#1 frozen-lockfile 失配风险**：materializer 启动只跑 `pnpm install --frozen-lockfile`；
+  运行时新增 link 依赖须在重启窗口先非 frozen 同步 lockfile（已列入重启检查单）。
+- **#4 会话两层布局**：初版扫描读 0 → 已修（单测证明）。
+- **#5 平台行为记录**：inject/uninject 后 webServer 前缀路由不自动注销（`dev_clear_routes`
+  可清）；同 URL 再注入走 ESM 模块缓存，热重载受 `loader.internal 不可用` 限制——
+  注入式热迭代在本构建不可靠，代码迭代以重启为准（只观测插件，旧版在内存中仅静默少报）。
+- **#6/#7**：inject 写 `registry.json`（已清回 `[]`）、uninject 写 disabled patch 条目
+  （重启窗口删除）——均防双通道/误挡装配。
+
+### 4. 冗余清理
+- 开始菜单多余 `Electron.lnk` 删除（与 `DSH Desktop.lnk` 同目标、缺图标）。
+- `~/.dsh/super-injector/` 旧 `registry.json.bak*` 清理（留一）。
+- `scripts/_hang-watch.ps1`（自标 TEMPORARY 诊断）移入 `tools/`（退出仓库）。
+- `docs/TASK-PLAN.md` P2/P3 全部逐项关闭（含带理由关闭：百炼文案属上游 / dev_stage 门禁已被
+  promote+smoke 覆盖）。
+- `docs/README.md` 索引补齐（+4 文档）+ 维护架构关键事实；`plugins/INVENTORY.md` 24/27。
+
+### 5. 待办（唯一剩余动作）
+- **重启窗口**（等用户指示）：运行时 profile 装配 self-maintenance（删 disabled 条目 +
+  补 bundle + 非 frozen pnpm install）→ 重启 → 6 项验证（含 self-maintenance status
+  应显示 sessions≈148/bigCount≈2/totalMB≈177）→ push GitHub。
+- 补丁 #15（shell 静默假成功）随同一次重启生效，验证后更新「常见坑位」表述。
+
+---
+
 ## 2026-08-25 插件单元测试 + CI（GitHub Actions）
 
 ### 插件单元测试
@@ -85,8 +138,9 @@
 - 修复：检测到可见主窗口的实例（应用在跑）时**跳过整个僵尸清理**，与 lockfile 检查的既有模式一致；仅无实例时才清理僵尸。
 - PS 解析校验通过；全量 smoke-test 26/26 PASS（含运行时：critical-busy 往返、compaction resolved）。
 
-### 待用户操作
-- 注册每日巡检（管理员 PowerShell 一次）：`powershell -File D:\Deepseek-Harness\scripts\install-maintenance-task.ps1`
+### 可选（非必须）
+- `scripts/install-maintenance-task.ps1` 留作备用：注册 Windows 计划任务「DSH Maintenance」（每天 09:00 跑 dsh-maintenance.ps1）。
+- **不跑也行**：四项检查（僵尸清理/大会话告警/lockfile 清理/补丁健康）已全部被应用自身的启动流程和插件覆盖（ZombieCleanup 补丁 + dsh-session-hygiene 插件 + reconcilePatches + 端口探测前锁文件清理）。计划任务仅在应用未运行时提供额外安全网（边际收益）。
 - 归档 >4MB 大会话（9 个告警 + 3 个错误，session-34b88ace 8.66MB 最大）。
 
 ---
@@ -99,9 +153,9 @@
 - 修复 2：运行中 `~/.dsh/profiles/desktop/package.json` bundles 补 `@dsh-external/dsh-session-hygiene`（与 `profile/desktop` 模板对齐，26 bundles；已备份 `_backups/profile-desktop-live-*.json`）。
 - 生效：下次重启桌面应用（遵守重启守则）。
 
-### 每日巡检安装器
+### 每日巡检安装器（可选/备用）
 - 新增 `scripts/install-maintenance-task.ps1`：注册 Windows 计划任务「DSH Maintenance」（每天 09:00 跑 dsh-maintenance.ps1：僵尸清理 + 大会话告警 + lockfile 清理 + 补丁健康）。
-- 沙箱无权限注册计划任务，需管理员执行一次：右键 PowerShell → 以管理员身份运行 → `powershell -File D:\Deepseek-Harness\scripts\install-maintenance-task.ps1`。
+- **非必须**：应用自身已通过启动补丁和插件覆盖全部四项检查。此脚本留作备用（如应用崩溃后无人重启的场景），需管理员执行一次。
 
 ### 大会话排雷
 - 发现 10+ 个 >4MB 会话文件（最大 8.7MB），含 CHANGELOG 点名的 session-34b88ace / session-a74ea214。建议归档/删除（长期"一事一会话"）。

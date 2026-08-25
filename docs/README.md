@@ -5,9 +5,14 @@
 ## 当前有效（生产 / 维护用）
 
 - `BUILD.md` —— 构建链路、单一事实源（`scripts/resolve-dist.mjs`）、补丁 / 归档流程。**权威文档。**
-- `PRODUCTION-UPGRADE-PLAN.md` —— 生产上线分阶段方案（顶部已标注 2026-08-24 状态更新）。
+- `PRODUCTION-UPGRADE-PLAN.md` —— 生产上线分阶段方案（顶部已标注 2026-08-24 状态更新；P0-P1.5 已闭环）。
+- `PRODUCTION-EXECUTION-PLAN.md` —— 投产实施方案书（P0 鉴权 + P1 清单 + 执行序列，R1-R9 已完成标记）。
+- `PRODUCTION-READINESS-REVIEW.md` —— 生产就绪评审结论。
+- `TASK-PLAN.md` —— 生产收尾计划（P2/P3 已于 2026-08-26 逐项关闭）。
+- `VENDOR-BASELINE.md` —— vendor 桌面壳基线 pin + 备份仓库记录。
 - `modlens-free-engines.md` —— modlens 免费引擎配置。
 - `troubleshooting-handbook.md` —— 故障排查手册（部分条目含旧壳 3080 历史描述，端口以 BUILD.md 为准）。
+- `upstream-issue-zstd-sync-blocking.md` —— 上游问题报告：`dsh-session-persistence-jsonl` 同步解压阻塞事件循环（待提交 deepseek-ai/deepseek-harness）。
 
 ## 历史归档（供追溯；其中的 dist / 端口路径已过时，勿当作现状）
 
@@ -24,7 +29,11 @@
 ## 关键事实（防再踩坑）
 
 - **当前构建目录**：由 `scripts/resolve-dist.mjs` 动态解析（dist 下 mtime 最新的 `DSH Desktop.exe`），
-  当前为 `vendor/.../dist/win-unpacked-build2/win-unpacked`。**禁止在脚本里写死 dist 路径。**
+  由 `scripts/promote-build.ps1` 将稳定 junction `dist\win-unpacked` 指向最新 buildN 目录。
+  **禁止在脚本或文档里写死 buildN 编号。** 运行 `node scripts/resolve-dist.mjs` 查看当前目标。
 - **端口默认**：`43120`（源 `vendor/.../dsh-plugin-desktop/src/desktop-port.ts` 的
   `DESKTOP_DEFAULT_WEB_PORT`）；`3080` 是旧壳端口，已退役。
-- **旧构建归档**：`_backups/dist-archive/<时间戳>/`（位于 dist 之外）。
+- **旧构建归档**：`_backups/dist-archive/<时间戳>/`（位于 dist 之外）。保留策略：保留最近 2 份 + 当前 junction
+  对应版本，更早的可安全删除以释放磁盘空间（每份约 550 MB–3.4 GB）。
+- **日常维护**：三层内置架构（启动自愈 / session-hygiene 实时卫生 / self-maintenance 每小时自检），
+  无需计划任务与管理员操作；详见 `AGENTS.md`「三层维护架构」节。`scripts/dsh-maintenance.ps1` 仅离线兜底。
