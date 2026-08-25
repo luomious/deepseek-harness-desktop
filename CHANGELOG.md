@@ -6,6 +6,239 @@
 
 ---
 
+## 2026-08-25 插件单元测试 + CI（GitHub Actions）
+
+### 插件单元测试
+- 新增 `tests/plugins/session-hygiene.test.mjs`：22 个用例覆盖 5 个纯函数（resolveConfig / classifySession / deriveReadableTitle / buildReport / buildAlertMessage），**22/22 PASS**。
+- 框架：`node:test`（零依赖，Node 22+ 内置）。
+- 运行：`node --test tests/plugins/session-hygiene.test.mjs`（需在 DSH 沙箱外执行；沙箱内 EPERM 为已知限制）。
+- 设计：只测纯函数（无副作用、无文件系统、无网络），apply() 等有副作用的函数留给 smoke-test。
+
+### CI（GitHub Actions）
+- 新增 `.github/workflows/check.yml`：push/PR 时自动跑——
+  1. 全部插件 JS `node --check`（语法校验）
+  2. 根级守护插件 + patches/bundles 语法校验
+  3. 单元测试（`node --test tests/plugins/*.test.mjs`）
+- 运行环境：ubuntu-latest + Node 22（纯函数测试跨平台）。
+- 已知限制：vendor/ gitignore → CI 覆盖范围为 overlay 仓（插件/补丁/脚本），不覆盖 dist 构建验证（verify-patches/smoke-test 需本地运行）。
+
+### check-all.ps1 集成
+- 新增 Step 3：`node --test` 单元测试（`-SkipTests` 跳过，用于 DSH 沙箱内执行）。
+- 步骤重排：1.语法 → 2.补丁锚点 → 3.单测 → 4.smoke。
+
+### 风险收益
+- 风险：≈0（纯增量文件，不碰现有代码）。
+- 收益：改插件时立即发现回归（22 个用例守 5 个核心纯函数）；CI 外部质量门。
+
+---
+
+## 2026-08-25 execPath 同类问题扫描审计结论（补丁 #15 后续）
+
+- 背景：修复 `shell` 静默假成功（补丁 #15，见下文条目）后，按流程对全内核包做了 `process.execPath` 同类扫描，3 处候选全部定性为**良性，无需改动**：
+  1. `dsh-web-app/lib/index.js:119` —— spawn `process.execPath` 带 `ELECTRON_RUN_AS_NODE=1`，是 Electron exe 当 node 用的正确姿势（✅ 与 desktop-terminal/pnpm 同模式）。
+  2. `dsh-tool-fs-search/lib/index.js:122` —— `${execPath}-rg` 侧车仅在 `"pkg" in process` 时使用；Electron 下走 `@vscode/ripgrep` 回退（✅ 有守卫）。
+  3. `dsh-host-directory-picker-native/lib/index.js:85,90` —— built 分支 spawn `execPath` 未带 `ELECTRON_RUN_AS_NODE`，**但本部署未加载该包**（全包无 import；桌面激活的是 `-browse` 后端）→ 对当前产品无影响（⚠️ 上游潜在缺陷，若未来直接消费该包需先加 `ELECTRON_RUN_AS_NODE=1`）。
+- 结论：无需代码改动；本条目作为审计留痕，避免未来会话重复排查。
+
+---
+
+## 2026-08-25 长期稳定性：装配/标题/通道修复（agent 会话）
+
+### session 自动标题生成失败（maxOutputTokens）修复
+- 根因：内核默认 `session-title-llm maxOutputTokens=64`，标题请求复用会话路由（modlens-tokenrhythm01/deepseek-v4-flash-0731，思考型），必然 finish_reason=max-tokens → `title output reached maxOutputTokens`（当日复发 4 次）。
+- 修复：`profile/desktop/cordis.patch.yml`（模板）+ 运行时同文件增加 `session-title-llm` 行，`maxOutputTokens: 64 → 512`；新建会话标题生成恢复。
+
+### profile 装配冲掉精调配置（系统性根因）修复
+- 根因：`staged-profile-assemble.ps1` 用 `Build-PatchYml/Build-PackageJson` 从批次清单**重生成**运行时 `cordis.patch.yml`/`package.json`，丢弃模板中全部精调行（session-title / compaction 固定摘要模型 / web bing 覆盖 / frontend-reload）与 bundles（dshmarket / hy3-gateway / vision-rotator / session-hygiene）→ 压缩跟随会话路由模型报 W、搜索回退、标题修复失效。
+- 修复：两处（Direct + staging）改为**拷贝模板**（模板 = 唯一事实源，与 `install-desktop.ps1` 一致）；运行时恢复为模板版。
+- 验证：`verify-features.ps1` 新增 `runtime-patch-curated` / `runtime-bundles-full` 回归守卫。
+
+### 插件双通道装配去重
+- 根因：super-injector `registry.json` 残留 6 条条目，与 profile insert / bundles 通道重复 → 插件双份 apply（vision-engine 8 条 `duplicate prefix route` 警告；vision-rotator 同）。
+- 修复：registry.json 清空；vision-engine / vision-rotator / modlens-autoread 走 bundles 通道，session-watchdog / project-brief / force-reasoning-effort 走 profile insert 通道；`dev_inject_plugin` 仅作临时恢复通道。
+- 验证：`registry-no-double-channel` 回归守卫；重启后无 duplicate route 警告。
+
+### 遗留观察项
+- 新建会话标题生成结果待日常观察（配置已生效，重启后无新报错）。
+- `dsh-session-hygiene` bundle 声明由并行维护者补齐，重启后已正常启动（`/session-hygiene/report`）。
+- `shell` 工具 duplicate-instance 问题（已知，patch #15 已登记，验证前用 pwsh 兜底）。
+
+---
+
+## 2026-08-25 长期稳定性：session-hygiene 修复验证通过 + maintenance 误杀修复
+
+### session-hygiene 修复验证（上一条目修复，重启后生效确认）
+- `GET /session-hygiene/report` → **HTTP 200**，插件已运行：148 会话 / 182MB，9 个 >4MB、3 个 >8MB、1 个归档建议，最大 8.66MB（session-34b88ace）。
+- 重启后日志零新增 session-hygiene 报错（历史 68 条均为旧记录）。
+- 相似问题扫描：host-services 的 `ctx.webServer` 直取模式在装配中正确声明 inject，运行时 `/host-services/status` 200 无报错；remote-workspace 无此模式。**无同类隐患。**
+
+### 上游报告 + status 路由（本轮收尾）
+- `docs/upstream-issue-zstd-sync-blocking.md`：上游问题报告——`dsh-session-persistence-jsonl` 的 `zstdDecompressSync`（public decoder L468 / private `handle.writeSync` L412）同步解压阻塞事件循环；附源码位置 + 监控时间线（session-34b88ace 8.9MB 11,600+ 帧 / session-a74ea214 17.5MB）+ 复现条件 + 异步/worker 化解压方案（唯一根治）。待提交 deepseek-ai/deepseek-harness。
+- `/session-hygiene/status` 路由前缀修复：挂载根前缀 `/session-hygiene`（内部按 `/report`、`/status` 分发，旧路径兼容），`node --check` 已过；当前实例热重载受限（`loader.internal 不可用`），待下次重启生效。
+
+### dsh-maintenance.ps1 误杀修复（新隐患）
+- 定案：僵尸清理条件（无主窗口 + WS<80MB）会误判运行中应用的子进程为僵尸——实测 3 个进程（42/56/74MB，无标题）会被误杀；每日 09:00 计划任务运行时应用大概率开着。
+- 修复：检测到可见主窗口的实例（应用在跑）时**跳过整个僵尸清理**，与 lockfile 检查的既有模式一致；仅无实例时才清理僵尸。
+- PS 解析校验通过；全量 smoke-test 26/26 PASS（含运行时：critical-busy 往返、compaction resolved）。
+
+### 待用户操作
+- 注册每日巡检（管理员 PowerShell 一次）：`powershell -File D:\Deepseek-Harness\scripts\install-maintenance-task.ps1`
+- 归档 >4MB 大会话（9 个告警 + 3 个错误，session-34b88ace 8.66MB 最大）。
+
+---
+
+## 2026-08-25 长期稳定性：session-hygiene 修复 + 装配对齐 + 每日巡检安装器
+
+### dsh-session-hygiene 修复（59 次报错根因定案）
+- 日志定案：`cannot get property "webServer" without inject` 共 59 次；运行中 profile 的 bundles 列表缺该插件 → 插件未加载、`/session-hygiene/report` 404、会话卫生监控静默失效（大会话因此累积）。
+- 修复 1：`plugins/dsh-session-hygiene/lib/index.js` 路由注册改 `ctx.reflect.get('webServer')` 惰性解析（AGENTS.md 坑位标准解法），服务不可用时跳过注册而非崩溃 apply()。
+- 修复 2：运行中 `~/.dsh/profiles/desktop/package.json` bundles 补 `@dsh-external/dsh-session-hygiene`（与 `profile/desktop` 模板对齐，26 bundles；已备份 `_backups/profile-desktop-live-*.json`）。
+- 生效：下次重启桌面应用（遵守重启守则）。
+
+### 每日巡检安装器
+- 新增 `scripts/install-maintenance-task.ps1`：注册 Windows 计划任务「DSH Maintenance」（每天 09:00 跑 dsh-maintenance.ps1：僵尸清理 + 大会话告警 + lockfile 清理 + 补丁健康）。
+- 沙箱无权限注册计划任务，需管理员执行一次：右键 PowerShell → 以管理员身份运行 → `powershell -File D:\Deepseek-Harness\scripts\install-maintenance-task.ps1`。
+
+### 大会话排雷
+- 发现 10+ 个 >4MB 会话文件（最大 8.7MB），含 CHANGELOG 点名的 session-34b88ace / session-a74ea214。建议归档/删除（长期"一事一会话"）。
+
+### 登记表修正
+- `plugins/INVENTORY.md` 补齐 dsh-host-services / dsh-session-hygiene（plugins/ 实为 23 个，含根级共 26）；AGENTS.md structure 区同步为 23。
+
+---
+
+## 2026-08-25 shell 工具静默假成功定案与修复（补丁 #15）
+
+- 问题：`shell` 工具每次调用退出码 0 但命令未执行（stderr 仅重复实例提示）。
+- 根因：`dsh-sandbox-local` 的 windows-acl 运行器 argv 前缀用 `process.execPath`（打包 Electron 下=应用 exe）当 node → 每次拉起重复实例被守卫劝退，命令从未运行却报成功。
+- 修复：`nodeForWindowsAclRunner()` 按 `DSH_NODE_PATH` → 常见安装路径 → PATH 解析真实 node；找不到则显式抛错（fail-closed），永不回退 `process.execPath`。
+- 登记：`apply-winhide-patches.mjs`（幂等重打，marker `nodeForWindowsAclRunner`）+ `verify-patches.ps1` 第 15 项；dist 与 vendor 源均已打补丁并通过 `node --check`。
+- 待重启生效（遵守重启守则）；重启后验证：`shell` 执行 `Write-Output ok` 应有真实输出、越权写仍被沙箱拦截。
+- 备份：`_backups/2026-08-25-sandbox-node-patch/`。
+
+---
+
+## 2026-08-25 插件登记表 + 实验目录清理 + vendor 漂移确认
+
+### 插件登记表
+- 新增 `plugins/INVENTORY.md`：24 个插件（21 plugins/ + 3 根级守护）的状态、热重载安全性、用途一览。
+- 统计：core 20 / experimental 3；可热重载 10 / 必须重启 3 (modlens) / 建议重启 10 (bundle)。
+
+### 实验目录清理
+- `cb-hy3-test/` 删除（5,834 文件 / 29.4 MB），已 gitignore，纯实验草稿。
+
+### vendor 漂移确认
+- 全库 grep 确认：根 `package.json` 无任何脚本/插件消费者（6 个引用均为 vendor 内部路径）。
+- 结论：根 package.json 是纯影子副本，已由 AGENTS.md 和 docs/README.md 记录，无需删除或转换。
+
+### 纯文档+清理变更，无代码、无需重启。
+
+---
+
+## 2026-08-25 Pre-commit hook + AGENTS.md commands 区修正
+
+### Pre-commit hook（提交门禁）
+- 新增 `.githooks/pre-commit`：提交前自动对暂存区 JS 文件（plugins/、patches/bundles/、根级守护插件）跑 `node --check`。
+- 语法错误 → 阻止提交并报错；`--no-verify` 可绕过。
+- 用 Git Bash / MSYS2 运行，POSIX sh 兼容。
+- 与 `scripts/check-all.ps1` 形成互补：pre-commit 守提交，check-all 守发布。
+
+### AGENTS.md commands 区修正
+- 修正 "(package.json 无 scripts)" 误导：根 package.json 含 20 个 vendor scripts 但不可在根目录运行。
+- 明确实际入口：`package-vendor.ps1`（构建）、`check-all.ps1`（验证）、`verify-patches.ps1`（补丁校验）。
+- 标注 pre-commit hook 存在。
+
+### 纯文档+脚本变更，无代码、无需重启。
+
+---
+
+## 2026-08-25 dsh-host-services：6 插件本地 API 样板收敛为单一事实来源
+
+### 背景
+- file-explorer / skills-manager / remote-workspace / model-whitelist / vision-engine / context-lifecycle 各自复制粘贴 trusted / isLocalHostname / readBody / HTTP 路由样板（约 260 行），安全语义曾有 5 种不一致行为（vision-engine 缺 Origin 校验、model-whitelist 多 `.localhost` 通配）。
+
+### 方案
+- 新增插件 `plugins/dsh-host-services`：`ctx.provide('hostServices', …)` 注册 cordis 服务，提供 `trusted`（统一最严：POST 强制 Origin 同源、GET 允许无 Origin）/ `readBody`（Buffer.concat + 上限 + 错误码）/ `registerLocalApi`（405/403/413/400/500 全套样板）/ `resolveConfig` / `readJson` / `writeJson`，幂等挂载 + `/host-services/status` 诊断端点；`ctx.hostServices` 直接赋值兜底（mock ctx / 无 provide 环境）。
+- 6 个插件 `inject` 统一声明 `'hostServices'`（apply 顺序由 cordis 依赖图保证），路由改为一行 `hs.registerLocalApi(...)`；删除各插件本地 trusted/readBody/wrap 副本。
+- 修复加载时序：host-services 自身 `inject=['webServer']`（先于 webServer 就绪注册路由会静默 404）；vision-engine `inject=['webServer','hostServices']`（曾因时序未注册，8 条 `/vision-engine/*` 全 404）。
+- context-lifecycle 的 `POST /decide` 顺带获得 Origin 校验（原实现无 Origin 检查，CSRF 面收口）。
+
+### 装配与验证
+- `profile/desktop/package.json` 模板 dependencies+bundles 登记 host-services；`staged-profile-assemble.ps1` 批次 1 首项加入（保证先加载）。
+- `tests/http-guard-v2.mjs` 42 项单测（安全语义锁定：缺失 Origin POST 403 等）。
+- `scripts/verify-host-services.ps1`（新增）：重启后 20 项运行时断言全 PASS（host-services 自身、6 插件路由、vision-engine 8 条、统一 403 抽查）。
+- `scripts/verify-features.ps1` 35 项全 PASS（含 registerLocalApi 改造源侧断言）。
+- 已重启验证，桌面运行正常，无回归。测试：`node tests/http-guard-v2.mjs`；验证：`scripts/verify-host-services.ps1`。
+
+---
+
+## 2026-08-25 可维护性加固：工作区卫生 + 一键验证 + 脚本索引
+
+### 工作区卫生
+- `dist-archive/20260824-014115` 删除（3.4 GB / 181,883 文件），释放 75% 磁盘占用
+  （robocopy /mir 绕过 Windows MAX_PATH 限制）；保留最近 2 份归档（各 567 MB）。
+- 根级 `modlens-free-engines.md`（10 KB）合并至 `docs/` 并删除根级副本（消除重复）。
+- `docs/README.md` 关键事实修正：去掉写死的 buildN 编号，改为 `resolve-dist.mjs` 为权威；
+  补充 `dist-archive` 保留策略说明。
+- `AGENTS.md` structure 区刷新：21 个插件全量列出、实际目录结构、标注 legacy/已归档。
+
+### 一键验证入口
+- 新增 `scripts/check-all.ps1`：聚合 node --check 全部插件 JS + verify-patches + smoke-test，
+  一个命令跑完所有验证。`-SkipSmoke` 跳过运行时检查。
+- 用法：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-all.ps1`
+
+### 脚本索引
+- 新增 `scripts/README.md`：按用途分类列出 35 个脚本的用途和用法。
+- 纯文档变更，无代码、无需重启。
+
+---
+
+## 2026-08-25 流程机制：五段式工作流铁律写入 AGENTS.md
+
+- `AGENTS.md` 新增策展节「工作流程铁律（read → plan → patch → verify → review）」。
+- 五段流程：read 先读框架 → plan 书面方案不写入 → 门禁经用户批准 → patch 按案执行 → verify/review 给证据并答自检三问。
+- 每次写/删/装/重启前必做风险收益评估（收益/风险/等级）；高风险须四件套（备份 → guard-destructive → critical-busy → 确认）。
+- 相似问题排查义务：修复后用 grep/read 扫全项目同类模式，列清单询问用户是否一并修复，禁止静默顺手改。
+- 架构层级纪律：前端不得直接访问数据库/文件系统/OS，必须走服务层 API；禁止插件越层与未登记的全局 node_modules 改动。
+- 规则自迭代：修订只在 review 阶段提出、经用户批准生效。
+- 纯文档变更，无代码、无需重启，下一会话自动注入生效。备份：`_backups/2026-08-25-workflow-rules/`。
+
+---
+
+## 2026-08-25 「不在项目中工作」修复：会话不再落入当前项目工作区
+
+### 问题
+- 「添加工作区… → 不在项目中工作」创建的新会话仍出现在**当前项目工作区**下，而不是预期的「未分组/纯聊天」。
+
+### 根因（三层）
+1. 补丁的 `startChatSession` 调用 `ctx.sessions.create({})`，客户端 wire payload 为空（无 workspaceId/cwd）；
+2. Host 侧 `dsh-host-apiproxy` 的 `sessions.create`：`cwd = workspace?.path ?? payload.cwd ?? defaults.cwd`，而 `ApiProxyService` 固定传入 `defaults.cwd = process.cwd()`（新壳桌面端 = 当前项目目录）；
+3. 会话 cwd 命中当前项目工作区路径 → 工作区注册表按 cwd 认领会话 → 侧栏显示在该工作区下。
+
+### 修复
+- `startChatSession` 显式用 `host.describe` 返回的 `home` 作为会话 cwd（`ctx.sessions.create({ cwd: home })`），home 不在任何已注册工作区内 → 会话不被认领，显示为「未分组」，会话头显示「纯聊天」标签（conversation chatOnly 补丁原有逻辑直接生效）。
+- 兼容回退：hostDescription 尚未就绪时保持原 `{}` 行为（不崩溃，仅菜单渲染前几乎不可能触发）。
+
+### 改动文件
+- `patches/bundles/dsh-client-ui-workspace-client.js`（canon）
+- `patches/reference/patch-manifest.js`（步骤 9 替换串 + 根因注释）
+- dev 与打包构建 `dsh-client-ui-workspace/lib/client.js` 经 `scripts/port-user-patches.mjs` 同步（三副本一致，node --check 通过）
+
+### 修复（第二轮：点击「不在项目中工作」没反应）
+- **根因**：`startChatSession` 误把 `ctx.sessions.create` 当 `{ok,value}` 结果对象处理（`if (result.ok) open(result.value.sessionId)`），而该 API 成功返回 sessionId 字符串、失败抛异常——`result.ok` 恒 falsy → 永不 `open()`；创建出的空白会话非当前时侧栏不可见 → 界面「没反应」；失败路径还会变成未捕获 rejection。
+- **修复**：改为 `try { const sessionId = await create(...); open(sessionId) } catch (e) { console.warn }`；canon + reference 同步，三副本（canon/dev/pkg）一致，node --check 通过，`verify-features.ps1` 35 项全 PASS，服务端已确认 serve 新 bundle。**刷新浏览器即生效，无需重启。**
+
+### 生效方式
+- 客户端 bundle：无需重启桌面应用，刷新浏览器即可生效（已同步 dev + 打包构建，服务端已确认 serve 新内容）。
+- Host 侧兜底（`dsh-host-apiproxy` 默认 cwd → home）：属于内核模块，**需重启桌面应用生效**（遵守重启守则，等你指示）；重启后即使页面仍在跑旧 bundle（空 payload），也不会再落当前项目目录。
+- `scripts/verify-features.ps1` 27 项全 PASS；`scripts/verify-patches.ps1` 15 项全 PASS（新增 `host-apiproxy default cwd home` 校验）。
+
+### DSH 内核边界（如实说明）
+- 运行期：cwd=home 的会话不在任何工作区 `sessionIds` 内 → 侧栏显示「未分组」，会话头显示「纯聊天」。
+- **重启后**：DSH 工作区注册表的 `bootstrap` 会把“非工作区 cwd 的会话目录”自动注册为独立工作区（标题=用户名，如「机械革命」），这是 DSH 内核对所有非工作区 cwd 会话的统一行为，客户端无法绕开；如出现可删除该工作区（会话回到未分组），但下次重启可能再次注册。彻底解决需内核支持无 cwd 会话且列表可见（当前内核无 cwd 会话持久化后不可见），属独立改造议题。
+
+---
+
 ## 2026-08-25 启动加固：ZombieCleanup + 定期维护脚本 + 14 项补丁校验全绿
 
 ### ZombieCleanup 启动僵尸清理

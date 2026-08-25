@@ -48,6 +48,30 @@ Add-Check 'scripts' ((Test-Path 'D:\Deepseek-Harness\scripts\port-user-patches.m
 
 $frDep = (Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw | ConvertFrom-Json).dependencies.'@dsh-external/dsh-frontend-reload'
 Add-Check 'frontend-reload-dep' ([bool]$frDep) ("dep=" + $frDep)
+
+# dsh-host-services 改造(CVT-1): 各插件本地 API 路由统一由共享宿主提供
+Add-Check 'host-services-lib' (Test-Path 'D:\Deepseek-Harness\plugins\dsh-host-services\lib\index.js') 'lib/index.js exists'
+foreach ($plug in @('file-explorer','skills-manager','model-whitelist','vision-engine')) {
+  $src = "D:\Deepseek-Harness\plugins\dsh-$plug\lib\index.js"
+  $txt = Get-Content $src -Raw -Encoding UTF8
+  Add-Check "$plug/registerLocalApi" ($txt.Contains('registerLocalApi(')) 'uses hostServices'
+  Add-Check "$plug/no-local-trusted" (-not $txt.Contains('function trusted')) 'no local trusted copy'
+}
+# 2026-08-25: double-channel assembly cleanup + session-title config regression
+$reg = Get-Content "$usr\.dsh\super-injector\registry.json" -Raw -Encoding UTF8
+$stale = @('dsh-vision-engine','dsh-modlens-autoread','dsh-session-watchdog','dsh-project-brief','dsh-force-reasoning-effort','dsh-vision-rotator')
+$found = @($stale | Where-Object { $reg.Contains($_) })
+Add-Check 'registry-no-double-channel' ($found.Count -eq 0) ("stale=" + ($found -join ','))
+$tp = Get-Content 'D:\Deepseek-Harness\profile\desktop\cordis.patch.yml' -Raw -Encoding UTF8
+$rtp = Get-Content "$usr\.dsh\profiles\desktop\cordis.patch.yml" -Raw -Encoding UTF8
+Add-Check 'title-config-template' ($tp.Contains('session-title-llm') -and $tp.Contains('maxOutputTokens: 512')) 'template row'
+Add-Check 'title-config-runtime' ($rtp.Contains('session-title-llm') -and $rtp.Contains('maxOutputTokens: 512')) 'runtime row'
+Add-Check 'runtime-patch-curated' ($rtp.Contains('summarizationProvider: tokenrhythm01') -and $rtp.Contains('searchProvider: bing') -and $rtp.Contains('dsh-frontend-reload')) 'compaction+web+frontend-reload rows'
+$rpk = Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+$bl = $rpk.'dsh'.profile.bundles
+Add-Check 'runtime-bundles-full' ($bl.Count -ge 29 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene') ("count=" + $bl.Count)
+$hyg = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\package.json' -Raw -Encoding UTF8
+Add-Check 'hygiene-bundle-patch' ($hyg.Contains('"bundle"') -and $hyg.Contains('./cordis.patch.yml') -and (Test-Path 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml')) 'bundle patch declared'
 $rows | Format-Table -AutoSize -Wrap | Out-String -Width 210
 $fail = ($rows | Where-Object { $_.Status -eq 'FAIL' }).Count
 "TOTAL $($rows.Count), FAIL $fail"

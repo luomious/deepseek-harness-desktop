@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # staged-profile-assemble.ps1 — desktop profile 隔离装配引擎
 #
 # 方法 A(安全隔离): 当变更可能影响系统稳定性(应用启动/运行)时,先在独立
@@ -45,7 +45,7 @@ $BatchBundles = @{
   1 = @('@dsh-external/dsh-web-search-bing', '@dsh-external/dsh-web-fetch-local', '@dsh-external/dsh-session-history', '@dsh-external/dsh-stuck-loop-guard', '@dsh-external/dsh-context-lifecycle')
   2 = @('@liustack/modlens')
   3 = @('@liustack/modsearch', '@dsh-external/dsh-model-picker-group', '@dsh-external/dsh-model-tier-router', '@dsh-external/dsh-model-whitelist', '@dsh-external/dsh-modlens-guard', 'dsh-mcp-lens', 'dsh-tool-search', 'dsh-find-plugin', '@dsh-external/dsh-modlens-autoread', '@dsh-external/dsh-vision-engine')
-  4 = @('@dsh-external/dsh-client-ui-skin-maid-atelier', 'dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector')
+  4 = @('@dsh-external/dsh-client-ui-skin-maid-atelier', 'dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector', '@dsh-external/dsh-session-hygiene')
   5 = @()
 }
 $BatchPatches = @{
@@ -69,7 +69,7 @@ $BatchMarkers = @{
   1 = @('web-search-bing', 'web-fetch-local', 'session-history', 'stuck-loop-guard', 'context-lifecycle', 'file-explorer', 'project-brief', 'session-watchdog', 'system-notify')
   2 = @('modlens')
   3 = @('modsearch', 'model-picker-group', 'model-tier-router', 'model-whitelist', 'modlens-guard', 'mcp-lens', 'tool-search', 'find-plugin', 'modlens-autoread', 'vision-engine')
-  4 = @('maid-atelier', 'better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace')
+  4 = @('maid-atelier', 'better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace', 'session-hygiene')
   5 = @()
 }
 
@@ -151,8 +151,7 @@ if ($Direct) {
   if (-not (Test-Path $desktop)) { Write-Warning "desktop profile 不存在: $desktop"; exit 1 }
   foreach ($f in $three) { Copy-Item (Join-Path $desktop $f) "$backupDir\desktop-$f.bak-$ts" -ErrorAction SilentlyContinue }
   Copy-Item (Join-Path $templateDir 'package.json') (Join-Path $desktop 'package.json') -Force
-  Write-Utf8NoBom (Join-Path $desktop 'package.json') (Build-PackageJson $enabledBundles)
-  Write-Utf8NoBom (Join-Path $desktop 'cordis.patch.yml') (Build-PatchYml $enabledPatches)
+  Copy-Item (Join-Path $templateDir 'cordis.patch.yml') (Join-Path $desktop 'cordis.patch.yml') -Force
   Copy-Item (Join-Path $templateDir 'pnpm-workspace.yaml') (Join-Path $desktop 'pnpm-workspace.yaml') -Force
   if (-not (Test-Path (Join-Path $desktop 'dsh-mcp-lens-0.1.0-rc.9.tgz'))) {
     Copy-Item "$profilesRoot\web\dsh-mcp-lens-0.1.0-rc.9.tgz" (Join-Path $desktop 'dsh-mcp-lens-0.1.0-rc.9.tgz') -Force -ErrorAction SilentlyContinue
@@ -177,8 +176,11 @@ foreach ($f in $three) {
 Write-Host "快照已备份到 $backupDir (desktop-*.bak-$ts)"
 
 Write-Step "执行: 在 staging 应用批次 $Batch(bundles $($enabledBundles.Count) 个 / patches $($enabledPatches.Count) 个)"
-Write-Utf8NoBom (Join-Path $staging 'package.json') (Build-PackageJson $enabledBundles)
-Write-Utf8NoBom (Join-Path $staging 'cordis.patch.yml') (Build-PatchYml $enabledPatches)
+# 2026-08-25 fix: template files are the single source of truth (curated rows:
+# session-title/compaction/web overrides + bundles dshmarket/hy3-gateway/
+# vision-rotator/session-hygiene). Regenerating from batch lists drops them.
+Copy-Item (Join-Path $templateDir 'package.json') (Join-Path $staging 'package.json') -Force
+Copy-Item (Join-Path $templateDir 'cordis.patch.yml') (Join-Path $staging 'cordis.patch.yml') -Force
 Copy-Item (Join-Path $templateDir 'pnpm-workspace.yaml') (Join-Path $staging 'pnpm-workspace.yaml') -Force
 if (-not (Test-Path (Join-Path $staging 'dsh-mcp-lens-0.1.0-rc.9.tgz'))) {
   Copy-Item "$profilesRoot\web\dsh-mcp-lens-0.1.0-rc.9.tgz" (Join-Path $staging 'dsh-mcp-lens-0.1.0-rc.9.tgz') -Force -ErrorAction SilentlyContinue

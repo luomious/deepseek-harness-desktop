@@ -56,3 +56,13 @@
   config:
     searchProvider: bing
     fetchProvider: bing-fetch
+
+# 2026-08-25: session auto-title - raise maxOutputTokens (kernel default 64 is
+# always blown by thinking models -> finish_reason=max-tokens -> title fails)
+- id: session-title-llm
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 512
+    timeoutMs: 60000
