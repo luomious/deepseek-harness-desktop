@@ -64,7 +64,7 @@ async function resolvePublicRecords(url) {
  * and the connection share ONE DNS resolution, closing the DNS-rebinding TOCTOU
  * window between assertPublicUrl() and the fetch()'s own second resolution.
  */
-function requestViaIp(proto, host, port, ip, headers, signal) {
+function requestViaIp(proto, host, port, ip, path, headers, signal) {
   const mod = proto === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
     const req = mod.request(
@@ -72,6 +72,9 @@ function requestViaIp(proto, host, port, ip, headers, signal) {
         host: ip,
         port: port || (proto === 'https:' ? 443 : 80),
         servername: proto === 'https:' ? host : undefined,
+        // P1-D1 regression fix: without `path` the request goes to "/" and the
+        // URL's pathname+query are silently dropped.
+        path,
         method: 'GET',
         headers: { ...headers, Host: `${host}${port ? ':' + port : ''}` },
         signal,
@@ -93,6 +96,7 @@ async function requestStream(url, signal) {
         url.hostname,
         url.port,
         ip,
+        url.pathname + url.search,
         { 'user-agent': USER_AGENT, 'accept': 'text/html,text/plain,application/json,*/*' },
         signal
       );

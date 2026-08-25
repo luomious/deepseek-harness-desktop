@@ -58,7 +58,7 @@ async function resolvePublicRecords(url) {
  * P1-D1: 连接与校验共用同一次解析(IP 直连,Host/servername 保留原域名),
  * 消除 DNS rebinding TOCTOU(与 dsh-web-fetch-local 同款修复)。
  */
-function requestViaIp(proto, host, port, ip, headers, signal) {
+function requestViaIp(proto, host, port, ip, path, headers, signal) {
   const mod = proto === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
     const req = mod.request(
@@ -66,6 +66,10 @@ function requestViaIp(proto, host, port, ip, headers, signal) {
         host: ip,
         port: port || (proto === 'https:' ? 443 : 80),
         servername: proto === 'https:' ? host : undefined,
+        // P1-D1 regression fix: without `path` the request goes to "/" and the
+        // query is silently dropped (Bing returned its homepage, parse found
+        // nothing). The URL's pathname+search must ride the IP-direct request.
+        path,
         method: 'GET',
         headers: { ...headers, Host: `${host}${port ? ':' + port : ''}` },
         signal,
@@ -82,7 +86,15 @@ async function requestStream(url, signal, headers) {
   let lastError = null;
   for (const ip of ips) {
     try {
-      return await requestViaIp(url.protocol, url.hostname, url.port, ip, headers, signal);
+      return await requestViaIp(
+        url.protocol,
+        url.hostname,
+        url.port,
+        ip,
+        url.pathname + url.search,
+        headers,
+        signal
+      );
     } catch (e) {
       lastError = e;
     }
