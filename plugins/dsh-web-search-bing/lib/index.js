@@ -150,16 +150,39 @@ class BingSearchProvider {
   async search(request, signal) {
     const query = String(request.query ?? '').trim();
     if (query === '') throw new Error('bing search needs a non-empty query');
-    const url = new URL(`${BING_SEARCH_URL}?q=${encodeURIComponent(query)}&count=10&setlang=zh-hans`);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(new Error('request timed out')), DEFAULT_TIMEOUT_MS);
     const combined = signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal;
     try {
-      const res = await requestStream(
-        url,
-        combined,
-        { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }
-      );
+      // www.bing.com redirects to the regional host (e.g. cn.bing.com); follow
+      // like the fetch provider does, capped at MAX_REDIRECTS.
+      let url = new URL(`${BING_SEARCH_URL}?q=${encodeURIComponent(query)}&count=10&setlang=zh-hans`);
+      let res;
+      let redirects = 0;
+      for (;;) {
+        res = await requestStream(
+          url,
+          combined,
+          { 'User-Agent': USER_AGENT, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' }
+        );
+        if (res.statusCode >= 300 && res.statusCode < 400) {
+          res.resume();
+          if (redirects >= MAX_REDIRECTS) throw new Error(`too many redirects (> ${MAX_REDIRECTS})`);
+          const location = res.headers.location;
+          if (!location) break;
+          let next;
+          try {
+            next = new URL(location, url);
+          } catch {
+            break;
+          }
+          if (next.protocol !== 'http:' && next.protocol !== 'https:') break;
+          url = next;
+          redirects++;
+          continue;
+        }
+        break;
+      }
       if (res.statusCode < 200 || res.statusCode >= 300) {
         res.resume();
         throw new Error(`Bing search failed (HTTP ${res.statusCode})`);
