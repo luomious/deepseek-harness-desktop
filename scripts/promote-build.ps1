@@ -26,13 +26,18 @@ $archiveRoot = 'D:\Deepseek-Harness\_backups\dist-archive'
 $smoke = Join-Path $PSScriptRoot 'smoke-test.ps1'
 
 # ---------- resolve target ----------
-if (-not [System.IO.Path]::IsPathRooted($From)) { $From = Join-Path $dist $From }
+# -From accepts: a bare build name (win-unpacked-buildN), a dist-relative path
+# (dist\win-unpacked-buildN - as printed by package-vendor), or an absolute path.
+if (-not [System.IO.Path]::IsPathRooted($From)) {
+    if ($From -match '^dist[\\/]') { $From = $From -replace '^dist[\\/]', '' }
+    $From = Join-Path $dist $From
+}
 if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
     $nested = Join-Path $From 'win-unpacked'
     if (Test-Path (Join-Path $nested 'DSH Desktop.exe')) { $From = $nested }
 }
 if (-not (Test-Path (Join-Path $From 'DSH Desktop.exe'))) {
-    Write-Error "target build missing exe: $(Join-Path $From 'DSH Desktop.exe')"
+    Write-Error "target build missing exe: $(Join-Path $From 'DSH Desktop.exe') (resolve: -From <build-name | dist\build-name | absolute path>)"
     exit 1
 }
 
