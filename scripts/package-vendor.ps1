@@ -1,5 +1,5 @@
-# DSH Desktop vendor 打包脚本（electron-builder --dir，win-unpacked）
-# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vendor.ps1
+# DSH Desktop vendor packaging script (electron-builder --dir -> win-unpacked)
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vendor.ps1
 $ErrorActionPreference = 'Continue'
 
 # P1-B7: proxy from env (DSH_PROXY first, existing HTTP(S)_PROXY respected),
@@ -10,7 +10,7 @@ if (-not $env:NO_PROXY) { $env:NO_PROXY = 'localhost,127.0.0.1' }
 $env:COREPACK_HOME = 'D:\Deepseek-Harness\.corepack'
 $env:YARN_CACHE_FOLDER = 'D:\Deepseek-Harness\.yarn-cache'
 $env:YARN_GLOBAL_FOLDER = 'D:\Deepseek-Harness\.yarn-global'
-# electron / electron-builder 缓存重定向（%LOCALAPPDATA% 在本机不可写）
+# electron / electron-builder cache redirection (%LOCALAPPDATA% not writable here)
 $env:ELECTRON_CACHE = 'D:\Deepseek-Harness\.electron-cache'
 $env:ELECTRON_BUILDER_CACHE = 'D:\Deepseek-Harness\.electron-builder-cache'
 
@@ -26,9 +26,10 @@ $log = 'D:\Deepseek-Harness\_backups\package-vendor.log'
 Set-Location 'D:\Deepseek-Harness\vendor\deepseek-harness-desktop'
 "=== package start $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Tee-Object -FilePath $log
 
-# 2026-08-24: 必须输出到新 buildN 目录（dist\win-unpacked 是 junction 固定入口，
-# 不设 DSH_OUT_DIR 会让 electron-builder 写穿 junction 覆盖当前构建）。
-# 打包后用 promote-build.ps1 -From <该目录> 换版。
+# 2026-08-24: ALWAYS output to a fresh buildN dir (dist\win-unpacked is the
+# stable junction entry; without DSH_OUT_DIR electron-builder would write
+# through the junction and overwrite the running build). Switch versions with
+# promote-build.ps1 -From <dir> afterwards.
 $env:DSH_OUT_DIR = "dist/win-unpacked-build$(Get-Date -Format 'yyyyMMddHHmm')"
 "=== DSH_OUT_DIR=$env:DSH_OUT_DIR ===" | Tee-Object -FilePath $log -Append
 
