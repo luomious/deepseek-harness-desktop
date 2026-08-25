@@ -66,7 +66,16 @@ async function serveStatic(pathname, res, distRoot, distIndex, renderIndex) {
 		res.end();
 		return;
 	}
-	res.writeHead(200, { "content-type": type, "cache-control": "no-cache" }); /* dsh-desktop patch: no-cache for dev stability */
+	let cacheControl = "no-cache"; /* dsh-desktop patch: no-cache for dev stability */
+	/* dsh-desktop patch: hashed Vite build artifacts are immutable — browser
+	   keeps them in cache, so reopening the page skips re-download and
+	   re-compile of the 1MB+ JS bundles. Non-hashed paths (index.html,
+	   favicon, manifest) stay no-cache. Content-hash filenames never
+	   change for the same content, so this is safe across rebuilds. */
+	if (type !== HTML_MIME && /^\/assets\//i.test(pathname) && /-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpe?g|gif|webp|woff2?|ttf|eot|ico|map)$/i.test(pathname)) {
+		cacheControl = "public, max-age=31536000, immutable";
+	}
+	res.writeHead(200, { "content-type": type, "cache-control": cacheControl });
 	res.end(body);
 }
 /**
