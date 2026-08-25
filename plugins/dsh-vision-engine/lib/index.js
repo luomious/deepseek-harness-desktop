@@ -18,7 +18,9 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 
 export const name = '@dsh-external/dsh-vision-engine'
-export const inject = []
+// hostServices 是 dsh-host-services 通过 ctx.provide 注册的 cordis 服务：
+// 声明后 apply 顺序有保证（host-services 先就绪），且与 file-explorer 等插件一致。
+export const inject = ['webServer', 'hostServices']
 
 const MODLENS_CONFIG = join(homedir(), '.modlens', 'config.json')
 const VE_CONFIG = join(homedir(), '.modlens', 'vision-engine.json')
@@ -605,66 +607,17 @@ function publicConfig() {
 }
 
 // ── 路由 ──
-async function readBody(req) {
-  const chunks = []
-  let n = 0
-  for await (const c of req) {
-    n += c.length
-    if (n > 1_000_000) throw new Error('请求体过大')
-    chunks.push(c)
-  }
-  const s = Buffer.concat(chunks).toString('utf8')
-  return s ? JSON.parse(s) : {}
-}
-
 function json(res, status, payload) {
   res.writeHead(status, { 'content-type': 'application/json' })
   res.end(JSON.stringify(payload))
 }
 
-function isLocalHostname(h) { return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' }
-
-// 本机可信校验:回环对端 + Host 为本机名 + (若携带)Origin/Sec-Fetch-Site 必须为本机/同源。
-// 投产审计 P1-E9:原实现只查回环+Host,缺 Origin/Sec-Fetch-Site 校验——恶意网页可经
-// DNS rebinding 跨源 POST /config(写任意 baseUrl+apiKey)、/test(任意文件路径)等端点。
-// 现对携带 Origin 的请求要求其为回环源;携带 Sec-Fetch-Site 时要求 same-origin/none。
-// 同源 GET(浏览器不带 Origin)不受影响;本机非浏览器客户端(无 Origin/Sec-Fetch-Site)放行。
-function trusted(req) {
-  try {
-    const addr = req && req.socket && req.socket.remoteAddress
-    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
-    const rawHost = String((req.headers && req.headers.host) || '')
-    const hostname = new URL('http://' + rawHost).hostname
-    if (!isLocalHostname(hostname)) return false
-    const origin = String((req.headers && req.headers.origin) || '')
-    if (origin && !isLocalHostname(new URL(origin).hostname)) return false
-    const sfs = String((req.headers && req.headers['sec-fetch-site']) || '')
-    if (sfs && sfs !== 'same-origin' && sfs !== 'none') return false
-    return true
-  } catch { return false }
-}
-
-function wrap(fn) {
-  return async (req, res) => {
-    try {
-      if (!trusted(req)) { json(res, 403, { error: '拒绝非本机请求' }); return }
-      await fn(req, res)
-    } catch (error) {
-      json(res, 500, { error: String(error?.message ?? error) })
-    }
-  }
-}
-
-async function handleConfig(req, res) {
+async function handleConfig(req, res, body) {
   if (req.method === 'GET') {
     json(res, 200, publicConfig())
     return
   }
-  if (req.method !== 'POST') {
-    res.writeHead(405).end()
-    return
-  }
-  const body = await readBody(req)
+  // POST：body 已由 hostServices.registerLocalApi 解析；非 GET/POST 已在路由层 405
   const profiles = body.profiles
   const active = body.active
   if (!Array.isArray(profiles) || profiles.length === 0) throw new Error('profiles 必须是非空数组')
@@ -703,44 +656,25 @@ async function handleConfig(req, res) {
   json(res, 200, publicConfig())
 }
 
-async function handleTest(req, res) {
-  if (req.method !== 'POST') {
-    res.writeHead(405).end()
-    return
-  }
-  const body = await readBody(req)
-  const result = await analyzeImage(body)
+async function handleTest(req, res, body) {
+  const result = await analyzeImage(body || {})
   json(res, result.ok ? 200 : 422, result)
 }
 
 async function handleUsage(req, res) {
-  if (req.method !== 'GET') {
-    res.writeHead(405).end()
-    return
-  }
   json(res, 200, usageSummary())
 }
 
-async function handleBalance(req, res) {
-  if (req.method !== 'POST') {
-    res.writeHead(405).end()
-    return
-  }
-  const body = await readBody(req)
+async function handleBalance(req, res, body) {
   const ve = readVe()
-  const profile = body.profileId ? ve.profiles.find((p) => p.id === body.profileId) ?? null : activeProfile()
+  const profile = body && body.profileId ? ve.profiles.find((p) => p.id === body.profileId) ?? null : activeProfile()
   json(res, 200, await fetchBalance(profile))
 }
 
 // 刷新(额度 + 用量 + 模型试读自测):用内置测试图跑一次真实读图,验证当前模型能否正常使用
-async function handleRefresh(req, res) {
-  if (req.method !== 'POST') {
-    res.writeHead(405).end()
-    return
-  }
-  const body = await readBody(req)
+async function handleRefresh(req, res, body) {
   const ve = readVe()
-  const profile = body.profileId ? ve.profiles.find((p) => p.id === body.profileId) ?? null : activeProfile()
+  const profile = body && body.profileId ? ve.profiles.find((p) => p.id === body.profileId) ?? null : activeProfile()
   const t0 = Date.now()
   let balance
   try {
@@ -759,24 +693,15 @@ async function handleRefresh(req, res) {
 }
 
 async function handleOllama(req, res) {
-  if (req.method !== 'GET') {
-    res.writeHead(405).end()
-    return
-  }
   json(res, 200, { running: await probeOllama() })
 }
 
 // 诊断上报（picker 等客户端插件把运行时诊断 POST 到这里落盘，便于离线排查）
 const DIAG_LOG = join(homedir(), '.modlens', 'picker-diag.log')
-async function handleDiag(req, res) {
-  if (req.method !== 'POST') {
-    res.writeHead(405).end()
-    return
-  }
+async function handleDiag(req, res, body) {
   try {
-    const body = await readBody(req)
     mkdirSync(dirname(DIAG_LOG), { recursive: true })
-    appendFileSync(DIAG_LOG, JSON.stringify(Object.assign({ ts: Date.now() }, body)) + '\n')
+    appendFileSync(DIAG_LOG, JSON.stringify(Object.assign({ ts: Date.now() }, body || {})) + '\n')
     json(res, 200, { ok: true })
   } catch (error) {
     json(res, 500, { error: String(error?.message ?? error) })
@@ -822,20 +747,20 @@ function handlePasteImg(req, res) {
   }
 }
 
-function registerRoutes(webServer) {
+function registerRoutes(ctx, hs) {
   const routes = [
-    { name: 've-config', path: '/vision-engine/config', handler: handleConfig },
-    { name: 've-test', path: '/vision-engine/test', handler: handleTest },
-    { name: 've-usage', path: '/vision-engine/usage', handler: handleUsage },
-    { name: 've-balance', path: '/vision-engine/balance', handler: handleBalance },
-    { name: 've-refresh', path: '/vision-engine/refresh', handler: handleRefresh },
-    { name: 've-ollama', path: '/vision-engine/ollama', handler: handleOllama },
-    { name: 've-diag', path: '/vision-engine/diag', handler: handleDiag },
-    { name: 've-paste-img', path: '/vision-engine/paste-img', handler: handlePasteImg },
+    { path: '/vision-engine/config', methods: ['GET', 'POST'], handler: handleConfig },
+    { path: '/vision-engine/test', methods: ['POST'], handler: handleTest },
+    { path: '/vision-engine/usage', methods: ['GET'], handler: handleUsage },
+    { path: '/vision-engine/balance', methods: ['POST'], handler: handleBalance },
+    { path: '/vision-engine/refresh', methods: ['POST'], handler: handleRefresh },
+    { path: '/vision-engine/ollama', methods: ['GET'], handler: handleOllama },
+    { path: '/vision-engine/diag', methods: ['POST'], handler: handleDiag },
+    { path: '/vision-engine/paste-img', methods: ['GET'], handler: handlePasteImg },
   ]
   for (const r of routes) {
     try {
-      webServer.register({ name: r.name, kind: 'exact', path: r.path, handler: wrap(r.handler) })
+      hs.registerLocalApi(ctx, { path: r.path, methods: r.methods, handler: r.handler })
       log(`route ${r.path} registered`)
     } catch (error) {
       log(`route ${r.path} skipped:`, String(error))
@@ -845,14 +770,16 @@ function registerRoutes(webServer) {
 
 export function apply(ctx) {
   if (!CLI) log(`modlens CLI not found; test/识别功能不可用（设置 MODLENS_CLI 或安装 @liustack/modlens）`)
-  if (typeof ctx.inject === 'function') {
-    ctx.inject(['webServer'], (scope) => {
-      try {
-        registerRoutes(scope.webServer)
-      } catch (error) {
-        log('routes skipped:', String(error))
-      }
-    })
+  let hs
+  try { hs = ctx.hostServices } catch { hs = undefined }
+  if (!hs || typeof hs.registerLocalApi !== 'function') {
+    log('[vision-engine] host-services 未加载，跳过本地 API 路由注册')
+  } else {
+    try {
+      registerRoutes(ctx, hs)
+    } catch (error) {
+      log('routes skipped:', String(error))
+    }
   }
   // 首次运行时把当前 modlens 引擎收编为默认配置（只在面板展示，不写回文件）
   try {

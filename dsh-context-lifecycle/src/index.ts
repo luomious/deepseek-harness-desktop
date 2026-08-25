@@ -25,7 +25,7 @@ export const name = '@dsh-external/dsh-context-lifecycle'
 // runtime-injected plugins (the dependency never resolves in the injected
 // subtree), so the compaction engine is resolved lazily (ctx proxy first,
 // then ctx.reflect), degrading to guidance toward the native /compact command.
-export const inject = ['agents', 'webServer', 'tokenMeter']
+export const inject = ['agents', 'webServer', 'tokenMeter', 'hostServices']
 
 // ── Structural types (duck-typed against the harness, no imports) ───────
 interface ContentBlock { type: string; text?: string; name?: string; arguments?: unknown; [key: string]: unknown }
@@ -385,14 +385,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     res.end(payload)
   }
 
-  async function readBody(req: any): Promise<Record<string, unknown>> {
-    const chunks: Buffer[] = []
-    for await (const chunk of req) chunks.push(chunk as Buffer)
-    try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { return {} }
-  }
-
-  function publicState(state: SessionState) {
-    return {
+  function publicState(state: SessionState) {    return {
       sessionId: state.sessionId,
       agentId: state.agentId,
       tokens: state.tokens,
@@ -404,20 +397,9 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     }
   }
 
-  async function handle(req: any, res: any): Promise<void> {
-    // 本机校验:回环对端 + Host 为本机名(GET 同源请求无 Origin,故不做 Origin 要求)
-    const cAddr = req?.socket?.remoteAddress as string | undefined
-    if (cAddr !== '127.0.0.1' && cAddr !== '::1' && cAddr !== '::ffff:127.0.0.1') {
-      return json(res, 403, { error: '拒绝非本机请求' })
-    }
-    try {
-      const cHost = new URL(`http://${String(req?.headers?.host ?? '')}`).hostname
-      if (cHost !== '127.0.0.1' && cHost !== 'localhost' && cHost !== '[::1]' && cHost !== '::1') {
-        return json(res, 403, { error: '拒绝非本机请求' })
-      }
-    } catch {
-      return json(res, 403, { error: '拒绝非本机请求' })
-    }
+  async function handle(req: any, res: any, body: unknown): Promise<void> {
+    // 本机可信校验已由 hostServices.registerLocalApi 统一处理
+    // （POST 要求 Origin 同源；GET 允许无 Origin），此处只做业务分派。
     try {
       let url = String(req.url ?? '').split('?')[0]
       // Tolerate both the full path and a prefix-stripped path.
@@ -437,9 +419,9 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
         })
       }
       if (req.method === 'POST' && url.startsWith('/decide')) {
-        const body = await readBody(req)
-        const sessionId = String(body.sessionId ?? '')
-        const action = String(body.action ?? '')
+        const b = (body as Record<string, unknown>) ?? {}
+        const sessionId = String(b.sessionId ?? '')
+        const action = String(b.action ?? '')
         const state = states.get(sessionId) ?? [...states.values()].find(() => true)
         if (!state) return json(res, 404, { error: 'no tracked session' })
         if (action === 'dismiss') {
@@ -469,10 +451,12 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     }
   }
 
-  ctx.effect(
-    () => ctx.webServer.register({ kind: 'prefix', path: ROUTE, handler: handle }),
-    'context-lifecycle: api route',
-  )
+  const hs = ctx.hostServices
+  if (hs && typeof hs.registerLocalApi === 'function') {
+    hs.registerLocalApi(ctx, { path: ROUTE, methods: ['GET', 'POST'], handler: handle })
+  } else {
+    try { ctx.logger?.warn?.('[context-lifecycle] host-services 未加载，跳过本地 API 路由') } catch { /* ignore */ }
+  }
 
   ctx.effect(() => () => {
     clearInterval(pollTimer)

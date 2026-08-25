@@ -1,0 +1,18 @@
+{
+  "name": "@dsh-external/dsh-host-services",
+  "version": "0.1.0",
+  "description": "host 侧基础设施服务：本地 HTTP API 路由样板（trusted/readBody/registerLocalApi/json）与通用工具（resolveConfig/readJson/writeJson）的单一事实来源，收敛各插件重复代码",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

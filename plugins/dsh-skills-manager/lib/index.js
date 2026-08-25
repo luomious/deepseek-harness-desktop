@@ -1,6 +1,6 @@
 export const name = "dsh-skills-manager";
 
-export const inject = ["skills", "fs", "shell", "sandboxPolicy", "webServer"];
+export const inject = ["skills", "fs", "shell", "sandboxPolicy", "webServer", "hostServices"];
 
 const SYSTEM_SOURCES = ["bundled", "runtime", "custom"];
 
@@ -221,83 +221,16 @@ export function apply(ctx) {
     }
   }
 
-  /** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
-  function isLocalHostname(h) {
-    return h === "127.0.0.1" || h === "localhost" || h === "[::1]" || h === "::1";
+  const hs = ctx.hostServices;
+  if (!hs || typeof hs.registerLocalApi !== "function") {
+    try { ctx.logger?.warn?.("[skills-manager] host-services 未加载，跳过本地 API 注册"); } catch { /* ignore */ }
+    return;
   }
-
-  /**
-   * 校验本地 HTTP 请求可信度（与 file-explorer / remote-workspace 保持同一实现）。
-   * 1. 对端必须为回环地址；
-   * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
-   * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
-   *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
-   * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
-   */
-  function trusted(req) {
-    try {
-      const addr = req && req.socket && req.socket.remoteAddress;
-      if (addr !== "127.0.0.1" && addr !== "::1" && addr !== "::ffff:127.0.0.1") return false;
-      const rawHost = String((req.headers && req.headers.host) || "");
-      let hostname;
-      try { hostname = new URL("http://" + rawHost).hostname; } catch { return false; }
-      if (!isLocalHostname(hostname)) return false;
-      const origin = String((req.headers && req.headers.origin) || "");
-      if (!origin) return false;
-      let o;
-      try { o = new URL(origin); } catch { return false; }
-      if (o.protocol !== "http:") return false;
-      if (!isLocalHostname(o.hostname)) return false;
-      // Origin 端口须与请求 Host 端口一致(同源);桌面版端口不固定(43120 等),不再硬编码 3080
-      let hostPort = "";
-      try { hostPort = String(new URL("http://" + rawHost).port || ""); } catch { return false; }
-      if (o.port && hostPort && o.port !== hostPort) return false;
-      const sfs = String((req.headers && req.headers["sec-fetch-site"]) || "").toLowerCase();
-      if (sfs && sfs !== "same-origin") return false;
-      return true;
-    } catch { return false; }
-  }
-
-  ctx.effect(() => ctx.webServer.register({
-    kind: "prefix",
+  hs.registerLocalApi(ctx, {
     path: "/skmg",
-    handler: async (req, res) => {
-      if (req.method !== "POST") {
-        res.writeHead(405);
-        res.end();
-        return;
-      }
-      if (!trusted(req)) {
-        res.writeHead(403, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: "拒绝非本机请求" }));
-        return;
-      }
-      let body = "";
-      try {
-        for await (const chunk of req) {
-          body += chunk;
-          if (body.length > 64 * 1024) {
-            res.writeHead(413, { "content-type": "application/json" });
-            res.end(JSON.stringify({ ok: false, error: "请求体过大（> 64KB）" }));
-            return;
-          }
-        }
-      } catch (e) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ ok: false, error: "请求读取失败" }));
-        return;
-      }
-      let payload;
-      try {
-        payload = JSON.parse(body);
-      } catch (e) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ ok: false, error: "请求体不是合法 JSON" }));
-        return;
-      }
-      const result = await handle(payload && payload.method ? String(payload.method) : "", payload && payload.args);
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(result));
-    }
-  }), "dsh-skills-manager: /skmg/ api route");
+    handler: async (_req, _res, body) => {
+      const method = body && body.method ? String(body.method) : "";
+      return await handle(method, body && body.args);
+    },
+  });
 }

@@ -17,8 +17,9 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 
 export const name = '@dsh-external/dsh-remote-workspace'
-// webServer: host HTTP 路由；subprocess: 执行远程命令；tools: 注册 remote_bash
-export const inject = ['webServer', 'subprocess', 'tools', 'workspaceRegistry']
+// webServer: host HTTP 路由；subprocess: 执行远程命令；tools: 注册 remote_bash；
+// hostServices: dsh-host-services 注册的 cordis 服务（registerLocalApi 路由样板）
+export const inject = ['webServer', 'subprocess', 'tools', 'workspaceRegistry', 'hostServices']
 
 type Connection =
   | { id: string; kind: 'ssh'; alias?: string; host: string; port: number; user: string; auth: 'password' | 'key'; password?: string; keyPath?: string; resourceMode: 'upload' | 'remote' }
@@ -582,44 +583,9 @@ async function handle(method: string, args: Record<string, unknown>, ctx: any): 
   }
 }
 
-/** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
-function isLocalHostname(h: string): boolean {
-  return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1'
-}
-
 /**
- * 校验本地 HTTP 请求可信度（与 file-explorer / skills-manager 保持同一实现）。
- * 1. 对端必须为回环地址；
- * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
- * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
- *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
- * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
+ * remote_bash 工具：会话 cwd 为远程 URI 时路由远程执行。
  */
-function trusted(req: { socket?: { remoteAddress?: string }; headers?: Record<string, string | string[] | undefined> }): boolean {
-  try {
-    const addr = req.socket && req.socket.remoteAddress
-    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
-    const rawHost = String((req.headers && (req.headers.host as string)) || '')
-    let hostname: string
-    try { hostname = new URL('http://' + rawHost).hostname } catch { return false }
-    if (!isLocalHostname(hostname)) return false
-    const origin = String((req.headers && (req.headers.origin as string)) || '')
-    if (!origin) return false
-    let o: URL
-    try { o = new URL(origin) } catch { return false }
-    if (o.protocol !== 'http:') return false
-    if (!isLocalHostname(o.hostname)) return false
-    // 适配新壳桌面版（端口不固定，如 43120）：Origin 端口须与请求 Host 端口一致（同 file-explorer 动态端口校验）
-    let hostPort = ''
-    try { hostPort = new URL('http://' + rawHost).port } catch { return false }
-    if (o.port && hostPort && o.port !== hostPort) return false
-    const sfs = String((req.headers && (req.headers['sec-fetch-site'] as string)) || '').toLowerCase()
-    if (sfs && sfs !== 'same-origin') return false
-    return true
-  } catch { return false }
-}
-
-/** remote_bash 工具：会话 cwd 为远程 URI 时路由远程执行。 */
 function registerRemoteBash(ctx: any) {
   const tool = {
     name: 'remote_bash',
@@ -711,54 +677,18 @@ export function apply(ctx: any) {
   registerRemoteBash(ctx)
   registerRemoteContext(ctx)
 
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'prefix',
+  const hs = ctx.hostServices
+  if (!hs || typeof hs.registerLocalApi !== 'function') {
+    try { ctx.logger?.warn?.('[remote-workspace] host-services 未加载，跳过本地 API 注册') } catch { /* ignore */ }
+    return
+  }
+  hs.registerLocalApi(ctx, {
     path: '/remote-ws',
-    handler: async (req: any, res: any) => {
-      if (req.method !== 'POST') {
-        res.writeHead(405)
-        res.end()
-        return
-      }
-      if (!trusted(req)) {
-        res.writeHead(403, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ ok: false, error: '拒绝非本机请求' }))
-        return
-      }
-      let body = ''
-      try {
-        for await (const chunk of req) {
-          body += chunk
-          // 请求体上限 64KB：防超大 POST 撑爆宿主内存（与 file-explorer/skills-manager 同款防护）
-          if (body.length > 64 * 1024) {
-            res.writeHead(413, { 'content-type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: '请求体过大（> 64KB）' }))
-            return
-          }
-        }
-      } catch {
-        res.writeHead(400)
-        res.end(JSON.stringify({ ok: false, error: '请求读取失败' }))
-        return
-      }
-      let payload: { method?: string; args?: Record<string, unknown> }
-      try {
-        payload = JSON.parse(body)
-      } catch {
-        res.writeHead(400)
-        res.end(JSON.stringify({ ok: false, error: '请求体不是合法 JSON' }))
-        return
-      }
-      try {
-        const result = await handle(payload && payload.method ? String(payload.method) : ``, payload && payload.args ? payload.args : {}, ctx)
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify(result))
-      } catch (e) {
-        res.writeHead(500, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ ok: false, error: `处理失败: ${String(e)}` }))
-      }
+    handler: async (_req: any, _res: any, body: any) => {
+      const payload = body || {}
+      return await handle(payload.method ? String(payload.method) : '', payload.args ? payload.args : {}, ctx)
     },
-  }), 'dsh-remote-workspace: /remote-ws api route')
+  })
 
   ctx.logger?.info?.('[remote-workspace] host 已就绪：/remote-ws/api + remote_bash 工具 + 远程环境上下文')
 }

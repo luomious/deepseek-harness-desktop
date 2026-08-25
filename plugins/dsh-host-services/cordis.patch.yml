@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-host-services
+      name: '@dsh-external/dsh-host-services'

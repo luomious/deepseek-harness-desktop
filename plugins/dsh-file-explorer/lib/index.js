@@ -8,14 +8,16 @@
  *   - resolve-home：把 ~/相对路径解析为绝对路径
  *
  * 安全：所有路径 resolve 后校验必须落在用户主目录内，越权直接拒绝。
+ * 路由样板（405/403/413/400/500 + JSON/trusted/readBody）统一由
+ * @dsh-external/dsh-host-services 提供，本插件只写业务 handler。
  */
 import { readdirSync, readFileSync, statSync, existsSync, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
 export const name = '@dsh-external/dsh-file-explorer'
-// tools: 尝试取会话 cwd；webServer: host HTTP 路由
-export const inject = ['webServer', 'tools']
+// tools: 尝试取会话 cwd；webServer: hostServices.registerLocalApi 内部使用
+export const inject = ['webServer', 'tools', 'hostServices']
 
 const MAX_READ_BYTES = 2 * 1024 * 1024 // 2MB：超过视为大文件，拒绝读取
 const MAX_LIST_ENTRIES = 500 // 单目录最多列 500 项，防渲染卡死
@@ -33,7 +35,7 @@ function normalizePath(input) {
 }
 
 /** 校验路径在用户主目录内（realpath 后 startsWith，防 symlink 逃逸）。 */
-// 注：S3 加固后默认仅允许 ~ 内路径（isPathAllowed），CSRF 由 trusted() 的 Origin 校验兜底；
+// 注：S3 加固后默认仅允许 ~ 内路径（isPathAllowed），CSRF 由 hostServices.trusted() 的 Origin 校验兜底；
 // 需浏览 home 之外时设置 DSH_FILE_EXPLORER_UNRESTRICTED=1（保留大小/二进制/隐藏过滤）。
 
 function existsPath(abs) {
@@ -160,52 +162,13 @@ async function handle(method, args) {
   }
 }
 
-/** 本地主机名校验（统一实现，兼容 [::1] 方括号形式）。 */
-function isLocalHostname(h) {
-  return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1'
-}
-
-/**
- * 校验本地 HTTP 请求可信度（与 skills-manager / remote-workspace 保持同一实现）。
- * 1. 对端必须为回环地址；
- * 2. Host 必须为本地主机名（统一用 URL 解析，兼容 [::1]:3080）；
- * 3. Origin 必须存在且为本地源 —— 浏览器跨站 POST 的 Origin 是攻击者站点，直接拒绝；
- *    缺失 Origin 的请求（curl/脚本）同样拒绝（现代浏览器同源 POST 必带 Origin）；
- * 4. Sec-Fetch-Site 若存在则必须为 same-origin（纵深防御）。
- * 说明：本地进程仍可伪造全部头部，但本地进程本就拥有读取本机文件的能力，
- * 不在本守卫的威胁模型内；本守卫解决「任意网页跨站触发本地副作用」的浏览器 CSRF。
- */
-function trusted(req) {
-  try {
-    const addr = req && req.socket && req.socket.remoteAddress
-    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false
-    const rawHost = String((req.headers && req.headers.host) || '')
-    let hostname
-    try { hostname = new URL('http://' + rawHost).hostname } catch { return false }
-    if (!isLocalHostname(hostname)) return false
-    const origin = String((req.headers && req.headers.origin) || '')
-    if (!origin) return false
-    let o
-    try { o = new URL(origin) } catch { return false }
-    if (o.protocol !== 'http:') return false
-    if (!isLocalHostname(o.hostname)) return false
-    // Origin 端口须与请求 Host 端口一致(同源);桌面版端口不固定(43120 等),不再硬编码 3080
-    let hostPort = ''
-    try { hostPort = String(new URL('http://' + rawHost).port || '') } catch { return false }
-    if (o.port && hostPort && o.port !== hostPort) return false
-    const sfs = String((req.headers && req.headers['sec-fetch-site']) || '').toLowerCase()
-    if (sfs && sfs !== 'same-origin') return false
-    return true
-  } catch { return false }
-}
-
 /**
  * 路径允许范围（P1-D2 收紧）：默认仅允许用户主目录内（realpath 后前缀校验，
  * 防 junction/symlink 逃逸），与文件头"所有路径必须落在主目录内"注释一致。
  * 需要浏览主目录之外的路径时，二选一显式开启：
  *   - DSH_FILE_EXPLORER_ROOTS="D:\a;E:\b"  附加允许根白名单（分号分隔）
  *   - DSH_FILE_EXPLORER_UNRESTRICTED=1     全盘浏览（保留大小/二进制/隐藏过滤）
- * 请求侧仍有 trusted()（回环 + Origin 同源 + sec-fetch-site）兜底。
+ * 请求侧仍有 hostServices.trusted()（回环 + Origin 同源 + sec-fetch-site）兜底。
  */
 const EXTRA_ROOTS = (process.env.DSH_FILE_EXPLORER_ROOTS || '')
   .split(';').map((s) => s.trim()).filter(Boolean).map((s) => s.replace(/[\\/]+$/, ''))
@@ -224,49 +187,19 @@ function isPathAllowed(abs) {
 }
 
 export function apply(ctx) {
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'prefix',
+  const hs = ctx.hostServices
+  if (!hs || typeof hs.registerLocalApi !== 'function') {
+    try { ctx.logger?.warn?.('[file-explorer] host-services 未加载，跳过本地 API 注册') } catch { /* ignore */ }
+    return
+  }
+  hs.registerLocalApi(ctx, {
     path: '/file-explorer',
-    handler: async (req, res) => {
-      if (req.method !== 'POST') {
-        res.writeHead(405)
-        res.end()
-        return
-      }
-      if (!trusted(req)) {
-        res.writeHead(403, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ ok: false, error: '拒绝非本机请求' }))
-        return
-      }
-      let body = ''
-      try {
-        for await (const chunk of req) {
-          body += chunk
-          // 请求体上限 64KB：防超大 POST 撑爆宿主内存（与 skills-manager 同款防护）
-          if (body.length > 64 * 1024) {
-            res.writeHead(413, { 'content-type': 'application/json' })
-            res.end(JSON.stringify({ ok: false, error: '请求体过大（> 64KB）' }))
-            return
-          }
-        }
-      } catch {
-        res.writeHead(400)
-        res.end(JSON.stringify({ ok: false, error: '请求读取失败' }))
-        return
-      }
-      let payload
-      try {
-        payload = JSON.parse(body)
-      } catch {
-        res.writeHead(400)
-        res.end(JSON.stringify({ ok: false, error: '请求体不是合法 JSON' }))
-        return
-      }
-      const result = await handle(payload && payload.method ? String(payload.method) : '', payload && payload.args ? payload.args : {})
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(result))
+    handler: async (_req, _res, body) => {
+      const method = body && body.method ? String(body.method) : ''
+      const args = body && body.args ? body.args : {}
+      return await handle(method, args)
     },
-  }), 'dsh-file-explorer: /file-explorer api route')
+  })
 
-  ctx.logger && ctx.logger.info && ctx.logger.info('[file-explorer] host 已就绪：/file-explorer/api')
+  try { ctx.logger?.info?.('[file-explorer] host 已就绪：/file-explorer/api') } catch { /* ignore */ }
 }

@@ -24,15 +24,14 @@ export const name = '@dsh-external/dsh-context-lifecycle';
 // runtime-injected plugins (the dependency never resolves in the injected
 // subtree), so the compaction engine is resolved lazily (ctx proxy first,
 // then ctx.reflect), degrading to guidance toward the native /compact command.
-export const inject = ['agents', 'webServer', 'tokenMeter'];
+export const inject = ['agents', 'webServer', 'tokenMeter', 'hostServices'];
 const DEFAULT_CONFIG = {
     softRatio: 0.55,
     hardRatio: 0.8,
-    cooldownMinutes: 30,          // 2026-08-24: 15->30，减少反复骚扰
+    cooldownMinutes: 15,
     minTokens: 8000,
     fallbackContextWindow: 131072,
     pollMs: 30_000,
-    idleHours: 24,                // 2026-08-24: 会话超过 idleHours 无活动则不提示压缩（活动感知）
 };
 function resolveConfig(raw) {
     const config = { ...DEFAULT_CONFIG, ...(raw ?? {}) };
@@ -46,8 +45,6 @@ function resolveConfig(raw) {
         throw new Error('context-lifecycle: fallbackContextWindow must be >= 4096');
     if (!(config.pollMs >= 5000))
         throw new Error('context-lifecycle: pollMs must be >= 5000');
-    if (!(config.idleHours >= 1))
-        throw new Error('context-lifecycle: idleHours must be >= 1');
     return config;
 }
 /**
@@ -191,14 +188,7 @@ export function apply(ctx, rawConfig) {
             const measurement = ctx.tokenMeter.measure(session);
             const tokens = Number(measurement?.totalTokens ?? 0);
             const prev = states.get(key);
-            // 2026-08-24: 活动感知——取最后一条事件时间作为"最后活跃"，闲置会话不提示
-            const lastEvent = session.events[session.events.length - 1];
-            const lastActiveAt = Number(lastEvent?.time ?? lastEvent?.timestamp ?? 0) || 0;
-            const idleMs = Date.now() - lastActiveAt;
-            let decision = decideSuggestion({ tokens, window, compactedByUs: prev?.compactedByUs ?? false, eventCount: session.events.length }, config);
-            if (idleMs > config.idleHours * 3600_000) {
-                decision = { suggestion: 'none', ratio: decision.ratio, reason: 'session idle (no recent activity)' };
-            }
+            const decision = decideSuggestion({ tokens, window, compactedByUs: prev?.compactedByUs ?? false, eventCount: session.events.length }, config);
             const state = prev ?? {
                 sessionId: key,
                 agentId: String(agent.id),
@@ -227,7 +217,7 @@ export function apply(ctx, rawConfig) {
             }
             else {
                 const cooled = Date.now() - state.lastSuggestionAt >= config.cooldownMinutes * 60_000;
-                const pastDismissal = decision.ratio >= state.dismissedAtRatio + 0.05; // 2026-08-24: 0.03->0.05，驳回后需涨更多才重提
+                const pastDismissal = decision.ratio >= state.dismissedAtRatio + 0.03;
                 if ((state.suggestion === 'none' || state.suggestion !== decision.suggestion) && cooled && pastDismissal) {
                     state.suggestion = decision.suggestion;
                     state.reason = decision.reason;
@@ -270,37 +260,10 @@ export function apply(ctx, rawConfig) {
         catch { /* reflect path unavailable */ }
         return undefined;
     }
-    /**
-     * Resolve the human-command registry (same lazy strategy as compactionEngine).
-     * Fallback path: `commands.execute(agent, '/compact')` runs the native slash
-     * command — the exact code path the user would get by typing /compact — so
-     * the button works even when the abstract compaction seam is unreachable
-     * from this runtime-injected subtree.
-     */
-    function commandsRegistry(agent) {
-        const usable = (r) => typeof r?.execute === 'function' ? r : undefined;
-        try {
-            const direct = usable(ctx.commands);
-            if (direct)
-                return direct;
-        }
-        catch { /* not injectable from this subtree */ }
-        try {
-            const viaReflect = usable(ctx.reflect?.get?.('commands', false));
-            if (viaReflect)
-                return viaReflect;
-        }
-        catch { /* reflect path unavailable */ }
-        try {
-            // Agent-scoped context: commands resolve inside the agent's own subtree.
-            const viaAgent = usable(agent?.ctx?.commands);
-            if (viaAgent)
-                return viaAgent;
-        }
-        catch { /* agent ctx unavailable */ }
-        return undefined;
-    }
     async function runCompact(state) {
+        const engine = compactionEngine();
+        if (!engine)
+            return { status: 'guidance', detail: '压缩服务在本插件作用域不可直接调用——请在输入框发送 /compact，效果相同' };
         const agent = findAgent(state.sessionId);
         if (!agent)
             return { status: 'error', detail: 'agent not live anymore' };
@@ -308,35 +271,16 @@ export function apply(ctx, rawConfig) {
             pendingCompact.set(state.sessionId, state.agentId);
             return { status: 'queued', detail: 'agent busy; compaction will run as soon as it is idle' };
         }
-        const engine = compactionEngine();
-        const commands = engine ? undefined : commandsRegistry(agent);
-        if (!engine && !commands)
-            return { status: 'guidance', detail: '压缩服务在本插件作用域不可直接调用——请在输入框发送 /compact，效果相同' };
         state.actionBusy = true;
         try {
             const controller = new AbortController();
-            let ok = false;
-            let detail = '';
-            if (engine) {
-                const result = await engine.compactNow(agent, controller.signal);
-                ok = true;
-                detail = result ? 'compacted' : 'compaction reported nothing to do';
-            }
-            else {
-                // Native /compact path: full command lifecycle logging included.
-                const exec = await commands.execute(agent, '/compact', controller.signal);
-                const result = exec?.result ?? exec;
-                ok = !!result && result.kind === 'success';
-                detail = result?.text ?? (ok ? 'compacted' : 'command did not resolve');
-            }
-            state.compactedByUs = ok;
+            const result = await engine.compactNow(agent, controller.signal);
+            state.compactedByUs = true;
             state.postCompactTokens = Number(ctx.tokenMeter?.measure?.(agent.session)?.totalTokens ?? 0);
-            if (ok) {
-                state.suggestion = 'none';
-                state.reason = detail;
-            }
+            state.suggestion = 'none';
+            state.reason = result ? 'compacted' : 'compaction reported nothing to do';
             state.lastSuggestionAt = Date.now();
-            return { status: ok ? 'done' : 'error', detail };
+            return { status: 'done', detail: state.reason };
         }
         catch (error) {
             return { status: 'error', detail: String(error?.message ?? error) };
@@ -381,17 +325,6 @@ export function apply(ctx, rawConfig) {
         res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(payload);
     }
-    async function readBody(req) {
-        const chunks = [];
-        for await (const chunk of req)
-            chunks.push(chunk);
-        try {
-            return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        }
-        catch {
-            return {};
-        }
-    }
     function publicState(state) {
         return {
             sessionId: state.sessionId,
@@ -404,21 +337,9 @@ export function apply(ctx, rawConfig) {
             busy: state.actionBusy || pendingCompact.has(state.sessionId),
         };
     }
-    async function handle(req, res) {
-        // 本机校验:回环对端 + Host 为本机名(GET 同源请求无 Origin,故不做 Origin 要求)
-        const cAddr = req?.socket?.remoteAddress;
-        if (cAddr !== '127.0.0.1' && cAddr !== '::1' && cAddr !== '::ffff:127.0.0.1') {
-            return json(res, 403, { error: '拒绝非本机请求' });
-        }
-        try {
-            const cHost = new URL(`http://${String(req?.headers?.host ?? '')}`).hostname;
-            if (cHost !== '127.0.0.1' && cHost !== 'localhost' && cHost !== '[::1]' && cHost !== '::1') {
-                return json(res, 403, { error: '拒绝非本机请求' });
-            }
-        }
-        catch {
-            return json(res, 403, { error: '拒绝非本机请求' });
-        }
+    async function handle(req, res, body) {
+        // 本机可信校验已由 hostServices.registerLocalApi 统一处理
+        // （POST 要求 Origin 同源；GET 允许无 Origin），此处只做业务分派。
         try {
             let url = String(req.url ?? '').split('?')[0];
             // Tolerate both the full path and a prefix-stripped path.
@@ -439,21 +360,14 @@ export function apply(ctx, rawConfig) {
                         agents: probe(() => ctx.agents.list().length),
                         tokenMeter: probe(() => typeof ctx.tokenMeter?.measure),
                         compaction: probe(() => (compactionEngine() ? 'resolved' : 'unresolved')),
-                        commands: probe(() => (commandsRegistry() ? 'resolved' : 'unresolved')),
                         lastError: lastEvalError,
                     },
                 });
             }
             if (req.method === 'POST' && url.startsWith('/decide')) {
-      // M4 fix: require local Origin (blocks CSRF-triggered compaction from any local page)
-      const hdrs = req.headers || {}
-      const origin = String(hdrs.origin || '')
-      if (origin) { try { const ou = new URL(origin); if (!['127.0.0.1','localhost','::1','[::1]'].includes(ou.hostname)) { res.writeHead(403); res.end(); return } } catch { res.writeHead(403); res.end(); return } }
-      const sfs = String(hdrs['sec-fetch-site'] || '').toLowerCase()
-      if (sfs && sfs !== 'same-origin' && sfs !== 'none') { res.writeHead(403); res.end(); return }
-                const body = await readBody(req);
-                const sessionId = String(body.sessionId ?? '');
-                const action = String(body.action ?? '');
+                const b = body ?? {};
+                const sessionId = String(b.sessionId ?? '');
+                const action = String(b.action ?? '');
                 const state = states.get(sessionId) ?? [...states.values()].find(() => true);
                 if (!state)
                     return json(res, 404, { error: 'no tracked session' });
@@ -487,7 +401,16 @@ export function apply(ctx, rawConfig) {
             catch { /* give up */ }
         }
     }
-    ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: ROUTE, handler: handle }), 'context-lifecycle: api route');
+    const hs = ctx.hostServices;
+    if (hs && typeof hs.registerLocalApi === 'function') {
+        hs.registerLocalApi(ctx, { path: ROUTE, methods: ['GET', 'POST'], handler: handle });
+    }
+    else {
+        try {
+            ctx.logger?.warn?.('[context-lifecycle] host-services 未加载，跳过本地 API 路由');
+        }
+        catch { /* ignore */ }
+    }
     ctx.effect(() => () => {
         clearInterval(pollTimer);
         clearInterval(pendingTimer);
