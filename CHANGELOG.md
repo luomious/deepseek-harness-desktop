@@ -41,6 +41,38 @@ agent 的 `shell` 工具误拉起 `DSH Desktop.exe`（报 duplicate instance）�
 
 ---
 
+## 2026-08-25 同日第二轮：不透明窗口仍「卡住后变透明」——遮挡检测误报（已补丁，待重启生效）
+
+### 现象
+第一轮补丁生效后重启（15:06 进程 > 14:55 补丁，确认已加载）：启动正常、不再开机即透明，
+但使用一会儿后**卡住 → 整窗变透明**，用户现场复现两次。
+
+### 二轮根因
+窗口已不透明（`#202124`），渲染器挂起也不可能全窗透明 → 透明来自 **DWM 拿不到帧**。
+Chromium 原生窗口遮挡检测（CalculateNativeWinOcclusion）在虚拟显示适配器
+（GameViewer `ROOT\DISPLAY\0000`，**仍 Started**）环境下误报：窗口被误判为「被遮挡」→
+Chromium 停止帧呈现 → 卡住（"未响应"）+ DWM 表面空白/透明。
+
+### 修复（apply-gpu-opaque-patches.mjs 第 4 个补丁，幂等）
+- `lib/main.js` 追加：`--disable-features=CalculateNativeWinOcclusion`（hasSwitch 守卫）、
+  `--disable-backgrounding-occluded-windows`、`--disable-renderer-backgrounding`；
+  `node --check` 通过，`verify-patches.ps1` 新增校验项 → **13/13 全绿**。
+
+### 后台进程排查（用户问「是不是和后台进程有关」）
+- 已清理 2 个 10:11/10:12 遗留的僵尸 DSH Desktop 进程（PID 10116/17180）；
+- **WorkBuddy 9 进程占 ~64% CPU / ~1.2GB 内存**（用户自装的独立应用，非 DSH 组件），
+  加剧整机调度竞争，建议不用时退出；DeskBox ~12.5%、Edge 若干标签页次之；
+- 内存压力正常（可用 ~3.8GB），DSH 内核 HTTP 200 健康，今日无新 crashpad 转储。
+
+### 根治指令（需用户以管理员执行——代理端实测 Access denied）
+```powershell
+pnputil /disable-device "ROOT\DISPLAY\0000"   # GameViewer 虚拟显示适配器
+```
+禁用前该适配器持续干扰合成/遮挡检测，补丁只能缓解；禁用后可按 `DSH_DESKTOP_FORCE_GPU=1`
+恢复 GPU + Mica 观感。spacedesk 适配器当前 Disconnected，暂不处理。
+
+---
+
 ## 2026-08-25 投产审计修复全量落地 + 运行时验收通过
 
 ### 审计背景

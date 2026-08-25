@@ -86,6 +86,23 @@ const patches = [
       '\t}',
     ].join('\n'),
   },
+  {
+    // 2026-08-25 round 2: the opaque window STILL went transparent after a
+    // hang. Remaining culprit: Chromium's native window occlusion detection,
+    // which virtual display adapters (GameViewer ROOT\DISPLAY\0000) corrupt.
+    // The window is falsely reported as occluded, Chromium stops presenting
+    // frames (freeze -> "not responding") and the DWM surface goes blank.
+    name: 'occlusion switches (lib/main.js)',
+    file: join(build.lib, 'main.js'),
+    marker: 'CalculateNativeWinOcclusion',
+    anchor: '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+    replacement: [
+      '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+      '\tif (!app.commandLine.hasSwitch("disable-features")) app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");',
+      '\tapp.commandLine.appendSwitch("disable-backgrounding-occluded-windows");',
+      '\tapp.commandLine.appendSwitch("disable-renderer-backgrounding");',
+    ].join('\n'),
+  },
 ]
 
 let patched = 0
