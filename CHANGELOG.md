@@ -6,6 +6,37 @@
 
 ---
 
+## 2026-08-25 启动加固：ZombieCleanup + 定期维护脚本 + 14 项补丁校验全绿
+
+### ZombieCleanup 启动僵尸清理
+- 问题：卡死 → 强杀 → Electron 子进程存活（渲染器/GPU/工具进程）→ 占端口 → 新实例启动失败 → 僵尸反复出现。
+- 修复：`apply-gpu-opaque-patches.mjs` 新增第 2 个补丁，在 `lib/main.js` 的 `start()` 函数**端口探测之前**插入 `ZombieCleanup()`：
+  用 PowerShell 查找同 exe 路径的其他进程 → SIGKILL → 等 1.5 秒释放句柄 → 再做端口探测。
+- 幂等（marker: `ZombieCleanup(`），重建后自动重打。`verify-patches.ps1` 新增校验项 → **14/14 全绿**。
+
+### `scripts/dsh-maintenance.ps1` 定期维护工具
+- 四项检查：① 僵尸进程扫描+清理（保留端口持有者）；② 大会话文件告警（>4MB）；③ 悬空 lockfile 清理；④ 补丁健康校验（调 verify-patches.ps1）。
+- 可手动运行，也可加入 Windows 计划任务（每天自动巡检）。
+- 用法：`powershell -File scripts\dsh-maintenance.ps1`；计划任务见脚本内注释。
+
+### 当前补丁全貌（14 项，全部幂等，重建后自动重打）
+| # | 补丁 | 文件 |
+|---|---|---|
+| 1 | subprocess-local windowsHide | node_modules\dsh-subprocess-local |
+| 2 | open windowsHide | node_modules\open |
+| 3 | default-browser windowsHide | node_modules\default-browser |
+| 4 | materializer windowsHide | lib\main.js |
+| 5 | GPU 强禁 + 不透明窗口 | lib\main.js + electron-runtime |
+| 6 | 遮挡检测 + 背景节流开关 | lib\main.js |
+| 7 | **ZombieCleanup 启动僵尸清理** | lib\main.js |
+| 8-9 | Mica 守卫 + 不透明窗口 | electron-runtime |
+| 10 | vision-engine windowsHide | plugins\dsh-vision-engine |
+| 11 | autoread windowsHide | plugins\dsh-modlens-autoread |
+| 12 | project-brief windowsHide | plugins\dsh-project-brief |
+| 13-14 | critical-guard 源码 | src\critical-guard.ts + index.ts |
+
+---
+
 ## 2026-08-25 卡死定案：vision-rotator 同步 curl 探针每 5 分钟阻塞内核主线程（已修复，待重启生效）
 
 ### 现象
