@@ -188,8 +188,16 @@ function writeModlensSlot(profile) {
   next.structuredOutput = profile.structuredOutput === true
   const extraBody = Object.assign({}, prev.extraBody && typeof prev.extraBody === 'object' && !Array.isArray(prev.extraBody) ? prev.extraBody : {})
   const mt = Number(profile.maxTokens)
-  if (Number.isFinite(mt) && mt > 0) extraBody.max_tokens = mt
-  else delete extraBody.max_tokens
+  // Gemini 原生 API 不识别 max_tokens(400: Unknown name "max_tokens");该字段只对
+  // OpenAI 兼容槽合法。Gemini 的生成上限由 modlens 的 generationConfig 管理,这里不写。
+  if (profile.slot !== 'gemini-api') {
+    // 大屏截图的 OCR 输出需要足够上限,过小会 finish_reason=length 截断、返回非 JSON
+    // 导致读图失败(2026-08 审计)。OpenAI 兼容槽统一给 8192 下限保证余量。
+    const VISION_MAX_TOKENS_FLOOR = 8192
+    extraBody.max_tokens = Number.isFinite(mt) && mt > 0 ? Math.max(mt, VISION_MAX_TOKENS_FLOOR) : VISION_MAX_TOKENS_FLOOR
+  } else {
+    delete extraBody.max_tokens
+  }
   next.extraBody = extraBody
   providers[profile.slot] = next
   cfg.providers = providers
