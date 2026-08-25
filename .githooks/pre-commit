@@ -1,0 +1,31 @@
+#!/bin/sh
+# pre-commit hook: syntax-check staged JS files before commit.
+# Runs in Git Bash (MSYS2) on Windows; POSIX sh compatible.
+# Skipped with `git commit --no-verify`.
+
+# Get staged .js files in plugins/, patches/bundles/, and root-level plugin dirs.
+# Exclude node_modules, .map, .d.ts.
+staged_js=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(plugins/|patches/bundles/|dsh-context-lifecycle/|dsh-stuck-loop-guard/|dsh-vision-rotator/).*\.js$' | grep -v 'node_modules/' | grep -v '\.map$' | grep -v '\.d\.ts$')
+
+if [ -z "$staged_js" ]; then
+  exit 0
+fi
+
+fail=0
+for f in $staged_js; do
+  if [ -f "$f" ]; then
+    node --check "$f" 2>/dev/null
+    if [ $? -ne 0 ]; then
+      echo "PRE-COMMIT FAIL: syntax error in $f" >&2
+      fail=1
+    fi
+  fi
+done
+
+if [ $fail -ne 0 ]; then
+  echo "" >&2
+  echo "Commit blocked. Fix syntax errors above, or use --no-verify to skip." >&2
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,24 @@
+name: Check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check — plugins JS
+        run: |
+          find plugins -path '*/lib/*.js' -not -path '*/node_modules/*' -exec node --check {} +
+          for dir in dsh-context-lifecycle dsh-stuck-loop-guard dsh-vision-rotator; do
+            if [ -d "$dir/lib" ]; then
+              find "$dir/lib" -name '*.js' -exec node --check {} +
+            fi
+          done
+          find patches/bundles -name '*.js' -exec node --check {} +
+
+      - name: Unit tests
+        run: node --test tests/plugins/*.test.mjs
