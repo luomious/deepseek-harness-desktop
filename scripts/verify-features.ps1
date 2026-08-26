@@ -66,7 +66,11 @@ $tp = Get-Content 'D:\Deepseek-Harness\profile\desktop\cordis.patch.yml' -Raw -E
 $rtp = Get-Content "$usr\.dsh\profiles\desktop\cordis.patch.yml" -Raw -Encoding UTF8
 Add-Check 'title-config-template' ($tp.Contains('session-title-llm') -and $tp.Contains('maxOutputTokens: 512')) 'template row'
 Add-Check 'title-config-runtime' ($rtp.Contains('session-title-llm') -and $rtp.Contains('maxOutputTokens: 512')) 'runtime row'
-Add-Check 'runtime-patch-curated' ($rtp.Contains('summarizationProvider: tokenrhythm01') -and $rtp.Contains('searchProvider: bing') -and $rtp.Contains('dsh-frontend-reload')) 'compaction+web+frontend-reload rows'
+# structural check (P1 fix 2026-08-26): dead text in swallowed/orphan rows no longer counts;
+# assert the compaction-basic row actually OWNS its config block (adjacent block)
+$rtpBlock = ($rtp -split "`r?`n") -join "`n"
+$compactionOk = $rtpBlock -match '(?m)^- id: compaction-basic\s*\n  disabled: false\s*\n  config:\s*\n    summarizationProvider: tokenrhythm01\s*\n    summarizationModel: deepseek-v4-pro-0813$'
+Add-Check 'runtime-patch-curated' ($compactionOk -and $rtp.Contains('searchProvider: bing') -and $rtp.Contains('dsh-frontend-reload')) 'compaction row+config block (structural) + web + frontend-reload rows'
 $rpk = Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $bl = $rpk.'dsh'.profile.bundles
 Add-Check 'runtime-bundles-full' ($bl.Count -ge 30 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene' -and $bl -contains '@dsh-external/dsh-self-maintenance') ("count=" + $bl.Count)

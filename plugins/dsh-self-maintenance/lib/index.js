@@ -183,10 +183,17 @@ export function apply(ctx, rawConfig) {
     })().catch((e) => warn(`cycle error: ${String(e)}`));
   };
 
-  // ── 状态路由（惰性解析 webServer，失败不影响主体） ──
-  try {
-    const webServer = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
-    if (webServer?.register) {
+  // ── 状态路由（容忍 webServer 启动竞态：惰性解析 + 2s→30s 退避重试，注册成功后即停；失败不影响主体） ──
+  let routeRegistered = false;
+  let routeAttempts = 0;
+  const registerRoute = () => {
+    if (routeRegistered) return true;
+    let webServer = null;
+    try {
+      webServer = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
+    } catch { webServer = null; }
+    if (!webServer?.register) return false;
+    try {
       webServer.register({
         kind: 'prefix',
         path: config.statusRoute,
@@ -206,12 +213,28 @@ export function apply(ctx, rawConfig) {
           }
         },
       });
+      routeRegistered = true;
       log(`status route registered at ${config.statusRoute}`);
-    } else {
-      warn('webServer unavailable; status route disabled');
+      return true;
+    } catch (e) {
+      warn(`status route register failed: ${String(e)}`);
+      return false;
     }
-  } catch (e) {
-    warn(`status route register failed: ${String(e)}`);
+  };
+  if (!registerRoute()) {
+    // 退避重试：2s 起指数退避至 30s 封顶，共 20 次（约 8.5 分钟窗口）；成功即早退。
+    const retry = () => {
+      if (routeRegistered) return;
+      if (registerRoute()) return;
+      routeAttempts += 1;
+      if (routeAttempts >= 20) {
+        warn('status route unavailable after retries; retry stopped (webServer never came up in window)');
+        return;
+      }
+      const delay = Math.min(2000 * 2 ** Math.min(routeAttempts, 4), 30000);
+      try { ctx.setTimeout(retry, delay); } catch { /* tolerate */ }
+    };
+    try { ctx.setTimeout(retry, 2000); } catch { /* tolerate */ }
   }
 
   // 启动立即扫一轮，再按 intervalMs 周期性自检

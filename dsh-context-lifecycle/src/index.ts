@@ -353,9 +353,22 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
   }
 
   // ── Polling loops ─────────────────────────────────────────────────────
+  // Sessions whose agent has been gone this long get pruned from `states`
+  // (long-run hygiene: the desktop app stays up for days, and without
+  // pruning the map — and the /status payload — grows without bound).
+  const PRUNE_AFTER_MS = 2 * 60 * 60_000
   const pollTimer = setInterval(() => {
     try {
-      for (const agent of ctx.agents.list() as AgentLike[]) evaluate(agent)
+      const live = ctx.agents.list() as AgentLike[]
+      for (const agent of live) evaluate(agent)
+      const liveKeys = new Set(live.map(agentKey))
+      const now = Date.now()
+      for (const [key, state] of states) {
+        if (!liveKeys.has(key) && now - state.lastEvaluatedAt > PRUNE_AFTER_MS) {
+          pendingCompact.delete(key)
+          states.delete(key)
+        }
+      }
     } catch { /* polling must never throw */ }
   }, config.pollMs)
 
@@ -422,7 +435,9 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
         const b = (body as Record<string, unknown>) ?? {}
         const sessionId = String(b.sessionId ?? '')
         const action = String(b.action ?? '')
-        const state = states.get(sessionId) ?? [...states.values()].find(() => true)
+        // Strict match only: falling back to an arbitrary tracked session
+        // could compact/dismiss the WRONG session under multi-session load.
+        const state = states.get(sessionId)
         if (!state) return json(res, 404, { error: 'no tracked session' })
         if (action === 'dismiss') {
           state.dismissedAtRatio = state.ratio

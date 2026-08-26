@@ -120,10 +120,15 @@ function maybeGenerateCatchUpReport(statsFile: string | undefined): void {
     if (existsSync(marker) && readFileSync(marker, 'utf8').trim() === String(oldest)) return
     const evalScript = join(PKG_ROOT, 'scripts', 'evaluate.mjs')
     if (!existsSync(evalScript)) return
+    // 打包壳下 process.execPath = 应用 exe：必须带 ELECTRON_RUN_AS_NODE 当 node 用
+    // （与 dsh-hy3-gateway / dsh-vision-engine 同款正确姿势），并带 windowsHide
+    // （桌面壳无控制台，子进程铁律）。
     const child = spawn(process.execPath, [evalScript, '--days', '7', '--write', join(PKG_ROOT, 'REPORT.md')], {
       detached: true,
       stdio: 'ignore',
       cwd: PKG_ROOT,
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     })
     child.unref()
     writeFileSync(marker, String(oldest), 'utf8')
@@ -349,6 +354,11 @@ export function apply(ctx: MinimalContext, rawConfig?: Partial<Config>): void {
       return undefined
     })
     if (!reminder) return downstream
+    if (downstream === undefined) {
+      // next() failed while we hold a reminder: surface the reminder as an
+      // accept decision instead of crashing on undefined.kind below.
+      return { kind: 'accept', additionalContexts: [reminder] }
+    }
     if (downstream.kind === 'block') {
       return {
         kind: 'block',

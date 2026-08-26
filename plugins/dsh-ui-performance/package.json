@@ -1,0 +1,24 @@
+{
+  "name": "@dsh-external/dsh-ui-performance",
+  "version": "0.1.0",
+  "description": "设置面板渲染优化：禁用全视口 backdrop-filter 毛玻璃 + 面板视口自适应放大与内容适配",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["lib"],
+  "license": "BSD-3-Clause",
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

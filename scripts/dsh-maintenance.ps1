@@ -110,4 +110,28 @@ if (Test-Path $verifyScript) {
     Log "verify-patches.ps1 not found at $verifyScript"
 }
 
+# --- 5. Workspace debug residue cleanup (2026-08-26) ---
+Log "--- Debug residue cleanup ---"
+# Remove debug trace logs left by historical patches (modlens spawn trace etc.)
+# that write to the repo root. Only remove when older than 7 days so a
+# freshly-written trace (active debugging) is never touched.
+$residueFiles = @(
+    'spawn-trace.log',
+    'proc-watch.log'
+)
+foreach ($name in $residueFiles) {
+    $rf = Join-Path $root $name
+    if (Test-Path $rf) {
+        $age = (Get-Date) - (Get-Item $rf).LastWriteTime
+        if ($age.TotalDays -gt 7) {
+            Remove-Item $rf -Force
+            Log "Removed stale debug residue: $name (age $([int]$age.TotalDays)d)"
+        } else {
+            Log "Debug residue present but recent: $name (age $([int]$age.TotalHours)h) - kept"
+        }
+    } else {
+        Log "No debug residue: $name"
+    }
+}
+
 Log "=== DSH Maintenance done ==="

@@ -1,14 +1,14 @@
 // 回归测试 v2：dsh-host-services 基础设施服务
 // 直接测共享实现（trusted / readBody / registerLocalApi / resolveConfig / readJson/writeJson），
 // 锁定「本地 API 路由样板」的统一行为，防止各插件语义漂移。
-// 运行：node tests/http-guard-v2.mjs
+// 运行：node tests/plugins/http-guard.test.mjs
 //
 // 覆盖（对齐 legacy/tests/http-guard.js 的既有场景，并补上此前漏测的语义）：
 //   同源放行 / 跨站 Origin 拒绝 / 缺失 Origin POST 拒绝 / 缺失 Origin GET 放行 /
 //   非回环拒绝 / 伪造 Host 拒绝 / Sec-Fetch-Site 跨站拒绝 / IPv6 本地放行 /
 //   Origin 端口不一致拒绝 / 405 / 413 / 400 / 500 / 204
 
-import { apply, trusted, readBody, registerLocalApi, resolveConfig, readJson, writeJson } from '../plugins/dsh-host-services/lib/index.js'
+import { apply, trusted, readBody, registerLocalApi, resolveConfig, readJson, writeJson } from '../../plugins/dsh-host-services/lib/index.js'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

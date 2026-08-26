@@ -12,14 +12,12 @@
     - id: remote-workspace
       name: '@dsh-external/dsh-remote-workspace'
 
-# super-injector 榛樿鎸囧悜 profiles/web/node_modules,妗岄潰绔繀椤绘敼鎸?desktop
+# super-injector defaults to profiles/web/node_modules; desktop must override to profiles/desktop (ASCII, was GBK-garbled)
 - id: dsh-super-injector
   config:
     profileNodeModules: !!js (process.env.HOME || process.env.USERPROFILE) + '/.dsh/profiles/desktop/node_modules'
-- id: ui-skin-maid-atelier
-  disabled: true
 
-# 与 web profile 对齐的 modlens 配置(装配时遗漏,补齐)
+# align modlens config with web profile (was missed during assembly; filled in)
 - id: modlens
   config:
     families: ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova', 'gpt']
@@ -30,12 +28,12 @@
     - id: frontend-reload
       name: '@dsh-external/dsh-frontend-reload'
 
-# 压缩对齐 web profile（2026-08-23 回归审计 P1.5-2）：压缩引擎 + /compact 命令 + 上下文生命周期
+# 2026-08-23: align compaction with web profile (P1.5-2 regression audit):
+# compaction engine + /compact command + context lifecycle; P1.5-3 (02:38 verified):
+# pin summarization model to avoid intermittent 422 when trailing conversation-routed model
 - id: compaction-basic
   disabled: false
   config:
-    # P1.5-3：固定压缩摘要模型（tokenrhythm01/deepseek-v4-pro-0813，1M 上下文，02:38 实测成功路径），
-    # 避免压缩跟随会话路由模型导致间歇 422
     summarizationProvider: tokenrhythm01
     summarizationModel: deepseek-v4-pro-0813
 - id: command-compact
@@ -44,10 +42,6 @@
   disabled: false
 
 
-
-# 已卸载插件（@dsh-external/dsh-bandof-diag）：disabled 阻断其 bundle patch 自装配
-- id: dsh-bandof-diag
-  disabled: true
 
 # 2026-08-25: route web search/fetch to the local bing plugin.
 # modsearch's firecrawl is IP-flagged on this network; this row overrides the

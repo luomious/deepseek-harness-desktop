@@ -8,6 +8,11 @@
   "files": [
     "lib"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "license": "BSD-3-Clause",
   "peerDependencies": {
     "cordis": ">=4.0.0-rc <5"

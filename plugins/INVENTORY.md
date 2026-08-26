@@ -17,12 +17,10 @@
 
 ## 插件清单
 
-### plugins/ 目录（24 个）
+### plugins/ 目录（23 个）
 
 | 插件 | 状态 | 热重载 | 用途 |
 |------|------|--------|------|
-| `dsh-bandof-diag` | experimental | ✅ | bandOf 诊断工具（已完成使命，待卸载） |
-| `dsh-deep-whale-main` | core | ✅ | DeepWhale 主插件 |
 | `dsh-file-explorer` | core | ⚠️ | 右侧文件浏览器（details 面板） |
 | `dsh-force-reasoning-effort` | experimental | ✅ | 强制 reasoning-effort 能力（无 reasoning 元数据的模型也显示思考强度控件） |
 | `dsh-frontend-reload` | core | ✅ | 前端刷新按钮 + Ctrl+R（桌面壳 Windows 无应用菜单时的兜底） |
@@ -42,7 +40,8 @@
 | `dsh-session-watchdog` | core | ✅ | 会话续跑看门狗（定时检测中断/停滞的会话与目标，自动恢复续跑） |
 | `dsh-skills-manager` | core | ⚠️ | Skills 管理器（设置页，系统/用户技能分类展示、编辑、新建） |
 | `dsh-system-notify` | core | ⚠️ | 系统通知（任务/会话完成时弹 Windows toast） |
-| `dsh-vision-engine` | core | ❌ | 图片识别模型配置中心（多配置切换、测试识别、额度监控） |
+| `dsh-ui-performance` | core | ✅ | 设置面板渲染优化：禁用 backdrop-filter 毛玻璃（遮罩 blur(2px)；规则二保留为 no-op，原针对已删除的 maid-atelier 皮肤面板 blur(6px)）+ 面板视口自适应放大（clamp 80vw/82vh，封顶 1240×920，双 max 守卫）+ 各分区宽度上限适配（plugins/desktop/models/agent-presets）+ 插件清单栅格自适应与 content-visibility 渲染节流；纯 CSS 注入、无状态、幂等 |
+| `dsh-vision-engine` | core | ✅ | 视觉引擎（modlens 服务间桥接，与根级 dsh-vision-rotator 轮转配合） |
 | `dsh-web-fetch-local` | core | ✅ | 本地 HTTP(S) 抓取（SSRF 防护 + 大小限制） |
 | `dsh-web-search-bing` | core | ✅ | 免 key 必应搜索 |
 
@@ -54,7 +53,13 @@
 | `dsh-stuck-loop-guard` | core | ✅ | 失败循环守卫（零依赖 host 模式） |
 | `dsh-vision-rotator` | core | ✅ | 视觉引擎轮转（与 vision-engine 配合） |
 
+### profile 市场安装（community-market / npm 管理，非 plugins/ 目录）
+
+| 插件 | 状态 | 热重载 | 用途 |
+|------|------|--------|------|
+| `dsh-context` | external | ⚠️ 建议重启（market receipt 激活） | 上下文可视化：Context 页签 + /context 命令 + 上下文组成/演进/压缩/剪枝与 token 统计（v0.33.1，2026-08-26 经 community-market 安装，npm `dsh-context`，receipt `0cf24e00-e7aa-4d9b-a23d-b5bfe0370fee`；模板已同步 `profile/desktop/package.json`） |
+
 ## 统计
 
-- 总计: 27（plugins/ 24 + 根级 3）| core: 24 | experimental: 3 | deprecated: 0
-- 可热重载: 12 | 必须重启: 3 (modlens 类) | 建议重启: 12 (bundle 类)
+- 总计: 26（plugins/ 23 + 根级 3）| core: 24 | experimental: 2 | deprecated: 0 ｜ profile 市场安装: 1（dsh-context，community-market 管理）
+- 可热重载: 12 | 必须重启: 2 (modlens 类) | 建议重启: 12 (bundle 类)

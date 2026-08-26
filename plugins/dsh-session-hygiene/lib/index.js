@@ -502,21 +502,50 @@ export function apply(ctx, rawConfig) {
   // the super-injector loader on the current DSH build throws "cannot get
   // property webServer without inject" for some load paths even though the
   // module exports `inject` (see header comment). reflect.get() never throws;
-  // if the service is unavailable the route is skipped instead of crashing
-  // the whole apply().
+  // if the service is not ready yet (boot ordering race) the registration
+  // retries with 2s->30s exponential backoff (20 attempts, ~8.5min window),
+  // succeeding as soon as webServer comes up, and never crashing apply().
   const scheduler = createScheduler(runScan, config.scanIntervalMs, ctx.logger ?? { warn() {} });
   const handler = createReportHandler(
     () => lastReport ?? buildReport([], config),
     () => ({ plugin: name, ...scheduler.getStats(), pendingAlerts: alertBuffer.size() }),
   );
-  const webServer = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
-  if (webServer?.register) {
-    ctx.effect(
-      () => webServer.register({ kind: 'prefix', path: ROUTE, handler }),
-      'session-hygiene: report route'
-    );
-  } else {
-    try { ctx.logger?.warn?.('[session-hygiene] webServer unavailable; report route disabled'); } catch {}
+  let routeRegistered = false;
+  let routeAttempts = 0;
+  let routeTimer = null;
+  const tryRegisterRoute = () => {
+    if (routeRegistered) return true;
+    let server = null;
+    try {
+      server = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
+    } catch { server = null; }
+    if (!server?.register) return false;
+    try {
+      ctx.effect(
+        () => server.register({ kind: 'prefix', path: ROUTE, handler }),
+        'session-hygiene: report route'
+      );
+      routeRegistered = true;
+      try { ctx.logger?.info?.('[session-hygiene] report route registered at ' + ROUTE); } catch {}
+      return true;
+    } catch (e) {
+      try { ctx.logger?.warn?.(`[session-hygiene] report route register failed: ${String(e)}`); } catch {}
+      return false;
+    }
+  };
+  if (!tryRegisterRoute()) {
+    const scheduleRetry = () => {
+      if (routeRegistered) return;
+      if (tryRegisterRoute()) return;
+      routeAttempts += 1;
+      if (routeAttempts >= 20) {
+        try { ctx.logger?.warn?.('[session-hygiene] report route unavailable after retries; retry stopped'); } catch {}
+        return;
+      }
+      const delay = Math.min(2000 * 2 ** Math.min(routeAttempts, 4), 30000);
+      try { routeTimer = ctx.setTimeout(scheduleRetry, delay); } catch { /* tolerate */ }
+    };
+    try { routeTimer = ctx.setTimeout(scheduleRetry, 2000); } catch { /* tolerate */ }
   }
 
   // ── 6. Scheduler ──
@@ -526,6 +555,7 @@ export function apply(ctx, rawConfig) {
   ctx.effect(() => () => {
     scheduler.stop();
     if (scanAbort) scanAbort.abort();
+    if (routeTimer) { try { clearTimeout(routeTimer); } catch {} }
     offPreStep();
   }, 'session-hygiene: cleanup');
 

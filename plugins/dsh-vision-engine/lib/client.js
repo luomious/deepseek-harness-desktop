@@ -466,7 +466,7 @@ window.__ModuleLoader__.load({
       }
 
       if (!cfg) {
-        return h('div', { style: { maxWidth: 720 } },
+        return h('div', null,
           h('div', { style: HINT }, t('title') + '…'),
           note && h('div', { style: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, marginTop: 8 } }, note));
       }
@@ -519,7 +519,7 @@ window.__ModuleLoader__.load({
       }
 
       // --- 渲染 ---
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 720 } },
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
           h('span', { style: { width: 4, height: 22, borderRadius: 2, background: ACCENT } }),
           h('h3', { style: { margin: 0, fontSize: 16, fontWeight: 600 } }, t('title'))),

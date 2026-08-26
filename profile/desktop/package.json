@@ -2,7 +2,6 @@
   "name": "dsh-profile-desktop",
   "private": true,
   "dependencies": {
-    "@dsh-external/dsh-client-ui-skin-maid-atelier": "file:D:/Deepseek-Harness/plugins/dsh-deep-whale-main/maid-atelier",
     "@dsh-external/dsh-context-lifecycle": "link:D:\\Deepseek-Harness\\dsh-context-lifecycle",
     "@dsh-external/dsh-file-explorer": "link:D:\\Deepseek-Harness\\plugins\\dsh-file-explorer",
     "@dsh-external/dsh-force-reasoning-effort": "link:D:\\Deepseek-Harness\\plugins\\dsh-force-reasoning-effort",
@@ -28,6 +27,7 @@
     "@vectorize-io/hindsight-coding-agents": "^0.3.4",
     "dsh-bash-terminal": "^0.3.14",
     "dsh-better-sidebar": "^0.15.2",
+    "dsh-context": "0.33.1",
     "dsh-find-plugin": "^0.3.6",
     "dsh-mcp-lens": "file:dsh-mcp-lens-0.1.0-rc.9.tgz",
     "dsh-safe-delete": "^0.2.0",
@@ -37,7 +37,8 @@
     "@dsh-external/dsh-frontend-reload": "link:D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload",
     "@dsh-external/dsh-hy3-gateway": "link:D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
     "@dsh-external/dsh-host-services": "link:D:\\Deepseek-Harness\\plugins\\dsh-host-services",
-    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator"
+    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator",
+    "@dsh-external/dsh-ui-performance": "link:D:\\Deepseek-Harness\\plugins\\dsh-ui-performance"
   },
   "dsh": {
     "profile": {
@@ -63,7 +64,6 @@
         "dsh-find-plugin",
         "@dsh-external/dsh-modlens-autoread",
         "@dsh-external/dsh-vision-engine",
-        "@dsh-external/dsh-client-ui-skin-maid-atelier",
         "dsh-better-sidebar",
         "dsh-skills-manager",
         "dsh-bash-terminal",
@@ -71,7 +71,9 @@
         "@dsh-external/dsh-super-injector",
         "dshmarket",
         "@dsh-external/dsh-hy3-gateway",
-        "@dsh-external/dsh-vision-rotator"
+        "@dsh-external/dsh-vision-rotator",
+        "@dsh-external/dsh-ui-performance",
+        "dsh-context"
       ]
     }
   }

@@ -1,0 +1,5 @@
+# dsh-ui-performance bundle 补丁层：设置面板渲染性能优化。
+# 禁用设置面板遮罩与面板本体的 backdrop-filter（毛玻璃），消除滚动/重绘时的 GPU 重模糊。
+- insert:
+    - id: ui-performance
+      name: '@dsh-external/dsh-ui-performance'

@@ -1,0 +1,6 @@
+# dsh-self-maintenance bundle patch: hourly self-check daemon (disk free + session volume).
+- insert:
+    - id: dsh-self-maintenance
+      name: '@dsh-external/dsh-self-maintenance'
+      config:
+        enabled: true

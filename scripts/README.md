@@ -2,6 +2,7 @@
 
 > 按用途分类。一次性调试脚本在 `tools/`（gitignore，草稿区）。
 > 所有 `.ps1` 脚本用纯 ASCII 注释（PS 5.1 GBK 兼容）。
+> 已退役的一次性/调试脚本移至 `scripts/_legacy/`（经引用核查无活跃链，仅历史归档）。
 
 ## 一键入口
 
@@ -21,6 +22,7 @@
 | 测试文件 | 覆盖插件 | 用例数 | 运行 |
 |----------|----------|--------|------|
 | `tests/plugins/session-hygiene.test.mjs` | dsh-session-hygiene（5 个纯函数） | 22 | `node --test tests/plugins/session-hygiene.test.mjs` |
+| `tests/plugins/http-guard.test.mjs` | dsh-host-services http-guard（42 项） | 42 | `node --test tests/plugins/http-guard.test.mjs` |
 
 ## 构建 / 打包
 
@@ -32,7 +34,6 @@
 | `yarn-install-vendor.ps1` | vendor yarn install（含 proxy / corepack 自愈） |
 | `rebuild-and-restart.ps1` | 停 exe → 重建 → 重启（含僵尸清理） |
 | `download-electron.mjs` | 下载 Electron（带 SHA256 校验） |
-| `download-icons-toolset.mjs` | 下载 NSIS 工具集 |
 
 ## 补丁 / 修复
 
@@ -44,7 +45,6 @@
 | `fix-all.mjs` | 一键修复（聚合多个修复脚本） |
 | `fix-injector-loadcache.mjs` | super-injector loadCache 崩溃修复 |
 | `fix-security.mjs` | 安全审计修复 |
-| `remove-model-tier-disabled.cjs` | 移除 model-tier-router disabled 状态 |
 
 ## 校验 / 测试
 
@@ -53,20 +53,13 @@
 | `verify-patches.ps1` | 补丁锚点校验（16 项，重建后必跑） |
 | `verify-features.ps1` | 功能终核（50 项：装配/安全/回归守卫 + 运行时健康） |
 | `smoke-test.ps1` | 生产冒烟测试（静态 + 运行时） |
-| `test-gemini-vision.mjs` | Gemini 视觉引擎连通性测试 |
-| `test-siliconflow-vision.mjs` | SiliconFlow 视觉引擎连通性测试 |
-| `test-spares-vision.mjs` | 备用视觉引擎测试 |
-| `list-vision-models.mjs` | 列出可用视觉模型 |
+| `test-siliconflow-vision.mjs` | SiliconFlow 视觉引擎连通性测试（`docs/modlens-free-engines.md` 引用，保留） |
 
 ## 监控 / 调试
 
 | 脚本 | 用途 |
 |------|------|
 | `close-stale-dsh.ps1` | 清理僵尸 DSH Desktop 进程（保留持端口实例） |
-| `enum-windows.ps1` | 枚举窗口（调试用） |
-| `watch-events.ps1` | 监听事件（调试用） |
-| `watch-popup.ps1` | 监听弹窗（调试用） |
-| `watch-proc.ps1` | 监听进程（调试用） |
 
 ## 工具
 
@@ -74,6 +67,4 @@
 |------|------|
 | `resolve-dist.mjs` | 单一事实源：解析最新 dist 构建目录 |
 | `update-shortcuts.ps1` | 更新桌面快捷方式指向稳定入口 |
-| `switch-runtime.ps1` | 切换运行时 |
 | `staged-profile-assemble.ps1` | 分阶段 profile 组装 |
-| `run-bg.ps1` | 后台运行脚本 |

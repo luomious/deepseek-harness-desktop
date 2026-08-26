@@ -190,7 +190,7 @@ window.__ModuleLoader__.load({
 
     // ---------- styles ----------
     var ACCENT = 'var(--dsw-static-deepseek-500, #4d6bfe)';
-    var PANEL_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 680 };
+    var PANEL_STYLE = { display: 'flex', flexDirection: 'column', gap: 12 };
     var CARD_STYLE = { border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 12, padding: '12px 14px', background: 'var(--dsw-alias-bg-layer-1)' };
     var HINT_STYLE = { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' };
     var GROUP_NAME_STYLE = { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' };

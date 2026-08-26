@@ -17,14 +17,15 @@
 ## 历史归档（供追溯；其中的 dist / 端口路径已过时，勿当作现状）
 
 - `migration-audit-2026-08-22.md` —— 迁移审计（含 `win-unpacked` / `3080` 旧路径）。
-- `升级执行记录.md`
-- `合并升级总结.md`
-- `合并升级收尾-单实例收敛与E盘清理.md`（已标注使命结束，勿再执行）
-- `桌面端合并方案.md` / `桌面端整合方案书.md`
-- `隔离与移植机制.md`
-- `自检与安全审计.md`
 - `robustness-plan.md` / `improvement-plan.md`
 - `remote-workspace-feasibility.md` / `plugin-center-proposal.md`
+- `archive/` —— 中文命名历史文档（2026-08-26 归类归档，**原名保留**，别名映射便于检索）：
+  - `升级执行记录.md`（upgrade-execution-log）
+  - `合并升级总结.md`（merge-upgrade-summary）
+  - `合并升级收尾-单实例收敛与E盘清理.md`（single-instance-e-drive-cleanup；已标注使命结束，勿再执行）
+  - `桌面端合并方案.md` / `桌面端整合方案书.md`（desktop-merge-plan / desktop-integration-plan）
+  - `隔离与移植机制.md`（isolation-and-porting）
+  - `自检与安全审计.md`（self-check-and-security-audit）
 
 ## 关键事实（防再踩坑）
 

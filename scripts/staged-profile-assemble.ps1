@@ -45,7 +45,7 @@ $BatchBundles = @{
   1 = @('@dsh-external/dsh-web-search-bing', '@dsh-external/dsh-web-fetch-local', '@dsh-external/dsh-session-history', '@dsh-external/dsh-stuck-loop-guard', '@dsh-external/dsh-context-lifecycle')
   2 = @('@liustack/modlens')
   3 = @('@liustack/modsearch', '@dsh-external/dsh-model-picker-group', '@dsh-external/dsh-model-tier-router', '@dsh-external/dsh-model-whitelist', '@dsh-external/dsh-modlens-guard', 'dsh-mcp-lens', 'dsh-tool-search', 'dsh-find-plugin', '@dsh-external/dsh-modlens-autoread', '@dsh-external/dsh-vision-engine')
-  4 = @('@dsh-external/dsh-client-ui-skin-maid-atelier', 'dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector', '@dsh-external/dsh-session-hygiene')
+  4 = @('dsh-better-sidebar', 'dsh-skills-manager', 'dsh-bash-terminal', '@vectorize-io/hindsight-coding-agents', '@dsh-external/dsh-super-injector', '@dsh-external/dsh-session-hygiene')
   5 = @()
 }
 $BatchPatches = @{
@@ -69,7 +69,7 @@ $BatchMarkers = @{
   1 = @('web-search-bing', 'web-fetch-local', 'session-history', 'stuck-loop-guard', 'context-lifecycle', 'file-explorer', 'project-brief', 'session-watchdog', 'system-notify')
   2 = @('modlens')
   3 = @('modsearch', 'model-picker-group', 'model-tier-router', 'model-whitelist', 'modlens-guard', 'mcp-lens', 'tool-search', 'find-plugin', 'modlens-autoread', 'vision-engine')
-  4 = @('maid-atelier', 'better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace', 'session-hygiene')
+  4 = @('better-sidebar', 'skills-manager', 'bash-terminal', 'hindsight', 'super-injector', 'remote-workspace', 'session-hygiene')
   5 = @()
 }
 

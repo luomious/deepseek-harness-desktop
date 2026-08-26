@@ -22,6 +22,7 @@ generator: @dsh-external/dsh-project-brief
 - **关键操作退出保护**：在不可中断操作（pnpm 安装 / 补丁应用 / 长任务）开始前调用 `POST http://127.0.0.1:43120/desktop/critical-busy`，body `{"busy":true,"reason":"..."}`；结束后 body `{"busy":false}`（仅 loopback）。⚠️ **新壳端口为 43120（非 3080）**，随壳版本可能变化，先用 `Get-NetTCPConnection -State Listen` 确认。
 - **Windows 子进程铁律**：桌面壳无控制台，任何 `spawn`/`execFile`/`execSync` 必须带 `windowsHide:true`，否则闪黑框（已修 8 处，见 CHANGELOG 2026-08-23）。dist 改动先备份再改；重建后跑 `scripts/verify-patches.ps1` 校验。
 - 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`。
+- **工作区感知**：回答涉及工作区具体文件/代码/配置的问题时，先用 glob/grep/read 搜索相关文件内容，再结合搜索结果回答；不要只凭记忆或假设回答。
 
 ## 工作流程铁律（read → plan → patch → verify → review，策展 · 2026-08-25 新增）
 
@@ -65,9 +66,6 @@ generator: @dsh-external/dsh-project-brief
 
 ## 常见坑位（策展）
 
-- 工具可选参数**不能**写 `required:false`（loader 报 "required must be true when present"），省略 required 即可。
-- daemon-loop 插件不要把永不解析的服务写进 `inject`（如 compaction）；用 `ctx.reflect.get(...)` 惰性解析。
-- DSH 文件沙箱为 workspace-write：文件工具只能写 `D:\Deepseek-Harness`；写全局 npm 用 shell。
 - `run-all.js` 在沙箱内因 `spawnSync` 管道被 EPERM 全红，属环境限制，单独跑各测试文件为准。
 - **打包壳下 `shell` 工具曾静默假成功（2026-08-25 定案，补丁 #15；2026-08-26 重启后实测生效）**：根因 = `dsh-sandbox-local` 的 windows-acl 运行器把 `process.execPath`（打包后=应用 exe）当 node 用，每次 `shell` 调用拉起重复实例被守卫劝退（退出码 0 但命令未执行）。修复已登记 `apply-winhide-patches.mjs`（marker `nodeForWindowsAclRunner`），验证：`Write-Output` 有真实输出。**重建会覆盖该补丁 → 重建后跑 `verify-patches.ps1`（第 15 项）校验/重打。**
 
@@ -94,7 +92,7 @@ generator: @dsh-external/dsh-project-brief
 - `hy3-gateway/` — 实验性 HY3 网关服务（gitignore；被 `plugins/dsh-hy3-gateway` 硬编码引用，路径不可移动）
 - `legacy/` — 旧 Electron 壳归档（含旧 `src/`、`app/`、`tests/`、`build-app.ps1` 等，勿当作现状）
 - `patches/` — 补丁系统（`bundles/` 已验证补丁、`reference/` 参考补丁、`wip/` 开发中补丁）
-- `plugins/` — 插件生态（24 个插件，经 `dsh-super-injector` 运行时注入/热重载；登记表见 `plugins/INVENTORY.md`）
+- `plugins/` — 插件生态（23 个插件，经 `dsh-super-injector` 运行时注入/热重载；登记表见 `plugins/INVENTORY.md`）
 - `profile/` — DSH web profile 模板与配置
 - `scripts/` — 构建/维护/验证脚本（35 个，含 `promote-build`、`verify-patches`、`dsh-maintenance` 等）
 - `tools/` — 一次性调试脚本（gitignore，草稿区）
@@ -108,14 +106,14 @@ generator: @dsh-external/dsh-project-brief
 - `PROJECT_README.md` — 项目 README
 - ~~`modlens-free-engines.md`~~ — 已合并至 `docs/modlens-free-engines.md` 并删除根级副本（2026-08-25）
 
-**插件 (plugins/) — 24 个**:
-- `dsh-bandof-diag` / `dsh-deep-whale-main` / `dsh-file-explorer`
-- `dsh-force-reasoning-effort` / `dsh-frontend-reload` / `dsh-host-services`
-- `dsh-hy3-gateway` / `dsh-model-picker-group` / `dsh-model-tier-router`
-- `dsh-model-whitelist` / `dsh-modlens-autoread` / `dsh-modlens-guard`
-- `dsh-project-brief` / `dsh-remote-workspace` / `dsh-routing-suite`
-- `dsh-self-maintenance` / `dsh-session-history` / `dsh-session-hygiene`
-- `dsh-session-watchdog` / `dsh-skills-manager` / `dsh-system-notify`
+**插件 (plugins/) — 23 个**:
+- `dsh-file-explorer` / `dsh-force-reasoning-effort`
+- `dsh-frontend-reload` / `dsh-host-services` / `dsh-hy3-gateway`
+- `dsh-model-picker-group` / `dsh-model-tier-router` / `dsh-model-whitelist`
+- `dsh-modlens-autoread` / `dsh-modlens-guard` / `dsh-project-brief`
+- `dsh-remote-workspace` / `dsh-routing-suite` / `dsh-self-maintenance`
+- `dsh-session-history` / `dsh-session-hygiene` / `dsh-session-watchdog`
+- `dsh-skills-manager` / `dsh-system-notify` / `dsh-ui-performance`
 - `dsh-vision-engine` / `dsh-web-fetch-local` / `dsh-web-search-bing`
 <!-- brief:auto:structure:end -->
 
@@ -158,6 +156,5 @@ generator: @dsh-external/dsh-project-brief
 
 - **删除/清空类命令必须先用 `scripts/guard-destructive.ps1` 预检**（. .\scripts\guard-destructive.ps1 → Test-DestructiveCommand）：盘根(C:\/D:\等)、用户目录、AppData、工作区根之外的**递归/强制删除一律拦截**；未加引号的通配符目标一律拦截。
 - 删除任何文件前，先列出将被删除的路径与数量，目标必须在 `D:\Deepseek-Harness` 工作区内（或用户明确同意）。
-- 涉及 PowerShell/cmd/正则的路径参数：警惕 `[ ] { } ( ) $ * ?` 元字符与引号配对；写脚本用纯 ASCII 注释（PS 5.1 会把 UTF-8 无 BOM 中文读成 GBK 导致语法错——2026-08-23 实测踩坑两次）。
 - bundle/服务文件等高危改动：先在 `patches/bundles/` 临时副本修改+`node --check`+标记验证 → 再原子替换正式文件；绝不在运行中的应用服务路径上留下非法中间态。
-- 不自动重启桌面应用（等用户指示）；`~/.dsh` 下改动先存档再改（可回滚）。
+- 不自动重启桌面应用（等用户指示）。

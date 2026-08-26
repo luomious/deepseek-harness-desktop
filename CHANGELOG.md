@@ -6,6 +6,118 @@
 
 ---
 
+## 2026-08-26 插件市场加载失败排障与市场提供方切换（dsh-market → dsh-community-market）
+
+- 现象：插件市场「发现」页长时间「正在加载插件目录...」后失败；`GET /dsh-market/registry`
+  稳定 502，市场日志连续记录 `catalog fetch failed: The operation was aborted due to timeout
+  (30s, 2 attempts)`（14:41–15:20 共 5 次；内核进程 `web_fetch` 实测同一 URL 亦 30s 超时）。
+- 根因链：dsh-market 目录源 = `https://awesome-dsh-plugin.com/plugins.json`（GitHub Pages）。
+  内核进程直连该域名无响应——同机同时刻子进程直连 4/4 成功（~1s）、内核访问
+  `registry.npmjs.org` 正常、挂起窗口内 mihomo 连接表无该域名条目（内核未走本机 Clash，
+  系直连被挂死）。Node fetch 不读 Windows 系统代理（127.0.0.1:7897，verge-mihomo，TUN 关闭），
+  dshmarket 仅认 `HTTPS_PROXY` 环境变量（undici EnvHttpProxyAgent），应用启动环境未注入 →
+  市场始终裸连；该域名直连在本网络环境被阻断，火绒（HipsDaemon 在运）按进程拦截为叠加嫌疑。
+- 证据：目录源本身健康（DNS→185.199.x.x，内容 200/505KB）；经 Clash 访问 200（1.5s）；
+  内核内 npmjs 200 vs 该域名 30s 超时 → 按域名 + 按进程的稳定差异，排除瞬时 GFW 抖动。
+- 处置（满足「VPN 开/关均不影响」、零代码、零环境变量、可回滚）：市场提供方切换为桌面版内置
+  `dsh-community-market`——其目录源 `deepseek1024.com` / `api.dshfind.com` 实测内核直连均 200
+  （11,633 插件、当日数据），完全绕开 GitHub Pages；内置源支持 UI 添加/更换自定义目录源（可迭代）。
+- 操作记录：`%APPDATA%\DSH Desktop\desktop-market\state.json` 写入
+  `{"version":1,"requested":"community-market","legacyDefaulted":false}`（按
+  `parseDesktopMarketState` 严格 schema 校验通过）；旧值备份于同目录
+  `state.json.bak-20260826-switch-to-community`。dshmarket 未卸载，仅由壳层互斥装配停用，
+  随时可在 设置 → 桌面版 → 插件市场 切回（壳层带失效保护：加载失败自动保持市场关闭并提示）。
+- 生效需重启桌面应用（等用户指示）。重启后建议添加并启用 **DSH 1024Store** 源（整目录单请求返回、
+  秒开；dshfind 分页受限流约束首扫较慢，按需再加）。
+- 重启后验证清单：`GET /api/community-market/catalog` 200 且秒级；内核日志无 `catalog-timeout/
+  catalog-unavailable`；「发现」页出列表、已安装页正常。
+- 备选迭代（未采用）：保留 dsh-market 时，可官方 `DSHM_REGISTRY_URL` 指向内核直连可达镜像，
+  或给应用启动环境注入 `HTTPS_PROXY=http://127.0.0.1:7897` 走 Clash（需 Clash 常驻，关闭时市场快速失败）。
+
+## 2026-08-26 自研常驻组件代码审查与修复（4 处，与市场切换合并一次重启生效）
+
+### 发现与修复
+- 🔴 `dsh-stuck-loop-guard` `maybeGenerateCatchUpReport`：`spawn(process.execPath, …)` 缺
+  `ELECTRON_RUN_AS_NODE` 与 `windowsHide` → 打包壳下拉起的是重复应用实例（被重复实例守卫劝退），
+  REPORT.md 从未生成；违反「Windows 子进程铁律」（补丁 #15 同款模式）。已按
+  dsh-hy3-gateway / dsh-vision-engine 的已验证姿势补齐两字段。此前因 `.report-marker` 已写入而休眠。
+- 🔴（顺带发现，阻断干净构建的既有缺陷）`tools/post-execute` 处理器：`next()` 失败时
+  `downstream` 为 undefined，恰有 reminder 时会抛 TypeError；tsc strict 亦报 4 错。
+  已修：downstream undefined → 返回 accept + reminder；构建干净（tsc exit 0）。
+- 🟡 `dsh-context-lifecycle` `states` Map 无界增长 → 新增剪除：agent 消失且
+  `lastEvaluatedAt` 超 2h 的条目连同 `pendingCompact` 一并删除（桌面常驻防膨胀）。
+- 🟡 `dsh-context-lifecycle` `/decide`：sessionId 失配时改为严格 404
+  （原 `find(() => true)` 随意取第一个会话，多会话并发下可能操作错会话）。
+- 🟡 `hy3-gateway/server.js`：① 上游调用硬超时（generateText 5min / streamText 建立 60s，
+  Promise.race）；② SSE 客户端断开检测（`res` close + `writableEnded` 判定，正常结束不误判），
+  断开即停消费上游流，节省免费额度；③ `readBody` 字符串拼接 O(n²) → Buffer 数组 + concat。
+- ✅ 无需动（同类扫描确认）：`dsh-hy3-gateway` spawn 已带 ELECTRON_RUN_AS_NODE + windowsHide
+  （8787 实测为当日 09:16 启动的 node 实例）；`dsh-vision-engine` runCli 同款正确姿势；
+  `legacy/tests/run-all.js` 已归档免究。
+
+### 构建与验证
+- 两个根级插件改 `src/` 后各自 tsc 重建 `lib/`（exit 0，单一事实源）；三个改动文件 `node --check` 全过。
+- hy3-gateway 新代码冒烟：模块加载成功，8787 占用时优雅退出（exit 0）。
+- ⚠️ 运行中旧网关（detached）会跨越应用重启存活（新 spawn 遇 EADDRINUSE 优雅退出）——
+  重启流程需先结束旧网关进程（PID 37972），新代码方能接管。
+- 备份：`_backups/2026-08-26-code-review-fixes/`（5 文件）。
+
+### 风险收益
+- 收益：子进程铁律合规 + 报告功能恢复；常驻状态不再无界增长；消除错会话操作风险；
+  网关不挂死连接、不浪费免费额度。
+- 风险：低——全部局部改动、已备份、已验证；重启前不影响运行中实例。
+
+### 重启后验证（用户 18:12 重启，全部通过）
+- 市场提供方切换生效：`/api/community-market/state` 200（2ms，含两个内置源）；
+  `/dsh-market/*` 404（互斥装配生效）；经同源 API 添加并启用内置源 **DSH 1024Store**（`select`）。
+- 目录加载端到端实测：首次 **200 / 7.3s**（全目录直连抓取，不依赖 VPN），
+  二次打开 **200 / 3.5ms**（缓存命中）——原「转 30 秒后失败」故障消除，**VPN 开/关均不影响**。
+- 重启后日志零 `catalog-*` 错误；`/context-lifecycle/status` 200（剪除/严格 404 新代码在跑，
+  compaction resolved，5 会话正常跟踪）；各守护插件正常启动。
+- hy3-gateway：重启前旧进程（PID 37972，旧代码，detached 跨重启存活）已结束，
+  手工拉起新代码网关（PID 39592），`/v1/models` 200。
+  ⚠️ 运维注记：网关进程跨应用重启存活（新 spawn 遇 EADDRINUSE 自动退出）——
+  今后升级网关代码须先结束旧进程再重启应用，否则旧代码继续服务。
+
+## 2026-08-26 插件市场恢复至设置顶级分区（community-market 客户端补丁 + 流水线登记）
+
+- 现象：切换 community-market 后市场不在「设置」顶级——内置客户端只注册了 `settings.plugins.tab`
+  子页（设置→插件 内的子标签，位置深）、`sidebar.footer.action` 侧边按钮与 `shell.overlay`。
+- 改动（纯增量，不移除原条目）：`node_modules\dsh-community-market\lib\client.js` 的 apply()
+  追加注册 `settings.section`（id `community-market`，order 40，渲染 MarketSettingsTab，
+  marker `DSH-OVERLAY: community-market settings.section`）。市场 CSS 本身为流式布局，
+  设置面板宽度已由 dsh-ui-performance 放宽，无需额外宽度适配。
+- 可维护性：新增幂等补丁脚本 `scripts/apply-community-market-settings-section.mjs`（锚点+marker，
+  resolve-dist 动态定位最新构建），接入 `package-vendor.ps1` 重建后重打链；
+  `verify-patches.ps1` +1 项（现 17 项，ALL PASS）。原文件备份：
+  `_backups/2026-08-26-community-market-settings-section/client.js.orig`。
+- 生效：客户端 bundle 按请求读盘 + no-cache，**刷新浏览器即生效，无需重启**。
+- 风险收益：收益＝市场回到熟悉入口；风险＝低（纯客户端增量注册、有备份、可回滚、不碰服务端）。
+
+## 2026-08-26 设置界面卡顿优化（dsh-ui-performance 插件）
+
+- 根因：设置面板全视口 `backdrop-filter` 毛玻璃**双层叠加**——基础遮罩 blur(2px)
+  （settings-general 的 `.VOzbGW_mask` + `--dsw-mask-blur`）+ maid-atelier 皮肤给面板本体加的
+  blur(6px) saturate(0.9)（`maid-atelier.module.css:2803`，skin.json bodyAttr 激活）。面板内
+  滚动时每帧重过滤造成卡顿；皮肤还给侧边栏/dock 等多处加模糊，与「其他界面也稍微卡」吻合。
+- 新插件 `plugins/dsh-ui-performance`（纯 CSS 客户端 bundle，host 侧空壳，仿 dsh-frontend-reload
+  模式）：两条 role/aria 契约选择器规则，仅命中设置面板（全库唯一
+  `role="presentation" > [role="dialog"][aria-modal="true"] > nav` 结构），不依赖上游 hash 类名，
+  上游 DOM 变动时规则静默失效回退原样；无状态、幂等、可热重载。
+- 登记：`plugins/INVENTORY.md`；装配：`dev_install_package` 热装配（profile desktop，
+  critical-busy 保护）；装机模板 `profile/desktop/package.json` 同步。
+- 同日追加（面板尺寸/内容适配）：面板视口自适应放大
+  （`clamp(800px,80vw,1240px)` × `clamp(720px,82vh,920px)`，双 max 守卫防溢出）；
+  内容区上限适配（插件分区/插件清单 760px→充满，桌面设置 880px→1040px）；
+  插件清单卡片栅格 `auto-fill, minmax(280px,1fr)` 自适应列数。
+- 同日再追加（灰框适配 + 延迟优化）：模型分区与 Agent 预设分区 720px 上限放开
+  （消除右侧灰色空区；通用设置条目经扫描无宽度上限）；插件清单卡片
+  `content-visibility:auto` + `contain-intrinsic-size:auto 76px` 屏外跳过渲染
+  （清单含上百 Loader 条目，首次全量渲染是打开延迟主成本；接口本身为无缓存直读，残余延迟属懒加载设计）。
+- 同日三追加（剩余分区适配）：自研插件源码去上限——`dsh-model-whitelist` 模型管理
+  680px、`dsh-vision-engine` 图片识别模型 720px×2（lib-only 无 src 漂移，改后刷新即生效）；
+  第三方 `dsh-better-sidebar` 侧边栏设置分区 760px 上限经 dsh-ui-performance 规则八放开。
+
 ## 2026-08-26 生产收尾（最终收敛：协议统一 + 智能维护内置 + 冗余清理 + 文档定稿）
 
 > 目标：遗留项全清、长期运行零人工依赖、单一事实源、仓库无冗余。全程五段流程，执行日志见 `tools/wrap-up-execution-log.md`（gitignore）。
