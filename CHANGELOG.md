@@ -108,6 +108,10 @@
   将 `sidebar.footer.action` 注册块替换为注释（marker `DSH-OVERLAY: community-market launcher removed`）；
   覆盖层注册保留（无入口触发、不可见）。`verify-patches.ps1` +1 项（现 18 项，ALL PASS）；
   幂等复跑确认；备份仍为 `client.js.orig`（两补丁前的原始文件，可整体回滚）。
+- 同日卫生：删除 `hy3-gateway/.npm-cache`（314 文件 / 15.8MB，gitignore 目录；全库 grep 确认零引用，
+  npm 缓存可按需再生；guard-destructive 预检通过后删除）。`events.jsonl` 轮转经评估暂不做：
+  当前仅 3.7KB、事件驱动增速极低，过早加轮转代码反而增加守护插件复杂度（YAGNI）；
+  约定阈值 >5MB 时再实施（预留钩子：createStatsWriter 写入前体积检查 → 转存 `.old` 单代）。
 
 ## 2026-08-26 设置界面卡顿优化（dsh-ui-performance 插件）
 
