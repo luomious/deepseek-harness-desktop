@@ -14,7 +14,7 @@ generator: @dsh-external/dsh-project-brief
 
 - **重启守则（用户要求，务必遵守）**：代码改动后**不得自动重启桌面应用**——重启会打断用户的其他会话进程。改为：改动提交后告诉用户"已就绪，等你指示再重启"，**仅当用户明确说"重启/生效/测试"时才执行重启**。诊断类临时重启（带调试端口探针）同样需先征得用户同意。
 - 修改代码前先读本文件与 `PROJECT_README.md` / `CHANGELOG.md`，遵循既有插件/补丁模式，不重复造轮子。
-- 对全局 node_modules 的修改必须登记到 `src/lib/patch-manifest.js` 自愈清单，否则 `npm i -g @deepseek-ai/dsh` 升级即丢失。
+- 对全局/vendor node_modules 的修改必须登记到补丁体系：`patches/bundles/` 补丁 bundle + `scripts/verify-patches.ps1` 校验项 + 对应 `scripts/apply-*.mjs` 重打脚本，否则重建/升级即丢失（旧 `src/lib/patch-manifest.js` 自愈清单已随 `src/` 归档 `legacy/`，参考实现见 `patches/reference/patch-manifest.js`）。
 - **严禁对 `@liustack/modlens`（服务端插件，adapter 注册只在启动时发生）执行 `dev_reload_package` 热重载**：会丢失 adapter 注册，会话切到 `modlens-*` 报 `no adapter registered for provider "modlens-*"` 并卡死服务；modlens 代码改动必须完全重启桌面应用。
 - 启动自愈（`reconcilePatches` + 原生目录选择器补丁）已移到 `main.js` 端口检查**之前**：无论 43120 是否被占用（网页版/残留进程）都会执行。若某补丁对某版本 dsh 失效，优先更新锚点或登记自动退役（如 `dsh-core-client-bundle-retry` 对 0.1.1-rc.2 的 Vite 前端），不要只删清单项。
 - 长任务用 goal（`create_goal`）自动续跑；跨会话守护用 daemon-loop 插件（如 `dsh-session-watchdog`）。
@@ -36,7 +36,7 @@ generator: @dsh-external/dsh-project-brief
    - **verify + review**：给出可核验证据（`node --check`/读回/测试/页面复查），并回答自检三问——门禁过了吗？验证证据是什么？相似问题扫了吗（第 3 条）？
 2. **每次操作先做风险收益评估**（写/删/装/重启前）：收益＝解决什么问题；风险＝影响面/可逆性/是否波及运行中服务；等级＝低/中/高。高风险另需四件套：先备份 → `scripts/guard-destructive.ps1` 预检 → `critical-busy` → 用户确认。
 3. **相似问题排查**：每修复一个问题，用 grep/read 扫全项目同类模式（同样的误用/缺参/越层/编码坑），列出疑似清单并**询问用户是否一并修复**，禁止静默顺手改。
-4. **架构层级纪律**：前端/客户端不得直接访问数据库、文件系统、操作系统能力，必须走服务层 API；插件经 host ctx，不直碰内核内部；全局 node_modules 改动必须登记 `src/lib/patch-manifest.js`；新功能先问"有没有现成机制"（patch-manifest / super-injector / guard 脚本），不重复造轮子。
+4. **架构层级纪律**：前端/客户端不得直接访问数据库、文件系统、操作系统能力，必须走服务层 API；插件经 host ctx，不直碰内核内部；全局/vendor node_modules 改动必须登记补丁体系（`patches/bundles/` + `scripts/verify-patches.ps1` + `scripts/apply-*.mjs`）；新功能先问"有没有现成机制"（补丁体系 / super-injector / guard 脚本），不重复造轮子。
 5. **自迭代**：发现条款碍事或过时，只在 review 阶段提出修订建议，用户批准后修改，不得静默变更本节。
 
 **plan 固定模板**：目标 ｜ 涉及文件 ｜ 改动点 ｜ 验证方式 ｜ 回滚方式 ｜ 风险收益（第 2 条格式）。

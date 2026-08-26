@@ -41,4 +41,4 @@
 
 - 新插件进 bundles：补 `dsh.bundle.patch` → 模板 + 运行时同步 → `verify-features.ps1` 阈值核对。
 - `C:\Temp` 杂物：由「<1 天保留」规则兜底；pnpm `p-*`  staging 目录会自行清理，无需手工删。
-- 全局升级前先跑 `verify-features.ps1` 留存基线；全局 node_modules 改动必须登记 `src/lib/patch-manifest.js` 自愈清单。
+- 全局升级前先跑 `verify-features.ps1` 留存基线；全局/vendor node_modules 改动必须登记补丁体系（`patches/bundles/` + `verify-patches.ps1` + `apply-*.mjs`）。
