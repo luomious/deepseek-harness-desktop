@@ -69,7 +69,7 @@ Add-Check 'title-config-runtime' ($rtp.Contains('session-title-llm') -and $rtp.C
 Add-Check 'runtime-patch-curated' ($rtp.Contains('summarizationProvider: tokenrhythm01') -and $rtp.Contains('searchProvider: bing') -and $rtp.Contains('dsh-frontend-reload')) 'compaction+web+frontend-reload rows'
 $rpk = Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $bl = $rpk.'dsh'.profile.bundles
-Add-Check 'runtime-bundles-full' ($bl.Count -ge 29 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene') ("count=" + $bl.Count)
+Add-Check 'runtime-bundles-full' ($bl.Count -ge 30 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene' -and $bl -contains '@dsh-external/dsh-self-maintenance') ("count=" + $bl.Count)
 $hyg = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\package.json' -Raw -Encoding UTF8
 Add-Check 'hygiene-bundle-patch' ($hyg.Contains('"bundle"') -and $hyg.Contains('./cordis.patch.yml') -and (Test-Path 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml')) 'bundle patch declared'
 $hygPatch = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml' -Raw -Encoding UTF8
@@ -86,7 +86,7 @@ Add-Check 'title-config-max512' ($tp.Contains('maxOutputTokens: 512') -and $rtp.
 $ok = $null
 try { $ok = (Invoke-WebRequest -Uri 'http://127.0.0.1:43120/' -UseBasicParsing -TimeoutSec 3).StatusCode } catch {}
 if ($ok -eq 200) {
-  foreach ($ep in @('/vision-engine/config','/vision-rotator','/session-hygiene/report','/host-services/status')) {
+  foreach ($ep in @('/vision-engine/config','/vision-rotator','/session-hygiene/report','/host-services/status','/self-maintenance/status')) {
     $code = -1
     try { $code = (Invoke-WebRequest -Uri "http://127.0.0.1:43120$ep" -UseBasicParsing -TimeoutSec 8).StatusCode } catch { $code = -1 }
     Add-Check "endpoint$ep" ($code -eq 200) "http $code"

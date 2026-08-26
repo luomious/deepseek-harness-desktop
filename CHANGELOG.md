@@ -51,11 +51,21 @@
   promote+smoke 覆盖）。
 - `docs/README.md` 索引补齐（+4 文档）+ 维护架构关键事实；`plugins/INVENTORY.md` 24/27。
 
-### 5. 待办（唯一剩余动作）
-- **重启窗口**（等用户指示）：运行时 profile 装配 self-maintenance（删 disabled 条目 +
-  补 bundle + 非 frozen pnpm install）→ 重启 → 6 项验证（含 self-maintenance status
-  应显示 sessions≈148/bigCount≈2/totalMB≈177）→ push GitHub。
-- 补丁 #15（shell 静默假成功）随同一次重启生效，验证后更新「常见坑位」表述。
+### 5. 重启后验证（2026-08-26 09:18 全部通过，收官完成）
+- 用户重启后实测：`shell` 工具真实执行恢复（补丁 #15 生效，`Write-Output` 有真实输出，
+  静默假成功终结）；`/session-hygiene/report` 200。
+- 运行时装配完成（critical-busy 保护下，先备份三件套再改）：运行时 `package.json` 补
+  self-maintenance dependency + bundle（30 bundles）；删 disabled 拦截条目；
+  非 frozen `pnpm install` 同步 lockfile（lockfileVersion 保持 9.0，顶层依赖零丢失，
+  内置/系统 pnpm 同为 11.21.0 无漂移）；随后 `--frozen-lockfile` 模拟 materializer 通过
+  （下次启动必然干净）。
+- `dev_inject_plugin` 即时激活：`/self-maintenance/status` 实测
+  **15 workspaces / 150 sessions / 2 个 >8MB / 178MB / 磁盘 47.7GB / 零告警**
+  （归档后大会话 3→2 与预期一致）。
+- `registry.json` 清回 `[]`（下次重启走纯 bundle 通道，无双通道风险）。
+- `verify-features.ps1` **51/51 PASS**（+`runtime-bundles-full` 含 self-maintenance、
+  +`/self-maintenance/status` 纳入端点巡检）。
+- 结论：**三层维护架构全部在线，日常健康零人工依赖**；全部提交已推送。
 
 ---
 

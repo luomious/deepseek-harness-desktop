@@ -69,7 +69,7 @@ generator: @dsh-external/dsh-project-brief
 - daemon-loop 插件不要把永不解析的服务写进 `inject`（如 compaction）；用 `ctx.reflect.get(...)` 惰性解析。
 - DSH 文件沙箱为 workspace-write：文件工具只能写 `D:\Deepseek-Harness`；写全局 npm 用 shell。
 - `run-all.js` 在沙箱内因 `spawnSync` 管道被 EPERM 全红，属环境限制，单独跑各测试文件为准。
-- **打包壳下 `shell` 工具曾静默假成功（2026-08-25 定案，补丁 #15）**：根因 = `dsh-sandbox-local` 的 windows-acl 运行器把 `process.execPath`（打包后=应用 exe）当 node 用，每次 `shell` 调用拉起重复实例被守卫劝退（退出码 0 但命令未执行）。修复已登记 `apply-winhide-patches.mjs`（marker `nodeForWindowsAclRunner`）；验证生效前一律用 `pwsh` 兜底、勿信 `shell` 的退出码 0。
+- **打包壳下 `shell` 工具曾静默假成功（2026-08-25 定案，补丁 #15；2026-08-26 重启后实测生效）**：根因 = `dsh-sandbox-local` 的 windows-acl 运行器把 `process.execPath`（打包后=应用 exe）当 node 用，每次 `shell` 调用拉起重复实例被守卫劝退（退出码 0 但命令未执行）。修复已登记 `apply-winhide-patches.mjs`（marker `nodeForWindowsAclRunner`），验证：`Write-Output` 有真实输出。**重建会覆盖该补丁 → 重建后跑 `verify-patches.ps1`（第 15 项）校验/重打。**
 
 
 ## overview
