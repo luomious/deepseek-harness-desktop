@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-08-26 维护清扫周报（缓存清理 / 补丁修复 / bundles 收敛 / 插件清理 / 竞态加固）
+
+- 磁盘与缓存清理：`.electron-cache` / npm cache / old pnpm-cache / electron-builder Cache / `C:\Temp\dsh-*` 过期刊余，回收约 1.1GB；本轮再清 copybak + `%TEMP%` 残留 25 项（13.2MB）。
+- P1 补丁损坏修复：`profile/desktop/cordis.patch.yml` 模板 + 运行时同步修复（无 id 行被 patch 组合层静默丢弃的根因），`dev_fix_patch --check` 全健康。
+- bundles 装配收敛：`dsh-self-maintenance` / `dsh-ui-performance` 补 `dsh.bundle.patch` 声明并入模板/运行时 bundles（30 项全等；后随市场插件 `dsh-context` 增至 31 项）。
+- 插件清理：删除 `dsh-deep-whale-main`（含 maid-atelier 皮肤）、`dsh-bandof-diag`（排障 shim，诊断完成；bandOf 真功能在 routing-suite/router-core，无损）。
+- 竞态加固：`dsh-self-maintenance` 状态路由改为退避重试（已重启实测 2s 注册成功）；`dsh-session-hygiene` 同款加固已入库（待下次重启验证）。
+- 验证：`verify-features.ps1` 51/51 全绿；`dev_plugin_status` 装配清单与 bundles 一致、无重复挂载。
+- 交接：详见 `docs/MAINTENANCE-RUNBOOK-2026-08-26.md`；完整执行日志 `_backups/cleanup-20260826/EXECUTION-LOG.md`。
+  git：`79386a1`（本地提交，未推送）。
+
 ## 2026-08-26 插件市场加载失败排障与市场提供方切换（dsh-market → dsh-community-market）
 
 - 现象：插件市场「发现」页长时间「正在加载插件目录...」后失败；`GET /dsh-market/registry`
@@ -93,6 +104,10 @@
   `_backups/2026-08-26-community-market-settings-section/client.js.orig`。
 - 生效：客户端 bundle 按请求读盘 + no-cache，**刷新浏览器即生效，无需重启**。
 - 风险收益：收益＝市场回到熟悉入口；风险＝低（纯客户端增量注册、有备份、可回滚、不碰服务端）。
+- 同日追加（用户要求）：移除设置按钮上方的侧边栏市场入口——同一补丁脚本新增第二操作，
+  将 `sidebar.footer.action` 注册块替换为注释（marker `DSH-OVERLAY: community-market launcher removed`）；
+  覆盖层注册保留（无入口触发、不可见）。`verify-patches.ps1` +1 项（现 18 项，ALL PASS）；
+  幂等复跑确认；备份仍为 `client.js.orig`（两补丁前的原始文件，可整体回滚）。
 
 ## 2026-08-26 设置界面卡顿优化（dsh-ui-performance 插件）
 

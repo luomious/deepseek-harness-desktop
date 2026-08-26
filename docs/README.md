@@ -13,6 +13,7 @@
 - `modlens-free-engines.md` —— modlens 免费引擎配置。
 - `troubleshooting-handbook.md` —— 故障排查手册（部分条目含旧壳 3080 历史描述，端口以 BUILD.md 为准）。
 - `upstream-issue-zstd-sync-blocking.md` —— 上游问题报告：`dsh-session-persistence-jsonl` 同步解压阻塞事件循环（待提交 deepseek-ai/deepseek-harness）。
+- `MAINTENANCE-RUNBOOK-2026-08-26.md` —— 维护交接手册（2026-08-26 清扫/修复/加固周报：当前状态、待办门、验证命令、坑位约定、回滚路径、迭代建议）。
 
 ## 历史归档（供追溯；其中的 dist / 端口路径已过时，勿当作现状）
 
