@@ -30,7 +30,9 @@ $checks = @(
   @{ n = 'host-apiproxy default cwd home';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-apiproxy\lib\index.js'; p = 'cwd: homedir(), /* dsh-desktop patch' },
   @{ n = 'sandbox-local runner node (patch #15)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-sandbox-local\lib\index.js'; p = 'nodeForWindowsAclRunner' },
   @{ n = 'community-market settings.section'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\client.js'; p = 'DSH-OVERLAY: community-market settings.section' },
-  @{ n = 'community-market launcher removed'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\client.js'; p = 'DSH-OVERLAY: community-market launcher removed' }
+  @{ n = 'community-market launcher removed'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\client.js'; p = 'DSH-OVERLAY: community-market launcher removed' },
+  @{ n = 'safe-delete-shim.cjs exists';       f = Join-Path $unpacked 'lib\safe-delete-shim.cjs'; p = 'safe-delete-shim' },
+  @{ n = 'safe-delete-shim injected in main';  f = Join-Path $unpacked 'lib\main.js'; p = 'safe-delete-shim.cjs' }
 )
 
 $fail = 0
