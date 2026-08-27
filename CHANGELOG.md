@@ -6,6 +6,30 @@
 
 ---
 
+## 2026-08-27 收尾：代码质量全检 + 错误日志 + 文档同步 + 清理登记
+
+### 全检结果（收尾会话实测，2026-08-27 晚）
+
+- **语法**：`plugins/ scripts/ patches/ tools/` 根级守护插件 130 个 JS/MJS/CJS `node --check` 全过。
+- **乱码/损坏**：329 个文本文件严格 UTF-8 校验 0 无效编码、0 替换符；`git fsck` 无对象损坏；工作树干净（262 tracked）。
+- **残留标记**：plugins/scripts 无 TODO/FIXME/HACK/XXX。
+- **打包/更新机制**：junction → `win-unpacked-build202608272104`（最新）；`check-dist-integrity.mjs` 15 个相对导入全解析；`verify-patches.ps1` 21:07 记录 22/22 ALL PASS；更新链路在位（update-checker + tray「检查更新」+ `lib/launcher.js` 前置完整性校验）。
+- **运行态**：`/self-maintenance/status` diskFree 48.1GB（阈值 5/2）；`/session-hygiene/report` 180 会话 223.5MB（>8MB 2 个建议归档）；`/context-lifecycle/status` 5 agents / 2 active、lastError 空；`/task-scheduler/status` 正常。
+- **task-scheduler 复核**：单进程 9/9（stale 基线 / 多资源原子 / 优先级抢占 / 释放后重获）；官方 28/28 于提交 77eb29b 时通过（本沙箱 spawn EPERM 为环境限制，非代码缺陷）。
+
+### 错误日志
+
+- 今日全部错误/观察项已登记 `_backups/errors-20260827.log`：safe-delete-shim 启动崩溃（P0 已修）、verify-patches 5 FAILED 中间态（12:42→13:13 转绿）、打包 auto-promote 跳过（提示）、构建产物残留（app.asar.tmp.unpacked ~213MB / app.asar.bak）、task-scheduler spawn EPERM（环境限制）、18:06 辅助进程与 unpacked 重解析项观察。
+
+### 清理（已执行 · 27 项 · 走回收站 · 2026-08-27 23:3x）
+
+- dist 残留：`app.asar.tmp.unpacked`（约 213MB）+ `app.asar.bak`（5.7MB）。
+- `_backups` 超期：`dist-archive/20260824-*`（2 份，超保留策略）、`asar-repack/`（655MB 手工提取残留）、`pre-rebuild-20260827/`（8.8MB）、`.diagnostic-...tmpdir`。
+- 空诊断文件（6 个 0 字节）与 `tools/` 一次性草稿（15 个脚本；保留 scan-corruption.mjs / ts-nochild-check.mjs / wrap-up-execution-log.md）。
+- 全部经 guard-destructive 预检 + VB 回收站 API，删除后 junction / check-dist-integrity / 应用健康均复验通过。
+
+---
+
 ## 2026-08-27 跨对话任务调度机制（dsh-task-scheduler）—— 多会话并发冲突防护
 
 ### 背景

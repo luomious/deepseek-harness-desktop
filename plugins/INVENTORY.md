@@ -62,5 +62,5 @@
 
 ## 统计
 
-- 总计: 26（plugins/ 23 + 根级 3）| core: 24 | experimental: 2 | deprecated: 0 ｜ profile 市场安装: 1（dsh-context，community-market 管理）
+- 总计: 27（plugins/ 24 + 根级 3）| core: 25 | experimental: 2 | deprecated: 0 ｜ profile 市场安装: 1（dsh-context，community-market 管理）
 - 可热重载: 12 | 必须重启: 2 (modlens 类) | 建议重启: 12 (bundle 类)

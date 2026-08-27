@@ -1,7 +1,7 @@
 <!-- brief:meta
-generated: 2026-08-20T17:14:51.658Z
-fingerprint: c077661212ed
-workspace: D:\Deepseek-Harness
+generated: 2026-08-27T15:23:42.144Z
+fingerprint: a13f5a733ba9
+workspace: D:/Deepseek-Harness
 generator: @dsh-external/dsh-project-brief
 -->
 
@@ -74,83 +74,141 @@ generator: @dsh-external/dsh-project-brief
 ## overview
 
 <!-- brief:auto:overview:start -->
-- **名称**: Deepseek-Harness
+- **名称**: dsh-plugin-desktop
+- **一句话**: DSH Desktop: an Electron shell composed as a DeepSeek Harness Cordis plugin
 - **README 标题**: DeepSeek Harness Desktop
-- **简介**: 基于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 桌面封装应用。 - 🖥️ **原生桌面体验** — Electron 封装，自动启动/关闭 DSH Web 服务 - 🔄 **自动检查更新** — 启动后静默检查 npm 最新版本，一键更新 DSH
+- **简介**: 基于 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 的 Windows 桌面封装应用（DSH Desktop v2 · Electron）。 - **桌面应用本体**：`vendor/deepseek-harness-desktop/dsh-plugin-desktop`（Electron 壳 + 内嵌 DSH 内核，Cordis Host 形态，无独立 DSH 子进程） - **Web GUI**：`http://127.0.0.1:43120`（仅回环绑定；端口可配，绑定地址不可配）
 - **Git**: 分支 `master`，HEAD ``
 <!-- brief:auto:overview:end -->
 
 ## structure
 
 <!-- brief:auto:structure:start -->
-- `_backups/` — 构建归档与临时备份（gitignore；`dist-archive/` 下保留最近 2 份旧构建）
-- `agent-presets/` — agent 预设模板（gitignore，运行时在 `~/.dsh/.agent-presets`）
-- `assets/` — 图标等静态资源（含 `icon.ico`，供 `package.json` 构建引用）
-- `docs/` — 项目文档（索引见 `docs/README.md`；历史文档已标记"归档"）
-- `dsh-context-lifecycle/` — 根级守护插件：token 生命周期管理（零依赖 host 模式）
-- `dsh-stuck-loop-guard/` — 根级守护插件：失败循环守卫（零依赖 host 模式）
-- `dsh-vision-rotator/` — 根级插件：视觉引擎轮转（与 `plugins/dsh-vision-engine` 配合）
-- `hy3-gateway/` — 实验性 HY3 网关服务（gitignore；被 `plugins/dsh-hy3-gateway` 硬编码引用，路径不可移动）
-- `legacy/` — 旧 Electron 壳归档（含旧 `src/`、`app/`、`tests/`、`build-app.ps1` 等，勿当作现状）
-- `patches/` — 补丁系统（`bundles/` 已验证补丁、`reference/` 参考补丁、`wip/` 开发中补丁）
-- `plugins/` — 插件生态（23 个插件，经 `dsh-super-injector` 运行时注入/热重载；登记表见 `plugins/INVENTORY.md`）
-- `profile/` — DSH web profile 模板与配置
-- `scripts/` — 构建/维护/验证脚本（35 个，含 `promote-build`、`verify-patches`、`dsh-maintenance` 等）
-- `tools/` — 一次性调试脚本（gitignore，草稿区）
-- `vendor/` — DSH Desktop 上游仓库（gitignore，单独 clone；构建走 `scripts/package-vendor.ps1`）
+- `.corepack/`
+- `.electron-builder-cache/`
+- `.electron-cache/`
+- `.workbuddy/`
+- `_backups/`
+- `agent-presets/`
+- `assets/`
+- `docs/`
+- `dsh-context-lifecycle/`
+- `dsh-stuck-loop-guard/`
+- `dsh-vision-rotator/`
+- `hy3-gateway/`
+- `legacy/`
+- `patches/`
+- `plugins/`
+- `profile/`
+- `scripts/`
+- `tests/`
+- `tools/`
+- `vendor/`
+- `AGENTS.md`
+- `CHANGELOG.md`
+- `LICENSE`
+- `PROJECT_README.md`
+- `README.md`
+- `package.json`
+- `spawn-trace.log`
 
-**根级文件**:
-- `.githooks/` — git hooks 目录（`core.hooksPath=.githooks`，pre-commit 语法检查 + post-commit）
-- `AGENTS.md` — agent 项目说明（本文档）
-- `CHANGELOG.md` — 变更日志
-- `package.json` — vendor dsh-plugin-desktop manifest 的影子副本（非构建入口，详见 docs/README.md）
-- `PROJECT_README.md` — 项目 README
-- ~~`modlens-free-engines.md`~~ — 已合并至 `docs/modlens-free-engines.md` 并删除根级副本（2026-08-25）
-
-**插件 (plugins/) — 23 个**:
-- `dsh-file-explorer` / `dsh-force-reasoning-effort`
-- `dsh-frontend-reload` / `dsh-host-services` / `dsh-hy3-gateway`
-- `dsh-model-picker-group` / `dsh-model-tier-router` / `dsh-model-whitelist`
-- `dsh-modlens-autoread` / `dsh-modlens-guard` / `dsh-project-brief`
-- `dsh-remote-workspace` / `dsh-routing-suite` / `dsh-self-maintenance`
-- `dsh-session-history` / `dsh-session-hygiene` / `dsh-session-watchdog`
-- `dsh-skills-manager` / `dsh-system-notify` / `dsh-ui-performance`
-- `dsh-vision-engine` / `dsh-web-fetch-local` / `dsh-web-search-bing`
+**插件 (plugins/)**:
+- `dsh-file-explorer`
+- `dsh-force-reasoning-effort`
+- `dsh-frontend-reload`
+- `dsh-host-services`
+- `dsh-hy3-gateway`
+- `dsh-model-picker-group`
+- `dsh-model-tier-router`
+- `dsh-model-whitelist`
+- `dsh-modlens-autoread`
+- `dsh-modlens-guard`
+- `dsh-project-brief`
+- `dsh-remote-workspace`
+- `dsh-routing-suite`
+- `dsh-self-maintenance`
+- `dsh-session-history`
+- `dsh-session-hygiene`
+- `dsh-session-watchdog`
+- `dsh-skills-manager`
+- `dsh-system-notify`
+- `dsh-task-scheduler`
+- `dsh-ui-performance`
+- `dsh-vision-engine`
+- `dsh-web-fetch-local`
+- `dsh-web-search-bing`
 <!-- brief:auto:structure:end -->
 
 ## stack
 
 <!-- brief:auto:stack:start -->
-- Electron 桌面应用
-- TypeScript
+- Node.js 包: dsh-plugin-desktop@2.0.2
+
+**主要依赖**:
+- `@deepseek-ai/cordis`
+- `@deepseek-ai/cordis-plugin-group`
+- `@deepseek-ai/cordis-plugin-include`
+- `@deepseek-ai/cordis-plugin-loader`
+- `@deepseek-ai/cordis-plugin-timer`
+- `@deepseek-ai/dsh`
+- `@deepseek-ai/dsh-agent`
+- `@deepseek-ai/dsh-agent-default-model`
+- `@deepseek-ai/dsh-agent-presets`
+- `@deepseek-ai/dsh-anonymous-user-id`
+- `@deepseek-ai/dsh-api-gateway`
+- `@deepseek-ai/dsh-api-remotes`
+- `@deepseek-ai/dsh-app-boot`
+- `@deepseek-ai/dsh-atomic-write`
+- `@deepseek-ai/dsh-attachment`
+- `@deepseek-ai/dsh-authorization`
+- `@deepseek-ai/dsh-base`
+- `@deepseek-ai/dsh-bash-local`
+- `@deepseek-ai/dsh-brand`
+- `@deepseek-ai/dsh-client-connection`
 <!-- brief:auto:stack:end -->
 
 ## commands
 
 <!-- brief:auto:commands:start -->
-- 根 `package.json` 含 20 个 vendor scripts（build/typecheck/test 等），但根目录无 tsconfig/src/lib，**不可在根目录运行**。
-- 实际构建/验证入口：`scripts/package-vendor.ps1`（构建）、`scripts/check-all.ps1`（一键验证）、`scripts/verify-patches.ps1`（补丁校验）。
-- git hooks：`core.hooksPath=.githooks`，pre-commit 自动 `node --check` 暂存区 JS 文件。
+- `npm run build` → node scripts/generate-mac-app-icon.mjs && node scripts/generate-tray-icons.mjs && node scripts/clean.mjs && tsdown && vite build --config vite.native-ui.config.ts && tsc -p tsconfig.json --emitDeclarationOnly && tsc -p tsconfig.client.json --emitDeclarationOnly
+- `npm run typecheck` → tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.native-ui.json --noEmit && tsc -p tsconfig.tests.json --noEmit && tsc -p tsconfig.tests.client.json --noEmit
+- `npm run test` → vitest run
+- `npm run verify:closure` → node --test scripts/runtime-closure.spec.mjs && node scripts/verify-runtime-closure.mjs
+- `npm run verify:cli` → node scripts/verify-cli-runtime.mjs
+- `npm run verify:loader` → node scripts/verify-loader-boot.mjs
+- `npm run verify:profile` → node scripts/verify-profile-boot.mjs
+- `npm run verify:licenses` → node scripts/verify-licenses.mjs
+- `npm run verify:notices` → node scripts/verify-licenses.mjs --notices THIRD_PARTY_NOTICES.md
+- `npm run check` → yarn run build && yarn run typecheck && yarn run test && yarn run verify:closure && yarn run verify:cli && yarn run verify:loader && yarn run verify:profile && yarn run verify:licenses
+- `npm run check:win-package` → yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-win.spec.ts tests/update-checker.spec.ts tests/update-download.spec.ts tests/verify-win-installer.spec.ts tests/verify-win-portable.spec.ts tests/verify-packaged-runtime.spec.ts tests/windows-agent-presets.spec.ts tests/windows-pwsh-sandbox.spec.ts tests/windows-volume-diagnostics.spec.ts tests/window-options.spec.ts && yarn run verify:closure
+- `npm run check:mac-package` → yarn workspace dsh-community-market build && yarn run build && yarn run typecheck && vitest run tests/package.spec.ts tests/package-mac.spec.ts tests/verify-mac-smoke.spec.ts tests/verify-packaged-runtime.spec.ts tests/mac-universal.spec.ts && yarn run verify:closure
+- `npm run start` → node lib/bin.js
+- `npm run dev` → yarn run build && node lib/bin.js
+- `npm run package:dir` → yarn run build && node scripts/package-dir.mjs
+- `npm run dist:mac` → node scripts/release-mac.ts
+- `npm run dist:mac-smoke` → node scripts/package-mac.ts
+- `npm run dist:win` → node scripts/package-win.ts
+- `npm run dist:win-portable` → node scripts/package-win-portable.ts
+- `npm run prepack` → yarn run check
 <!-- brief:auto:commands:end -->
 
 ## mechanisms
 
 <!-- brief:auto:mechanisms:start -->
-- patch-manifest 自愈补丁（node_modules 补丁登记，升级后自动重打）
 - DSH bundle 插件生态（plugins/ 目录，super-injector 运行时注入/热重载）
-- Electron 桌面壳（src/main.js 拉起 dsh web，含端口自愈/意外退出恢复）
 - 守护类插件：context-lifecycle（token 生命周期）、stuck-loop-guard（失败循环守卫）、session-watchdog（目标续跑看门狗）
+- npm scripts 驱动构建/测试
 <!-- brief:auto:mechanisms:end -->
 
 ## changelog
 
 <!-- brief:auto:changelog:start -->
-- 故障排查记录：dsh 服务反复崩溃 / 界面打不开 / "Failed to load plugins"（2026-08-20）
-- DeepSeek Harness 桌面端 v1.3.0 发布说明
-- 新功能（鲁棒性改造：报错可定位 / 不致命 / 不重复）
-- 测试与实测
-- 错误码速查
-- 故障排查记录
+- 2026-08-27 收尾：代码质量全检 + 错误日志 + 文档同步 + 清理登记
+- 2026-08-27 跨对话任务调度机制（dsh-task-scheduler）—— 多会话并发冲突防护
+- 2026-08-27 桌面壳鲁棒性修复（launcher / 退出完整性提示 / 工作区检测 / 解包契约护栏）
+- 2026-08-27 safe-delete-shim 启动崩溃根治修复
+- 2026-08-26 维护清扫周报（缓存清理 / 补丁修复 / bundles 收敛 / 插件清理 / 竞态加固）
+- 2026-08-26 插件市场加载失败排障与市场提供方切换（dsh-market → dsh-community-market）
 <!-- brief:auto:changelog:end -->
 
 ## 安全守则（防止误删/破坏性操作，2026-08-23 新增）
