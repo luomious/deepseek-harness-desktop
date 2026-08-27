@@ -13,8 +13,12 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
+import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
 const build = resolveCurrentBuild()
+// Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
+// target app.asar.unpacked and would otherwise become silently ineffective).
+assertLibUnpacked(build.asar)
 const GPU_ENV_MARKER = 'DSH_DESKTOP_FORCE_GPU'
 
 function findRuntimeChunk(libDir) {

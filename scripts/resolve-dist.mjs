@@ -52,6 +52,7 @@ export function resolveCurrentBuild() {
     exe,
     buildDir,
     unpackedRoot,
+    asar: join(buildDir, 'resources', 'app.asar'),
     nodeModules: join(unpackedRoot, 'node_modules'),
     lib: join(unpackedRoot, 'lib'),
   }

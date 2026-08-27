@@ -16,9 +16,13 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { VENDOR_ROOT, resolveCurrentBuild } from './resolve-dist.mjs'
+import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
 const VENDOR = VENDOR_ROOT
 const build = resolveCurrentBuild()
+// Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
+// target app.asar.unpacked and would otherwise become silently ineffective).
+assertLibUnpacked(build.asar)
 
 const patches = [
   {

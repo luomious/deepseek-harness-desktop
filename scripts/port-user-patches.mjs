@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
+import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
 // P1-B6: 权威源 = 仓库 canon（git 管理）。仅当显式 --update-canon 时，才从
 // 全局 npm / web profile 的原始安装读取并刷新 canon（一次性移植输入）。
@@ -23,9 +24,13 @@ const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@de
 const CANON_DIR = 'D:/Deepseek-Harness/patches/bundles'
 const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
 // 支持 DSH_PKG_ROOT 覆盖打包目录；否则自动解析"最新真实构建"（resolve-dist.mjs；与应用入口 junction 机制分开）。
+const resolvedBuild = process.env.DSH_PKG_ROOT ? null : resolveCurrentBuild()
+// Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
+// target app.asar.unpacked and would otherwise become silently ineffective).
+if (resolvedBuild !== null) assertLibUnpacked(resolvedBuild.asar)
 const PKG_ROOT = process.env.DSH_PKG_ROOT
   ? process.env.DSH_PKG_ROOT.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
-  : resolveCurrentBuild().nodeModules.replace(/\\/g, '/') + '/@deepseek-ai'
+  : resolvedBuild.nodeModules.replace(/\\/g, '/') + '/@deepseek-ai'
 
 const WORKSPACES = [
   {

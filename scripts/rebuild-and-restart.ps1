@@ -64,6 +64,18 @@ if ($settled) {
   Start-Sleep -Seconds 60
 }
 
+# 4b. Verify unpack-everything contract + module graph before launching.
+#     A mis-packed asar makes all dist patches ineffective; a stale main.js
+#     referencing a missing chunk crashes with ERR_MODULE_NOT_FOUND at link.
+$asarPath = Join-Path $exeDir 'resources\app.asar'
+$libDir = Join-Path $exeDir 'resources\app.asar.unpacked\lib'
+$integrity = (& node 'D:\Deepseek-Harness\scripts\check-dist-integrity.mjs' $asarPath $libDir 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+  "ERROR: dist integrity failed - abort, NOT launching: $integrity" | Tee-Object -FilePath $log -Append
+  exit 1
+}
+"dist integrity OK (unpacked contract + main.js imports)" | Tee-Object -FilePath $log -Append
+
 # 5. Launch the new exe.
 Start-Process $exe
 Start-Sleep -Seconds 25

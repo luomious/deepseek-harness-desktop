@@ -22,8 +22,12 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
+import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
 const build = resolveCurrentBuild()
+// Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
+// target app.asar.unpacked and would otherwise become silently ineffective).
+assertLibUnpacked(build.asar)
 const SECTION_MARKER = 'DSH-OVERLAY: community-market settings.section'
 const SECTION_ANCHOR = 'ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({'
 const LAUNCHER_MARKER = 'DSH-OVERLAY: community-market launcher removed'

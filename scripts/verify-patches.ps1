@@ -32,7 +32,9 @@ $checks = @(
   @{ n = 'community-market settings.section'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\client.js'; p = 'DSH-OVERLAY: community-market settings.section' },
   @{ n = 'community-market launcher removed'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\client.js'; p = 'DSH-OVERLAY: community-market launcher removed' },
   @{ n = 'safe-delete-shim.cjs exists';       f = Join-Path $unpacked 'lib\safe-delete-shim.cjs'; p = 'safe-delete-shim' },
-  @{ n = 'safe-delete-shim injected in main';  f = Join-Path $unpacked 'lib\main.js'; p = 'safe-delete-shim.cjs' }
+  @{ n = 'safe-delete-shim injected in main';  f = Join-Path $unpacked 'lib\main.js'; p = 'safe-delete-shim.cjs' },
+  @{ n = 'pwsh recycle-bin guard defined';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = 'RECYCLE_GUARD_PREAMBLE' },
+  @{ n = 'pwsh argv uses recycle-bin guard';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = '${RECYCLE_GUARD_PREAMBLE}${spec.command}' }
 )
 
 $fail = 0
@@ -62,6 +64,14 @@ if ($rtChunks.Count -ne 1) {
   if ($micaHit) { Write-Host 'PASS  mica refresh guarded (electron-runtime)' -ForegroundColor Green }
   else { Write-Host 'FAIL  mica refresh guard (pattern missing)' -ForegroundColor Red; $fail++ }
 }
+
+# unpack-everything contract + module-graph integrity. Dist patches target
+# app.asar.unpacked and are only effective when lib/ is UNPACKED inside
+# app.asar; a stale main.js referencing a missing hashed chunk crashes with
+# ERR_MODULE_NOT_FOUND at link time. check-dist-integrity.mjs enforces both.
+$integrity = (& node (Join-Path $PSScriptRoot 'check-dist-integrity.mjs') 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -eq 0) { Write-Host 'PASS  dist integrity (unpacked contract + main.js imports)' -ForegroundColor Green }
+else { Write-Host ('FAIL  dist integrity: ' + $integrity) -ForegroundColor Red; $fail++ }
 
 Write-Host ('current build: ' + $build.buildDir)
 

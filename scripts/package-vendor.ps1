@@ -40,6 +40,7 @@ if ($code -eq 0) {
   # (idempotent; resolve-dist auto-targets the newest build). This closes the
   # old "rebuild -> patches land on the old dir -> restart shows no change" bug.
   "=== re-apply patches (port-user + winhide + verify) ===" | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\apply-safe-delete-shim.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\port-user-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\apply-winhide-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\apply-gpu-opaque-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append

@@ -30,6 +30,10 @@ $u = Join-Path $exeDir 'resources\app.asar.unpacked'
 Check 'app.asar.unpacked exists' (Test-Path $u) $u
 Check 'koffi present' (Test-Path (Join-Path $u 'node_modules\koffi')) 'koffi missing (MODULE_NOT_FOUND risk)'
 
+# unpack-everything contract + module-graph integrity (see check-dist-integrity.mjs).
+$integrity = (& node (Join-Path $root 'scripts\check-dist-integrity.mjs') 2>&1 | Out-String).Trim()
+Check 'dist integrity (unpacked contract + main.js imports)' ($LASTEXITCODE -eq 0) $integrity
+
 # ---- 2. windowsHide patches ----
 Check 'subprocess-local windowsHide' (HasText (Join-Path $u 'node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js') 'windowsHide: true') ''
 Check 'open windowsHide' (HasText (Join-Path $u 'node_modules\open\index.js') 'windowsHide = true') ''

@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
+import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
 const MARK = 'cwd: homedir(), /* dsh-desktop patch'
 const ANCHOR = '\t\t\tcwd: process.cwd(),'
@@ -30,6 +31,9 @@ const REPLACEMENT = '\t\t\tcwd: homedir(), /* dsh-desktop patch: empty session.c
 
 const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
 const build = resolveCurrentBuild()
+// Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
+// target app.asar.unpacked and would otherwise become silently ineffective).
+assertLibUnpacked(build.asar)
 const PKG_ROOT = build.unpackedRoot.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
 
 const targets = [
