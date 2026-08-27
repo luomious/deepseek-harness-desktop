@@ -6,6 +6,38 @@
 
 ---
 
+## 2026-08-27 桌面壳鲁棒性修复（launcher / 退出完整性提示 / 工作区检测 / 解包契约护栏）
+
+### 交付内容（构建 win-unpacked-build202608271932，verify-patches 22 项全过，已换版）
+
+1. **启动前置完整性校验（launcher）**：新入口 `lib/launcher.js`（`package.json main`）。启动时先校验
+   `lib/main.js` 的所有相对静态导入存在，缺失则弹中文恢复框并干净退出，杜绝 `ERR_MODULE_NOT_FOUND`
+   以裸崩溃形式出现（此前 build4 的旧入口 + chunk hash 错位即触发该崩溃）。
+2. **退出完整性提示（关闭弹窗）**：点 ✕ 时弹出"当前能否安全退出 + 文件自检"：
+   - 应用自身 `lib` 图（main.js 及其 chunk、client.js、preload.cjs、package.json）；
+   - **侧边栏全部工作区**：读取 DSH 标准注册表 `~/.dsh/storages/workspace.json`，逐一校验目录存在；
+     实测 7 个工作区全部检测到（Deepseek-Harness / Minecraft / 缺陷检测 / Agent-game / home(远程锚点) /
+     EDA-Keypad / RK3588）。
+3. **asar 解包契约强制**：
+   - `verify-packaged-runtime.ts`（afterPack）新增 `verifyUnpackedContract`：lib 入口必须 `unpacked=true`，
+     拒绝"lib 被打包进 asar"的错误产物（build4 曾把 node_modules 全塞进 asar 致 230MB 异常）；
+   - `scripts/check-dist-integrity.mjs` + 6 个补丁脚本：写入前校验 unpack 契约，失效即报错；
+   - `verify-patches.ps1` / `smoke-test.ps1` / `rebuild-and-restart.ps1` 增加完整性门禁。
+4. **safe-delete-shim asar 级注入**（合并另一会话工作）：`apply-safe-delete-shim.mjs` 把 shim 同时注入
+   asar 内部（`createPackageWithOptions` + `unpackDir`/`unpack` brace expansion），解决跨 asar/unpacked
+   边界 require 失败；`check-dist-integrity.mjs` 新增 `checkShimResolvable()`。
+5. **代码提交**：vendor `26c27b8` / `00afc40`，outer `3416c4e` / `9a892a2`。
+6. **清理**：删除 dist 残留 `.asar-test*`（8 个）、`app.asar.tmp.unpacked`（约 200MB 孤儿副本）、
+   `app.asar.bak`，走回收站。
+
+### 验证
+
+- `tsc -p tsconfig.json --noEmit` 通过；`node --check` 全过；`check-dist-integrity.mjs` 实测 15 个导入全解析。
+- `verify-patches.ps1` ALL PASS（22 项）；冒烟 ALL PASS；全项目 577 文件 0 无效 UTF-8、0 乱码。
+- 换版：junction → `win-unpacked-build202608271932`；重启后生效（关闭弹窗显示工作区检测）。
+
+---
+
 ## 2026-08-27 safe-delete-shim 启动崩溃根治修复
 
 ### 现象
