@@ -68,8 +68,9 @@ HTTP 通道等价物：`GET http://127.0.0.1:43120/task-scheduler/status`、
 ## 验证
 
 - `node --check lib/core.js && node --check lib/index.js`
-- 隔离测试：`$env:DSH_TASK_SCHEDULER_STORE = "$env:TEMP\ts-test"` 后跑并发/接管/stale 模拟脚本（见 scripts 说明或对话记录）。
-- HTTP：GET `/task-scheduler/status` 应返回 200 JSON。
+- 隔离测试：`node tests/core.test.mjs`（28 项：并发互斥 / pid 接管 / stale 防覆盖 / 优先级抢占 / clear 安全 / 无锁检测）。
+- HTTP：`GET /task-scheduler/status` 返回 200 JSON（2026-08-27 已实测上线）。
+- CLI：`node scripts/task-scheduler.mjs status`（2026-08-27 已实测，写入真实 `~/.dsh/.task-scheduler`）。
 
 ## 可迭代方向（记录，不阻塞交付）
 

@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-08-27 跨对话任务调度机制（dsh-task-scheduler）—— 多会话并发冲突防护
+
+### 背景
+习惯多对话并行改同一项目的场景下，历史实证多实例/多 agent 并发写共享状态曾造成
+「重启后打不开 / Failed to load plugins / 文件只更新一半」。本机制把并发操作串行化、变更全程可见。
+
+### 交付
+1. **插件 `@dsh-external/dsh-task-scheduler`**（`plugins/dsh-task-scheduler/`，零依赖 host 模式，`inject:['timer','webServer']`）：
+   - 锁引擎 `lib/core.js`（纯文件系统，零依赖）：多资源 all-or-nothing 互斥、优先级抢占通知（合作式）、变更时间线 JSONL、stale 基线防覆盖、pid 死亡 + 心跳 TTL 崩溃自愈、无锁修改检测、时间线裁剪 + 锁目录上限。
+   - HTTP 通道 `/task-scheduler/*`（loopback only）：status / acquire / release / touch / clear / prune / check。
+2. **CLI `scripts/task-scheduler.mjs`**：与 core.js 共用单一事实源，不依赖插件在线。
+3. **全局规则**：`~/.dsh/AGENTS.md` 增「多对话协作铁律」，内核自动加载到所有现有与未来工作区。
+4. **装配**：`profile/desktop`（package.json link + cordis.patch.yml insert）+ node_modules junction；已提交 git。
+
+### 验证
+- `node plugins/dsh-task-scheduler/tests/core.test.mjs` → **28/28**（并发互斥 / pid 接管 / stale 防覆盖 / 优先级抢占 / clear 安全 / 无锁检测）。
+- CLI 与 HTTP 双通道真实环境闭环实测（acquire→status→release→status）；`GET /task-scheduler/status` 返回 200；`dev_plugin_status` 显示 `task-scheduler [active]`。
+
+### 边界
+合作式（不硬中断对话）；真暂停/智能发配留作可迭代方向（见插件 README）。状态只落盘 `~/.dsh/.task-scheduler/`，不碰项目文件、无独立后台进程。
+
+---
+
 ## 2026-08-27 桌面壳鲁棒性修复（launcher / 退出完整性提示 / 工作区检测 / 解包契约护栏）
 
 ### 交付内容（构建 win-unpacked-build202608271932，verify-patches 22 项全过，已换版）

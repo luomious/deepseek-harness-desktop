@@ -17,7 +17,7 @@
 
 ## 插件清单
 
-### plugins/ 目录（23 个）
+### plugins/ 目录（24 个）
 
 | 插件 | 状态 | 热重载 | 用途 |
 |------|------|--------|------|
@@ -40,6 +40,7 @@
 | `dsh-session-watchdog` | core | ✅ | 会话续跑看门狗（定时检测中断/停滞的会话与目标，自动恢复续跑） |
 | `dsh-skills-manager` | core | ⚠️ | Skills 管理器（设置页，系统/用户技能分类展示、编辑、新建） |
 | `dsh-system-notify` | core | ⚠️ | 系统通知（任务/会话完成时弹 Windows toast） |
+| `dsh-task-scheduler` | core | ✅ | 跨对话任务调度：并发操作互斥锁（文件级 `~/.dsh/.task-scheduler`）+ 优先级抢占通知 + 变更时间线 + stale 基线防覆盖 + 无锁修改检测；CLI（`scripts/task-scheduler.mjs`）+ HTTP（`/task-scheduler/*`）双通道；规则在全局 `~/.dsh/AGENTS.md` 覆盖所有工作区（2026-08-27 上线） |
 | `dsh-ui-performance` | core | ✅ | 设置面板渲染优化：禁用 backdrop-filter 毛玻璃（遮罩 blur(2px)；规则二保留为 no-op，原针对已删除的 maid-atelier 皮肤面板 blur(6px)）+ 面板视口自适应放大（clamp 80vw/82vh，封顶 1240×920，双 max 守卫）+ 各分区宽度上限适配（plugins/desktop/models/agent-presets）+ 插件清单栅格自适应与 content-visibility 渲染节流；纯 CSS 注入、无状态、幂等 |
 | `dsh-vision-engine` | core | ✅ | 视觉引擎（modlens 服务间桥接，与根级 dsh-vision-rotator 轮转配合） |
 | `dsh-web-fetch-local` | core | ✅ | 本地 HTTP(S) 抓取（SSRF 防护 + 大小限制） |
