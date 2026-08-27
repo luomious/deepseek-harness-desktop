@@ -46,6 +46,11 @@ node scripts/task-scheduler.mjs acquire --resources "global:build" --who "会话
 HTTP 通道等价物：`GET http://127.0.0.1:43120/task-scheduler/status`、
 `POST /task-scheduler/acquire`（body `{"resources":["..."],"who":"...","priority":"high"}`）。
 
+> **资源路径约定（v1.1+）**：锁 key 只由资源字符串本身决定（不做调用方 cwd 拼接），
+> CLI 与 HTTP 通道对同一字符串必然映射到同一把锁。**推荐传绝对路径**
+> （如 `D:\Deepseek-Harness\CHANGELOG.md`）；相对路径按字面量使用（各通道一致，
+> 但不会自动指向调用方 cwd 下的真实文件）。
+
 ## 与其他机制的关系（不重复造轮子）
 
 - 锁协议语义继承旧壳 `legacy/scripts/dsh-build-lock.js`（pid 存活 + 超时 + clear），实现全新独立（旧 lib 已随 src 归档，不可 require）；

@@ -20,7 +20,7 @@ import {
   appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync,
   renameSync, unlinkSync, writeFileSync, statSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { homedir, hostname } from 'node:os'
 
 export const PRIORITY = Object.freeze({ high: 100, normal: 50, low: 0 })
@@ -58,7 +58,10 @@ function pidAlive(pid) {
 export function normalizeResource(r) {
   let s = String(r ?? '').trim()
   if (!s) throw new Error('task-scheduler: resource empty')
-  if (!/^[A-Za-z]:[\\/]/.test(s) && !s.startsWith('/')) s = resolve(s)
+  // 锁 key 必须跨通道确定：CLI 在任意工作区 cwd 运行，HTTP 通道在应用进程内
+  // （cwd = 打包目录 dist\win-unpacked）。若相对路径按调用方 cwd resolve，
+  // 同一字符串会映射到不同锁 key，跨通道互斥将静默失效。
+  // 约定：传绝对路径（推荐）；相对路径按字面量（trim 后原样）一致处理。
   return s
 }
 export function resourceKey(resources) {

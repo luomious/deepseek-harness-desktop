@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-08-27 收尾迭代（建议落实）：task-scheduler 跨通道锁一致性修复 + unpacked 健康探针
+
+### 修复：dsh-task-scheduler 资源 key 跨通道确定性（v1.1）
+- 原 `normalizeResource` 对相对路径按**调用方 cwd** `resolve`：CLI（任意工作区 cwd）与 HTTP 通道（应用 cwd=打包目录）对同一资源字符串会算出**不同锁 key**，跨通道互斥实际失效。
+- 修复：相对路径不再做 cwd 拼接，改为**字面量确定性**（trim 后原样）——同一字符串在任何通道必然映射到同一把锁；绝对路径行为完全不变。README 增「资源路径约定」（推荐绝对路径）。
+- 验证：`node --check` 全过；`tools/ts-nochild-check.mjs` 9/9；官方 28/28 于 77eb29b 通过；双 cwd 一致性抽查见收尾会话记录。
+
+### 新增：check-dist-integrity 只读探针（warn-only）
+- `checkUnpackedNodeModules(unpackedRoot)`：遍历 `app.asar.unpacked/node_modules`，登记悬空 reparse point / 不可枚举目录，CLI 输出 `WARN:` 清单（不 fail，上限 50 条）。
+- 动机：2026-08-27 观察到的 `@opentelemetry/core` 子树重解析异常由此登记化，下次重建后可与本次基线对比确认是否复现。
+
+### 决策：大会话归档不执行
+- 2 个 >8MB 旧会话（16.8MB）保持现状：收益小、归档后会话从侧边栏消失有可见影响；需要时 `scripts/archive-big-sessions.ps1 -Execute`（可移回）。
+
+---
+
 ## 2026-08-27 收尾：代码质量全检 + 错误日志 + 文档同步 + 清理登记
 
 ### 全检结果（收尾会话实测，2026-08-27 晚）

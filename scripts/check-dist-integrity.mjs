@@ -15,7 +15,7 @@
 // Usage (CLI):
 //   node scripts/check-dist-integrity.mjs            # auto-resolve current build
 //   node scripts/check-dist-integrity.mjs <app.asar> <libDir>
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { VENDOR_ROOT, resolveCurrentBuild } from './resolve-dist.mjs'
@@ -76,6 +76,39 @@ export function checkShimResolvable(libDir, shimName = 'safe-delete-shim.cjs') {
   return true
 }
 
+// Probe (warn-only) for unhealthy entries inside app.asar.unpacked/node_modules:
+// dangling reparse points / un-enumerable directories. Non-fatal by design —
+// the unpacked copy mirrors the asar and is rarely read at runtime — but broken
+// entries are a packaging smell that must not silently re-enter future builds
+// (2026-08-27 observation: @opentelemetry subtree under dsh-session-telemetry-otel).
+export function checkUnpackedNodeModules(unpackedRoot) {
+  const problems = []
+  const seen = new Set()
+  const walk = (dir) => {
+    if (seen.has(dir) || problems.length >= 50) return
+    seen.add(dir)
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch (e) {
+      problems.push(dir + ' (enumerate failed: ' + (e?.code || String(e)) + ')')
+      return
+    }
+    for (const en of entries) {
+      if (!en.isDirectory()) continue
+      const full = join(dir, en.name)
+      if (en.isSymbolicLink()) {
+        try { if (!existsSync(full)) problems.push(full + ' (dangling reparse point)') } catch { problems.push(full + ' (reparse point check failed)') }
+        continue
+      }
+      walk(full)
+    }
+  }
+  const nm = join(unpackedRoot, 'node_modules')
+  if (existsSync(nm)) walk(nm)
+  return problems
+}
+
 export function checkCurrentDist() {
   const build = resolveCurrentBuild()
   assertLibUnpacked(build.asar)
@@ -87,7 +120,8 @@ export function checkCurrentDist() {
   // at the very top of main.js (before any other module) and its absence
   // causes an immediate ERR_MODULE_NOT_FOUND crash.
   checkShimResolvable(build.lib)
-  return { build, imports }
+  const unpackedProblems = checkUnpackedNodeModules(build.unpackedRoot)
+  return { build, imports, unpackedProblems }
 }
 
 const invoked = process.argv[1] && /check-dist-integrity\.mjs$/.test(process.argv[1])
@@ -103,9 +137,15 @@ if (invoked) {
       }
       console.log(`OK: unpacked contract holds; ${imports.total} relative imports resolved`)
     } else {
-      const { build, imports } = checkCurrentDist()
+      const { build, imports, unpackedProblems } = checkCurrentDist()
       console.log(`OK: ${build.buildDir}`)
       console.log(`OK: lib entries unpacked; ${imports.total} relative imports resolved`)
+      if (unpackedProblems.length > 0) {
+        console.log(`WARN: app.asar.unpacked/node_modules has ${unpackedProblems.length} unhealthy entr${unpackedProblems.length === 1 ? 'y' : 'ies'}:`)
+        for (const p of unpackedProblems.slice(0, 10)) console.log('  - ' + p)
+      } else {
+        console.log('OK: unpacked node_modules tree healthy')
+      }
     }
   } catch (cause) {
     console.error('FAIL: ' + (cause instanceof Error ? cause.message : String(cause)))

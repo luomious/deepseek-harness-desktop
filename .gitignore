@@ -61,6 +61,8 @@ agent-presets/
 
 # Lifecycle/guard plugins runtime data
 dsh-stuck-loop-guard/data/
+# 周期自生成监测报告（内容随时间变化，不入库）
+dsh-stuck-loop-guard/REPORT.md
 dsh-context-lifecycle/data/
 
 # Lifecycle/guard plugins build artifacts (source in src/)
