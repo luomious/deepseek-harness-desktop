@@ -2,7 +2,7 @@
  * dsh-task-scheduler — 跨对话任务调度核心引擎（纯文件系统，零依赖）。
  *
  * 设计约束（长期运行不出现问题的硬要求）：
- *   1. 原子获取：openSync('wx') 保证并发只有一个进程拿到锁；
+ *   1. 原子获取：writeFileSync(..., {flag:'wx'}) 一次 syscall 建锁，保证并发只有一个进程拿到锁；
  *   2. 崩溃自愈：pid 存活检查 + 心跳 TTL 过期 → 自动接管；手动 clear 只允许死锁；
  *   3. 无死锁：一次 acquire 声明全部资源（all-or-nothing，任一被占全部不取）；
  *   4. 变更可见：changes.jsonl 追加写天然并发安全，release 记 before/after hash；

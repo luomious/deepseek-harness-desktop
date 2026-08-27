@@ -23,8 +23,10 @@ import { homedir } from 'node:os'
 import { acquire, release, touch, status, clear, prune, checkUnsupervised } from './core.js'
 
 export const name = '@dsh-external/dsh-task-scheduler'
-// 只硬依赖 timer；webServer 惰性解析（避免运行时注入 fiber 卡死等依赖）。
-export const inject = ['timer']
+// 硬依赖 timer + webServer：声明 webServer 让 cordis 保证 apply 时路由服务已就绪
+// （本插件是启动期 insert 加载而非运行时注入，声明依赖不会卡 fiber）。
+// resolveService 仍保留惰性兜底。
+export const inject = ['timer', 'webServer']
 
 const DEFAULT_CONFIG = { intervalMs: 600_000, maxBodyBytes: 64 * 1024, logFile: '' }
 
@@ -147,5 +149,12 @@ export function apply(ctx, rawConfig = {}) {
 
   cycle()
   ctx.setInterval(cycle, config.intervalMs)
+  // 双保险：启动后 1 分钟内快速重试路由注册（即便注入时序有偏差也尽快补上）
+  const setT = typeof ctx.setTimeout === 'function'
+    ? (fn, ms) => ctx.setTimeout(fn, ms)
+    : (fn, ms) => globalThis.setTimeout(fn, ms)
+  for (const ms of [1000, 3000, 10000, 30000, 60000]) {
+    try { setT(() => { try { ensureRoutes() } catch { /* 忽略 */ } }, ms) } catch { /* 忽略 */ }
+  }
   ctx.logger?.info?.(`[${name}] 任务调度插件启动（interval=${config.intervalMs}ms）`)
 }
