@@ -6,6 +6,52 @@
 
 ---
 
+## 2026-08-27 safe-delete-shim 启动崩溃根治修复
+
+### 现象
+
+DSH Desktop 启动时弹出 `Error: Cannot find module './safe-delete-shim.cjs'` 对话框，应用无法启动。
+
+### 根因
+
+`apply-safe-delete-shim.mjs` 补丁脚本只修改 `app.asar.unpacked/` 中的文件，不修改 `app.asar` 内部。
+当 Electron 从 asar 加载 main.js（packed 状态），其 CJS loader 无法跨 asar/unpacked 边界解析
+相对 require —— 即使 `safe-delete-shim.cjs` 存在于 unpacked 目录也会找不到。
+
+构建间 `resolve-dist.mjs` 总是解析到最新构建（用于打补丁），但 junction 可能仍指向旧构建，
+导致旧构建的 asar 未被补丁覆盖。
+
+### 修复方案（三层防护）
+
+1. **asar 级注入**（`apply-safe-delete-shim.mjs`）：新增提取 asar → 注入 shim → 重打包流程。
+   使用 `@electron/asar` 的 `createPackageWithOptions` + `unpackDir`/`unpack` brace expansion
+   格式，确保原有 unpacked 文件（lib/\*\*、build/\*\*、node_modules/\*\*）的 `unpacked: true`
+   标记在重打包后保持不变。
+2. **完整性检查**（`check-dist-integrity.mjs`）：新增 `checkShimResolvable()` —— 验证
+   `safe-delete-shim.cjs` 存在于 unpacked lib/ 目录。
+3. **验证层**（`verify-patches.ps1`）：22 项检查全通过，含 integrity check（确保 main.js 保持 unpacked）。
+
+### 涉及文件
+
+- `scripts/apply-safe-delete-shim.mjs` — 增加 asar 级 shim 注入 + 重打包（idempotent，失败不阻塞 unpacked 注入）
+- `scripts/check-dist-integrity.mjs` — 新增 `checkShimResolvable()` 导出函数
+- `scripts/verify-patches.ps1` — integrity check 已覆盖 asar 级保护（无额外检查项）
+
+### 验证
+
+`verify-patches.ps1` ALL PASS (22 checks)；asar 内 `lib/main.js` `unpacked: true`、
+`lib/safe-delete-shim.cjs` size=5314 存在。
+
+### 技术发现
+
+- `@electron/asar` 的 `unpack` 选项使用 `minimatch({matchBase:true})` 匹配文件 basename，
+  `lib/**` 等带斜杠的 pattern 不生效。正确用法：目录级用 `unpackDir`（brace expansion 格式
+  `'{lib,build,node_modules}'`），文件级用 `unpack`（`'{package.json,cordis.patch.yml}'`）。
+- `createPackageWithOptions` 的 `unpackDir` 接受 string（含 brace expansion），不接受 array
+  与 `unpack` 同时使用时。
+
+---
+
 ## 2026-08-26 维护清扫周报（缓存清理 / 补丁修复 / bundles 收敛 / 插件清理 / 竞态加固）
 
 - 磁盘与缓存清理：`.electron-cache` / npm cache / old pnpm-cache / electron-builder Cache / `C:\Temp\dsh-*` 过期刊余，回收约 1.1GB；本轮再清 copybak + `%TEMP%` 残留 25 项（13.2MB）。

@@ -68,6 +68,14 @@ export function checkMainImports(libDir, mainFile = 'main.js') {
   return { total: specs.size, missing }
 }
 
+export function checkShimResolvable(libDir, shimName = 'safe-delete-shim.cjs') {
+  const shimPath = join(libDir, shimName)
+  if (!existsSync(shimPath)) {
+    throw new Error(`safe-delete-shim.cjs missing from ${libDir} — run apply-safe-delete-shim.mjs`)
+  }
+  return true
+}
+
 export function checkCurrentDist() {
   const build = resolveCurrentBuild()
   assertLibUnpacked(build.asar)
@@ -75,6 +83,10 @@ export function checkCurrentDist() {
   if (imports.missing.length > 0) {
     throw new Error('lib/main.js references missing chunks: ' + imports.missing.join(', '))
   }
+  // Verify safe-delete-shim.cjs is present in unpacked lib/ — it is loaded
+  // at the very top of main.js (before any other module) and its absence
+  // causes an immediate ERR_MODULE_NOT_FOUND crash.
+  checkShimResolvable(build.lib)
   return { build, imports }
 }
 
