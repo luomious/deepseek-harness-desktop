@@ -19,6 +19,7 @@
     "@dsh-external/dsh-stuck-loop-guard": "link:D:\\Deepseek-Harness\\dsh-stuck-loop-guard",
     "@dsh-external/dsh-super-injector": "file:D:/Deepseek-Harness/plugins/dsh-routing-suite/dsh-external-dsh-super-injector-0.3.3.tgz",
     "@dsh-external/dsh-system-notify": "link:D:\\Deepseek-Harness\\plugins\\dsh-system-notify",
+    "@dsh-external/dsh-task-scheduler": "link:D:\\Deepseek-Harness\\plugins\\dsh-task-scheduler",
     "@dsh-external/dsh-vision-engine": "link:D:\\Deepseek-Harness\\plugins\\dsh-vision-engine",
     "@dsh-external/dsh-web-fetch-local": "link:D:\\Deepseek-Harness\\plugins\\dsh-web-fetch-local",
     "@dsh-external/dsh-web-search-bing": "link:D:\\Deepseek-Harness\\plugins\\dsh-web-search-bing",

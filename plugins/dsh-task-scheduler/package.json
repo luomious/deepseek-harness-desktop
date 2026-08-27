@@ -1,0 +1,21 @@
+{
+  "name": "@dsh-external/dsh-task-scheduler",
+  "version": "0.1.0",
+  "description": "跨对话任务调度：并发操作互斥锁 + 优先级避让 + 变更时间线（防多对话互相覆盖/部分更新）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "scripts": {
+    "check": "node --check lib/core.js && node --check lib/index.js"
+  }
+}

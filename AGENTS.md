@@ -23,6 +23,7 @@ generator: @dsh-external/dsh-project-brief
 - **Windows 子进程铁律**：桌面壳无控制台，任何 `spawn`/`execFile`/`execSync` 必须带 `windowsHide:true`，否则闪黑框（已修 8 处，见 CHANGELOG 2026-08-23）。dist 改动先备份再改；重建后跑 `scripts/verify-patches.ps1` 校验。
 - 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`。
 - **工作区感知**：回答涉及工作区具体文件/代码/配置的问题时，先用 glob/grep/read 搜索相关文件内容，再结合搜索结果回答；不要只凭记忆或假设回答。
+- **多对话协作铁律（task-scheduler，2026-08-27）**：改共享文件/install/build/补丁前先 `node scripts/task-scheduler.mjs status`，关键操作 `acquire`、改完 `release --summary`、长任务 `touch`；冲突时低优先级让路。机制与全量规则见全局 `~/.dsh/AGENTS.md`「多对话协作铁律」及 `plugins/dsh-task-scheduler/README.md`。
 
 ## 工作流程铁律（read → plan → patch → verify → review，策展 · 2026-08-25 新增）
 

@@ -11,6 +11,8 @@
       name: '@dsh-external/dsh-system-notify'
     - id: remote-workspace
       name: '@dsh-external/dsh-remote-workspace'
+    - id: task-scheduler
+      name: '@dsh-external/dsh-task-scheduler'
 
 # super-injector defaults to profiles/web/node_modules; desktop must override to profiles/desktop (ASCII, was GBK-garbled)
 - id: dsh-super-injector
