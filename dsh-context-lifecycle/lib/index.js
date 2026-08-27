@@ -294,11 +294,18 @@ export function apply(ctx, rawConfig) {
     // (long-run hygiene: the desktop app stays up for days, and without
     // pruning the map — and the /status payload — grows without bound).
     const PRUNE_AFTER_MS = 2 * 60 * 60_000;
+    // Active (non-idle) agent count, mirrored to globalThis so the desktop
+    // exit-confirmation dialog can see "conversations running" synchronously
+    // (same cross-bundle pattern as dsh-plugin-desktop's critical-guard).
+    let lastActiveAgents = 0;
     const pollTimer = setInterval(() => {
         try {
             const live = ctx.agents.list();
             for (const agent of live)
                 evaluate(agent);
+            const activeCount = live.filter((a) => a && a.status !== 'idle').length;
+            lastActiveAgents = activeCount;
+            try { globalThis.__dsh_active_agent_count__ = activeCount; } catch { /* poll must never throw */ }
             const liveKeys = new Set(live.map(agentKey));
             const now = Date.now();
             for (const [key, state] of states) {
@@ -371,6 +378,7 @@ export function apply(ctx, rawConfig) {
                     sessions: [...states.values()].map(publicState),
                     diag: {
                         agents: probe(() => ctx.agents.list().length),
+                        active: lastActiveAgents,
                         tokenMeter: probe(() => typeof ctx.tokenMeter?.measure),
                         compaction: probe(() => (compactionEngine() ? 'resolved' : 'unresolved')),
                         lastError: lastEvalError,
