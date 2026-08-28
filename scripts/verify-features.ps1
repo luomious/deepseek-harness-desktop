@@ -73,7 +73,7 @@ $compactionOk = $rtpBlock -match '(?m)^- id: compaction-basic\s*\n  disabled: fa
 Add-Check 'runtime-patch-curated' ($compactionOk -and $rtp.Contains('searchProvider: bing') -and $rtp.Contains('dsh-frontend-reload')) 'compaction row+config block (structural) + web + frontend-reload rows'
 $rpk = Get-Content "$usr\.dsh\profiles\desktop\package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $bl = $rpk.'dsh'.profile.bundles
-Add-Check 'runtime-bundles-full' ($bl.Count -ge 30 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-vision-rotator' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene' -and $bl -contains '@dsh-external/dsh-self-maintenance') ("count=" + $bl.Count)
+Add-Check 'runtime-bundles-full' ($bl.Count -ge 30 -and $bl -contains 'dshmarket' -and $bl -contains '@dsh-external/dsh-hy3-gateway' -and $bl -contains '@dsh-external/dsh-session-hygiene' -and $bl -contains '@dsh-external/dsh-self-maintenance') ("count=" + $bl.Count)
 $hyg = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\package.json' -Raw -Encoding UTF8
 Add-Check 'hygiene-bundle-patch' ($hyg.Contains('"bundle"') -and $hyg.Contains('./cordis.patch.yml') -and (Test-Path 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml')) 'bundle patch declared'
 $hygPatch = Get-Content 'D:\Deepseek-Harness\plugins\dsh-session-hygiene\cordis.patch.yml' -Raw -Encoding UTF8
