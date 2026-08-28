@@ -90,3 +90,7 @@ proc-watch.log
 spawn-trace.log
 patches/wip/
 scripts/test-siliconflow-vision.mjs
+# write-shim atomic-staging leftovers
+.*.tmpdir/
+*.tmpdir/
+
