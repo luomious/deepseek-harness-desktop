@@ -1,3 +1,5 @@
+import { createMarketApi } from "./market/api.js";
+
 export const name = "dsh-skills-manager";
 
 export const inject = ["skills", "fs", "shell", "sandboxPolicy", "webServer", "hostServices"];
@@ -215,10 +217,32 @@ export function apply(ctx) {
         await settle();
         return { ok: true, data: null };
       }
+      // 市场 API（静态目录源 + 校验安装），实现见 lib/market/*
+      if (method.startsWith("market.")) {
+        const marketApi = getMarketApi();
+        const fn = marketApi[method];
+        if (typeof fn !== "function") return { ok: false, error: "未知方法：" + method };
+        return await fn(args || {});
+      }
       return { ok: false, error: "未知方法：" + method };
     } catch (e) {
       return fail(e);
     }
+  }
+
+  // 惰性创建市场 API（依赖 web 服务，缺省可用时 market 调用会返回明确错误，不影响本地管理）
+  let marketApiCache = null;
+  function getMarketApi() {
+    if (!marketApiCache) {
+      marketApiCache = createMarketApi(ctx, {
+        fs: ctx.fs,
+        shell: ctx.shell,
+        sandboxPolicy: ctx.sandboxPolicy,
+        detectUserRoot,
+        collectAll
+      });
+    }
+    return marketApiCache;
   }
 
   const hs = ctx.hostServices;

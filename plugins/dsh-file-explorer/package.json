@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-file-explorer",
-  "version": "0.1.0",
-  "description": "右侧文件浏览器：在 details 面板查看项目文件与代码内容（host webServer API + client 双 tab）",
+  "version": "0.2.0",
+  "description": "右侧文件浏览器：在 details 面板查看项目文件（代码/文本/docx/xlsx/pptx/pdf 提取预览、图片预览、系统程序打开兜底）（host webServer API + client 双 tab）",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {

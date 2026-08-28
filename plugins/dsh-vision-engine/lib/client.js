@@ -84,6 +84,13 @@ window.__ModuleLoader__.load({
       usageEmpty: '暂无识别记录（面板测试 / 自动读图会记账）',
       noteSaved: '已保存并生效',
       noteSaving: '保存中…',
+      healthTitle: '通道状态',
+      proxyUp: '代理在线',
+      proxyDown: '代理未运行（云端模型不可用）',
+      proxyNone: '未配置代理（直连）',
+      autoFailover: '故障时自动切换其他引擎（modlens 链）',
+      hintProxyDown: '代理 {url} 未运行：请启动 Clash/V2Ray 等代理，或将当前模型切换为「本地 Ollama」。',
+      hintTimeout: '识别超时：模型响应过慢或网络拥堵，可换本地模型重试。',
       loadFailed: '加载失败',
     };
     var en = {
@@ -147,6 +154,13 @@ window.__ModuleLoader__.load({
       usageEmpty: 'No records yet (panel tests / auto-read are tracked)',
       noteSaved: 'Saved & applied',
       noteSaving: 'Saving…',
+      healthTitle: 'Channel status',
+      proxyUp: 'Proxy online',
+      proxyDown: 'Proxy down (cloud models unavailable)',
+      proxyNone: 'No proxy (direct connection)',
+      autoFailover: 'Auto-switch engine on failure (modlens chain)',
+      hintProxyDown: 'Proxy {url} is not running: start Clash/V2Ray, or switch the active model to Local Ollama.',
+      hintTimeout: 'Recognition timed out: model too slow or network congested; try the local model.',
       loadFailed: 'Load failed',
     };
     function t(key) {
@@ -345,6 +359,7 @@ window.__ModuleLoader__.load({
       var [usage, setUsage] = React.useState(null);
       var [modelTest, setModelTest] = React.useState(null); // 刷新时的模型试读自测结果 null | { phase, data }
       var [ollama, setOllama] = React.useState(null);
+      var [health, setHealth] = React.useState(null);
       var [note, setNote] = React.useState('');
       var [flash, setFlash] = React.useState(false);
       var [keyEditor, setKeyEditor] = React.useState(null); // { host, value } 厂商级 key 就地填写
@@ -357,6 +372,13 @@ window.__ModuleLoader__.load({
         setNote(msg);
         setFlash(true);
         window.setTimeout(function () { setFlash(false); }, 1600);
+      }
+
+      function hintText(hint) {
+        if (!hint) return null;
+        if (hint.kind === 'proxy-down') return t('hintProxyDown').replace('{url}', String(hint.url || ''));
+        if (hint.kind === 'timeout') return t('hintTimeout');
+        return null;
       }
 
       function loadAll(nextCfg) {
@@ -376,10 +398,11 @@ window.__ModuleLoader__.load({
         }).catch(function (e) {
           if (!cancelled) { setNote(t('loadFailed') + ': ' + String(e)); }
         });
+        api('/vision-engine/health').then(function (j) { if (!cancelled) setHealth(j); }).catch(function () { if (!cancelled) setHealth(null); });
         return function () { cancelled = true; };
       }, []);
 
-      function persist(profiles, active, silent) {
+      function persist(profiles, active, autoFailover, silent) {
         setNote(t('noteSaving'));
         // 不回传掩码 'set'/空 key：避免把 publicConfig 的掩码当真 key 存回（host 也会忽略，双保险）
         var clean = profiles.map(function (p) {
@@ -387,7 +410,7 @@ window.__ModuleLoader__.load({
           if ((o.apiKey === 'set' || o.apiKey === '') && !o.clearKey) delete o.apiKey;
           return o;
         });
-        return api('/vision-engine/config', { profiles: clean, active: active }).then(function (j) {
+        return api('/vision-engine/config', { profiles: clean, active: active, autoFailover: autoFailover === true }).then(function (j) {
           setCfg(j);
           loadAll(j);
           if (!silent) flashNote(t('noteSaved'));
@@ -401,7 +424,15 @@ window.__ModuleLoader__.load({
       function activate(id) {
         if (!cfg) return;
         var next = cfg.profiles.map(function (p) { return Object.assign({}, p); });
-        persist(next, id).then(function () { flashNote(t('noteSaved')); });
+        persist(next, id, cfg.autoFailover === true).then(function () { flashNote(t('noteSaved')); });
+      }
+
+      function toggleAutoFailover() {
+        if (!cfg) return;
+        var nextFlag = !(cfg.autoFailover === true);
+        setCfg(Object.assign({}, cfg, { autoFailover: nextFlag }));
+        var profiles = cfg.profiles.map(function (p) { return Object.assign({}, p); });
+        persist(profiles, cfg.active, nextFlag).then(function () { flashNote(nextFlag ? '已开启故障自动切换（modlens 链）' : '已关闭故障自动切换（固定当前引擎）'); });
       }
 
       // 一个厂商只填一次 key：应用到该厂商全部模型，并自动启用该厂商（默认第一个）模型
@@ -417,7 +448,7 @@ window.__ModuleLoader__.load({
         var activeIn = g.items.some(function (p) { return p.id === cfg.active; });
         var nextActive = activeIn ? cfg.active : g.items[0].id;
         setKeyEditor(null);
-        persist(profiles, nextActive).then(function () { flashNote('Key 已保存并启用 ' + (g.items[0] ? g.items[0].model : '')); });
+        persist(profiles, nextActive, cfg.autoFailover === true).then(function () { flashNote('Key 已保存并启用 ' + (g.items[0] ? g.items[0].model : '')); });
       }
       function saveEditor() {
         if (!cfg || !editor) return;
@@ -429,13 +460,13 @@ window.__ModuleLoader__.load({
           profiles = profiles.map(function (p) { return p.id === draft.id ? Object.assign({}, draft) : p; });
         }
         setEditor(null);
-        persist(profiles, cfg.active);
+        persist(profiles, cfg.active, cfg.autoFailover === true);
       }
       function removeProfile(id) {
         if (!cfg || cfg.profiles.length <= 1) return;
         var profiles = cfg.profiles.filter(function (p) { return p.id !== id; }).map(function (p) { return Object.assign({}, p); });
         var active = cfg.active === id ? profiles[0].id : cfg.active;
-        persist(profiles, active);
+        persist(profiles, active, cfg.autoFailover === true);
       }
 
       function pickFile(file) {
@@ -534,6 +565,29 @@ window.__ModuleLoader__.load({
               h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, row.value));
           })),
 
+        // 通道状态卡（2026-08-28）：代理 / Ollama / CLI 三态 + 故障自动切换开关
+        (function () {
+          if (!health) return null;
+          var rows = [];
+          var px = health.proxy || null;
+          if (!px) rows.push({ label: t('proxyNone'), dot: 'warn' });
+          else if (px.up === true) rows.push({ label: t('proxyUp') + (px.url ? ' · ' + px.url : ''), dot: 'ok' });
+          else rows.push({ label: t('proxyDown') + (px.url ? ' · ' + px.url : ''), dot: 'err' });
+          rows.push(health.ollama === true ? { label: t('ollamaUp'), dot: 'ok' } : { label: t('ollamaDown'), dot: 'warn' });
+          rows.push(health.cli ? { label: t('engineUp'), dot: 'ok' } : { label: t('engineDown'), dot: 'err' });
+          return h('div', { className: 've-card', style: Object.assign({}, CARD, { padding: '12px 14px' }) },
+            h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 } },
+              h('span', { style: { fontSize: 14, fontWeight: 600 } }, t('healthTitle'))),
+            rows.map(function (row) {
+              return h('div', { key: row.label, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '3px 0', fontSize: 13 } },
+                h('span', { className: 've-dot ve-dot-' + row.dot }),
+                h('span', { style: { fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--dsw-alias-label-secondary)' } }, row.label));
+            }),
+            h('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 8, cursor: 'pointer' } },
+              h('input', { type: 'checkbox', checked: cfg.autoFailover === true, onChange: toggleAutoFailover }),
+              t('autoFailover')));
+        })(),
+
         // 配置列表（按厂商分组 + 就地编辑 + 顶部添加）
         h('div', { className: 've-card', style: Object.assign({}, CARD, { padding: '14px 16px' }) },
           h('div', { style: { display: 'flex', alignItems: 'center', marginBottom: 4 } },
@@ -624,7 +678,9 @@ window.__ModuleLoader__.load({
                     h('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, test.result.profileName)),
                   test.result.summary && h('div', { style: { marginTop: 6 } }, h('b', null, t('summary') + ': '), test.result.summary),
                   test.result.ocrPreview && h('div', { style: Object.assign({}, HINT, { marginTop: 6, whiteSpace: 'pre-wrap' }) }, h('b', null, t('ocr') + ': '), test.result.ocrPreview))
-              : h('div', { style: { color: 'var(--dsw-alias-state-error-primary)' } }, t('testFail') + ': ' + (test.result.error || '')))),
+              : h('div', { style: { color: 'var(--dsw-alias-state-error-primary)' } },
+                  t('testFail') + ': ' + (test.result.error || ''),
+                  hintText(test.result.hint) ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } }, hintText(test.result.hint)) : null))),
 
         // 额度与用量（宽松排版：余额独占一行，仪表与统计并排）
         h('div', { className: 've-card', style: Object.assign({}, CARD, { padding: '14px 16px' }) },
@@ -658,7 +714,9 @@ window.__ModuleLoader__.load({
                       h('span', { className: 've-num', style: { fontWeight: 600 } }, (modelTest.data.latencyMs / 1000).toFixed(1) + ' s'),
                       h('span', { style: { color: 'var(--dsw-alias-label-secondary)' } }, (modelTest.data.profileName || '') + ' · ' + (modelTest.data.model || ''))),
                     modelTest.data.summary && h('div', { style: { marginTop: 5, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } }, modelTest.data.summary))
-                : h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-state-error-primary)' } }, t('selfTestFail') + ': ' + (modelTest.data.error || '')))),
+                : h('div', { style: { fontSize: 13, color: 'var(--dsw-alias-state-error-primary)' } },
+                    t('selfTestFail') + ': ' + (modelTest.data.error || ''),
+                    hintText(modelTest.data.hint) ? h('div', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', marginTop: 4 } }, hintText(modelTest.data.hint)) : null))),
           // 仪表 + 统计（横排，间距拉开）
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap', marginBottom: 4 } },
             usage && usage.today && h('div', { style: { display: 'flex', alignItems: 'center', gap: 16 } },

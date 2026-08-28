@@ -3,7 +3,7 @@
  *
  * 右侧文件浏览器：占用 details slot（双 tab：文件 / 详情）。
  * 与 host 通过 /file-explorer/api（本机 trusted JSON RPC）通信。
- * 文件树 + 代码查看（按扩展名简易高亮）。
+ * 文件树 + 代码查看（按扩展名简易高亮）+ 文档/图片预览（按 host 返回的 mode 渲染）。
  */
 window.__ModuleLoader__.load({
 	id: "@dsh-external/dsh-file-explorer",
@@ -59,6 +59,12 @@ window.__ModuleLoader__.load({
 		var STYLE_FILE_ICON = { color: "#6b7686", fontSize: 11 };
 		var STYLE_INPUT = { width: "100%", boxSizing: "border-box", padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "rgba(127,127,127,0.08)", color: "#d4d4d4", fontSize: 12, outline: "none" };
 		var STYLE_BTN = { padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(127,127,127,0.3)", background: "transparent", color: "#d4d4d4", cursor: "pointer", fontSize: 12 };
+		var PRE_STYLE = { flex: 1, overflow: "auto", margin: 0, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.5, color: "#d4d4d4", fontFamily: "Consolas, 'Courier New', monospace", whiteSpace: "pre-wrap", wordBreak: "break-all" };
+
+		// 用系统默认程序打开（仅 host 白名单路径，用户点击触发）
+		function openExternal(f) {
+			return callApi("open-external", { path: f.path });
+		}
 
 		function highlight(code, kind) {
 			var kwSet = KEYWORD_SET[kind] || null;
@@ -160,6 +166,23 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			// 文本分段预览翻页：上一页/下一页（大文件按窗口读，host 已做 UTF-8 边界对齐）
+			function pageFile(dir) {
+				if (!file) return;
+				var win = file.windowBytes || 131072;
+				var next = dir < 0 ? Math.max(0, (file.offset || 0) - win) : (file.offset || 0);
+				if (dir < 0 && next === (file.offset || 0)) return;
+				setBusy(true);
+				setError(null);
+				callApi("read-file", { path: file.path, offset: next }).then(function (d) {
+					setFile(d);
+					setBusy(false);
+				}).catch(function (e) {
+					setError((e && e.message) || String(e));
+					setBusy(false);
+				});
+			}
+
 			function navigate(dir) {
 				setBusy(true);
 				setError(null);
@@ -247,13 +270,27 @@ window.__ModuleLoader__.load({
 					createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", background: "rgba(127,127,127,0.1)" } },
 						createElement("span", { style: { fontSize: 11, color: "#9cdcfe", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, file.path),
 						createElement("span", { style: { fontSize: 10, color: "#888", marginLeft: "auto" } }, fmtSize(file.size)),
+						file.mode && file.mode !== "text" && createElement("button", { style: Object.assign({}, btnStyle, { padding: "1px 6px" }), onClick: function () { openExternal(file).catch(function (e) { setError((e && e.message) || String(e)); }); }, title: "用系统默认程序打开" }, "打开"),
 						createElement("button", { style: Object.assign({}, btnStyle, { padding: "1px 6px" }), onClick: function () { setFile(null); } }, "✕")
 					),
-					createElement("pre", { style: { flex: 1, overflow: "auto", margin: 0, padding: "8px 10px", fontSize: 11.5, lineHeight: 1.5, color: "#d4d4d4", fontFamily: "Consolas, 'Courier New', monospace", whiteSpace: "pre-wrap", wordBreak: "break-all" } },
-						file.size > HIGHLIGHT_LIMIT
-							? createElement("span", {}, file.content)
-							: highlight(file.content, file.path.split(".").pop().toLowerCase().replace(/^d$/i, "ts").toLowerCase())
-					)
+					file.mode === "image" && createElement("div", { style: { flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 } },
+						createElement("img", { src: file.dataUrl, alt: file.path, style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 4 } })),
+					file.mode === "extracted" && createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 } },
+						createElement("div", { style: { padding: "4px 10px", color: "#888", fontSize: 11, background: "rgba(127,127,127,0.08)", borderBottom: "1px solid rgba(127,127,127,0.1)" } }, file.note || ""),
+						createElement("pre", { style: PRE_STYLE }, file.content)),
+					file.mode === "binary" && createElement("div", { style: { flex: 1, padding: "12px 10px", color: "#888", fontSize: 12, lineHeight: 1.7, overflow: "auto" } },
+						createElement("div", {}, file.note || "该文件类型暂不支持内联预览"),
+						createElement("button", { style: Object.assign({}, btnStyle, { marginTop: 8 }), onClick: function () { openExternal(file).catch(function (e) { setError((e && e.message) || String(e)); }); } }, "用系统程序打开")),
+					(file.mode === "text" || !file.mode) && createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", minHeight: 0 } },
+						file.note && createElement("div", { style: { padding: "4px 10px", color: "#888", fontSize: 11, background: "rgba(127,127,127,0.08)", borderBottom: "1px solid rgba(127,127,127,0.1)" } }, file.note),
+						createElement("pre", { style: PRE_STYLE },
+							(file.windowBytes != null ? file.windowBytes : file.size) > HIGHLIGHT_LIMIT
+								? createElement("span", {}, file.content)
+								: highlight(file.content, file.path.split(".").pop().toLowerCase().replace(/^d$/i, "ts").toLowerCase())),
+						(file.hasMore || (file.offset || 0) > 0) && createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 10px", borderTop: "1px solid rgba(127,127,127,0.15)", background: "rgba(127,127,127,0.05)" } },
+							createElement("button", { style: Object.assign({}, btnStyle, { padding: "1px 8px" }), disabled: !(file.offset > 0), onClick: function () { pageFile(-1); } }, "← 上一页"),
+							createElement("span", { style: { fontSize: 11, color: "#888", flex: 1, textAlign: "center" } }, "第 " + ((file.chunk || 0) + 1) + " / " + (file.chunks || 1) + " 页"),
+							createElement("button", { style: Object.assign({}, btnStyle, { padding: "1px 8px" }), disabled: !file.hasMore, onClick: function () { pageFile(1); } }, "下一页 →")))
 				)
 			);
 		}

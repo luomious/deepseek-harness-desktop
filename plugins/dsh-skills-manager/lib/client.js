@@ -160,27 +160,191 @@ window.__ModuleLoader__.load({
 			const list = tab === "system" ? system : user;
 
 			return react.createElement("div", { className: "skmg-wrap" },
-				react.createElement("div", { className: "skmg-head" },
-					react.createElement("div", { className: "skmg-title" }, "Skills 管理器"),
-					react.createElement("div", { className: "skmg-tabs" },
-						react.createElement("button", { className: "skmg-tab" + (tab === "system" ? " on" : ""), onClick: () => setTab("system") }, "系统 Skills（" + system.length + "）"),
-						react.createElement("button", { className: "skmg-tab" + (tab === "user" ? " on" : ""), onClick: () => setTab("user") }, "用户 Skills（" + user.length + "）")
+					react.createElement("div", { className: "skmg-head" },
+						react.createElement("div", { className: "skmg-title" }, "Skills 管理器"),
+						react.createElement("div", { className: "skmg-tabs" },
+							react.createElement("button", { className: "skmg-tab" + (tab === "system" ? " on" : ""), onClick: () => setTab("system") }, "系统 Skills（" + system.length + "）"),
+							react.createElement("button", { className: "skmg-tab" + (tab === "user" ? " on" : ""), onClick: () => setTab("user") }, "用户 Skills（" + user.length + "）"),
+							react.createElement("button", { className: "skmg-tab" + (tab === "market" ? " on" : ""), onClick: () => setTab("market") }, "市场")
+						),
+						tab !== "market" ? react.createElement("button", { className: "skmg-btn", onClick: load, disabled: busy }, "刷新") : null
 					),
-					react.createElement("button", { className: "skmg-btn", onClick: load, disabled: busy }, "刷新")
+					tab === "market" ? react.createElement(MarketView, { key: "market", onChanged: load }) :
+						(tab === "user" ? react.createElement("div", { key: "userbar", className: "skmg-muted", style: { marginBottom: "8px" } },
+							"用户根目录：" + (data && data.userRoot ? data.userRoot : "未定位"),
+							react.createElement("button", { className: "skmg-btn", style: { marginLeft: "8px" }, onClick: openCreate, disabled: busy }, "＋ 新建 Skill")
+						) : null),
+					error ? react.createElement("div", { key: "err", className: "skmg-err" }, error) : null,
+					msg ? react.createElement("div", { key: "msg", className: "skmg-msg" }, msg) : null,
+					tab !== "market" ? (!data ? react.createElement("div", { key: "loading", className: "skmg-muted" }, "加载中…") :
+						(list.length === 0 ? react.createElement("div", { key: "empty", className: "skmg-muted" }, tab === "system" ? "暂无系统 Skills" : "暂无用户 Skills，点击「＋ 新建 Skill」创建") :
+							list.map((s) => renderCard(s, tab === "user")))) : null,
+					tab !== "market" && editor && editor.mode === "create" ? renderForm("create-form") : null,
+					tab !== "market" && data && data.debug ? react.createElement("div", { key: "dbg", className: "skmg-muted", style: { marginTop: "8px", fontSize: "11px" } },
+						"扫描层：" + data.debug.layers.join(" / ") + "（共 " + data.debug.total + " 项）"
+					) : null
+				);
+		}
+
+		function MarketView(props) {
+			const [sources, setSources] = react.useState([]);
+			const [installed, setInstalled] = react.useState({});
+			const [items, setItems] = react.useState([]);
+			const [categories, setCategories] = react.useState([]);
+			const [sourceState, setSourceState] = react.useState(null);
+			const [stale, setStale] = react.useState(false);
+			const [staleError, setStaleError] = react.useState(null);
+			const [q, setQ] = react.useState("");
+			const [category, setCategory] = react.useState("");
+			const [manifestUrl, setManifestUrl] = react.useState("");
+			const [busy, setBusy] = react.useState(false);
+			const [error, setError] = react.useState(null);
+			const [msg, setMsg] = react.useState(null);
+
+			function loadSources(selectAfter) {
+				return callApi("market.sources").then((r) => {
+					setSources(r.sources || []);
+					const inst = {};
+					(r.installed || []).forEach((i) => { inst[i.skillId] = i; });
+					setInstalled(inst);
+					return r;
+				}).then((r) => {
+					const selected = (r.sources || []).find((s) => s.selected);
+					if (selectAfter) {
+						return callApi("market.selectSource", { recordId: selectAfter }).then(() => loadSources()).then(() => reloadList());
+					}
+					if (selected) { setSourceState(selected); return reloadList(); }
+					setSourceState(null);
+					setItems([]);
+					return null;
+				});
+			}
+
+			function reloadList() {
+				return callApi("market.list", { q: q, category: category }).then((r) => {
+					setItems(r.items || []);
+					setCategories(r.categories || []);
+					setStale(!!r.stale);
+					setStaleError(r.staleError || null);
+					return r;
+				}).catch((e) => {
+					setError("市场加载失败：" + String((e && e.message) || e));
+				});
+			}
+
+			react.useEffect(() => {
+				setBusy(true);
+				loadSources().catch((e) => { setError("市场初始化失败：" + String((e && e.message) || e)); }).then(() => setBusy(false));
+			}, []);
+
+			function showError(e) { setError("操作失败：" + String((e && e.message) || e)); }
+
+			function onAddSource() {
+				const url = String(manifestUrl || "").trim();
+				if (!url) { setError("请输入 manifest URL"); return; }
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.addSource", { manifestUrl: url }).then((r) => {
+					setManifestUrl("");
+					setMsg("源已添加，请选择后浏览");
+					return loadSources(r.recordId);
+				}).catch(showError).then(() => setBusy(false));
+			}
+
+			function onRemoveSource(recordId) {
+				if (!window.confirm("确定移除该目录源？已安装的 skill 不受影响。")) return;
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.removeSource", { recordId: recordId }).then(() => loadSources()).catch(showError).then(() => setBusy(false));
+			}
+
+			function onSelect(recordId) {
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.selectSource", { recordId: recordId }).then(() => loadSources()).catch(showError).then(() => setBusy(false));
+			}
+
+			function onInstall(skill) {
+				if (!window.confirm("安装市场 skill「" + skill.id + "」（v" + skill.version + "）？\n来源：" + (sourceState && sourceState.endpoint ? sourceState.endpoint : "未知"))) return;
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.install", { skillId: skill.id }).then((d) => {
+					setMsg("已安装：" + skill.id + (d && d.whenToUse ? "（whenToUse: " + d.whenToUse + "）" : ""));
+					return loadSources();
+				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
+			}
+
+			function onUpdate(skill) {
+				if (!window.confirm("更新市场 skill「" + skill.id + "」到 v" + skill.version + "？旧版本将备份并自动回滚。")) return;
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.update", { skillId: skill.id }).then(() => {
+					setMsg("已更新：" + skill.id);
+					return loadSources();
+				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
+			}
+
+			function onUninstall(skill) {
+				if (!window.confirm("卸载市场 skill「" + skill.id + "」？此操作将删除其本地目录，不可恢复。")) return;
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.uninstall", { skillId: skill.id }).then(() => {
+					setMsg("已卸载：" + skill.id);
+					return loadSources();
+				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
+			}
+
+			function renderCard(skill) {
+				const inst = installed[skill.id];
+				return react.createElement("div", { key: skill.id, className: "skmg-card" },
+					react.createElement("div", { className: "skmg-card-head" },
+						react.createElement("span", { className: "skmg-name" }, skill.id),
+						(skill.categories || []).map((c) => react.createElement("span", { key: c, className: "skmg-badge" }, c)),
+						react.createElement("span", { className: "skmg-badge" }, "v" + skill.version),
+						inst ? react.createElement("span", { className: "skmg-badge", style: { color: "var(--dsw-alias-state-success-primary)" } }, "已安装 v" + inst.version) : null,
+						react.createElement("span", { style: { flex: 1 } }),
+						(!inst ? react.createElement("button", { key: "install", className: "skmg-btn", disabled: busy, onClick: () => onInstall(skill) }, "安装") :
+							react.createElement(react.Fragment, null,
+								react.createElement("button", { key: "update", className: "skmg-btn", disabled: busy, onClick: () => onUpdate(skill) }, "更新"),
+								react.createElement("button", { key: "uninstall", className: "skmg-btn danger", disabled: busy, onClick: () => onUninstall(skill) }, "卸载")
+							))
+					),
+					react.createElement("div", { className: "skmg-desc" }, skill.description),
+					skill.author && skill.author.name ? react.createElement("div", { className: "skmg-muted", style: { marginTop: "4px", fontSize: "11px" } }, "作者：" + skill.author.name + (skill.author.url ? " · " + skill.author.url : "")) : null,
+					react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px" } }, "SHA-256: " + skill.download.sha256)
+				);
+			}
+
+			return react.createElement("div", { className: "skmg-market" },
+				react.createElement("div", { className: "skmg-muted", style: { marginBottom: "8px" } },
+					"目录源：",
+					sources.length === 0 ? "未添加（先在下方添加 manifest URL）" : null
 				),
-				tab === "user" ? react.createElement("div", { key: "userbar", className: "skmg-muted", style: { marginBottom: "8px" } },
-					"用户根目录：" + (data && data.userRoot ? data.userRoot : "未定位"),
-					react.createElement("button", { className: "skmg-btn", style: { marginLeft: "8px" }, onClick: openCreate, disabled: busy }, "＋ 新建 Skill")
+				sources.map((s) => react.createElement("div", { key: s.recordId, className: "skmg-card", style: { padding: "6px 10px", marginBottom: "6px" } },
+					react.createElement("div", { className: "skmg-card-head" },
+						react.createElement("input", { type: "radio", checked: !!s.selected, disabled: busy, onChange: () => onSelect(s.recordId) }),
+						react.createElement("span", { className: "skmg-name", style: { fontSize: "12px" } }, s.name || s.providerId),
+						react.createElement("span", { className: "skmg-badge" }, s.providerId),
+						react.createElement("span", { style: { flex: 1 } }),
+						react.createElement("button", { className: "skmg-btn danger", disabled: busy, onClick: () => onRemoveSource(s.recordId) }, "移除")
+					),
+					react.createElement("div", { className: "skmg-muted", style: { fontSize: "11px", marginTop: "2px" } }, s.endpoint)
+				)),
+				react.createElement("div", { className: "skmg-form", style: { marginTop: "8px" } },
+					react.createElement("div", { className: "skmg-form-title" }, "添加目录源（manifest URL）"),
+					react.createElement("input", { value: manifestUrl, disabled: busy, placeholder: "https://example.com/skills-manifest.json", onChange: (e) => setManifestUrl(e.target.value) }),
+					react.createElement("div", { className: "skmg-form-actions" },
+						react.createElement("button", { className: "skmg-btn", disabled: busy, onClick: onAddSource }, "添加"),
+						react.createElement("button", { className: "skmg-btn", disabled: busy, onClick: () => loadSources() }, "刷新")
+					)
+				),
+				sourceState ? react.createElement("div", { className: "skmg-head", style: { marginTop: "12px" } },
+					react.createElement("div", { className: "skmg-title", style: { fontSize: "13px" } }, "市场条目"),
+					react.createElement("input", { style: { flex: 1, minWidth: "120px" }, value: q, disabled: busy, placeholder: "搜索…", onChange: (e) => setQ(e.target.value) }),
+					categories.length > 0 ? react.createElement("select", { value: category, disabled: busy, onChange: (e) => setCategory(e.target.value) },
+						react.createElement("option", { value: "" }, "全部分类"),
+						categories.map((c) => react.createElement("option", { key: c, value: c }, c))
+					) : null,
+					react.createElement("button", { className: "skmg-btn", disabled: busy, onClick: () => reloadList() }, "查询")
 				) : null,
+				stale ? react.createElement("div", { key: "stale", className: "skmg-err" }, "远程目录暂不可用，展示缓存数据（" + (staleError || "未知原因") + "）") : null,
 				error ? react.createElement("div", { key: "err", className: "skmg-err" }, error) : null,
 				msg ? react.createElement("div", { key: "msg", className: "skmg-msg" }, msg) : null,
-				!data ? react.createElement("div", { key: "loading", className: "skmg-muted" }, "加载中…") :
-					(list.length === 0 ? react.createElement("div", { key: "empty", className: "skmg-muted" }, tab === "system" ? "暂无系统 Skills" : "暂无用户 Skills，点击「＋ 新建 Skill」创建") :
-						list.map((s) => renderCard(s, tab === "user"))),
-				editor && editor.mode === "create" ? renderForm("create-form") : null,
-				data && data.debug ? react.createElement("div", { key: "dbg", className: "skmg-muted", style: { marginTop: "8px", fontSize: "11px" } },
-					"扫描层：" + data.debug.layers.join(" / ") + "（共 " + data.debug.total + " 项）"
-				) : null
+				sourceState ? (items.length === 0 ? react.createElement("div", { key: "empty", className: "skmg-muted" }, "暂无条目（或搜索无结果）") : items.map(renderCard)) : null
 			);
 		}
 

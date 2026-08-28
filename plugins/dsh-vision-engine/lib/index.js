@@ -12,6 +12,7 @@
 // 安全：apiKey 只在 host 侧读写，浏览器只见“已保存/未设置”；额度/测试请求全部 host 发起。
 // 纯 node 内置模块，零依赖；配置写前重读文件，避免与 modlens 自带设置卡互相覆盖。
 import { spawn, spawnSync } from 'node:child_process'
+import { connect } from 'node:net'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -112,6 +113,55 @@ function healName(name) {
   return recovered.replace(/[\u0080-\u009f\ufffd]/g, '') // 清掉残留 C1 控制符/替换符
 }
 
+// 名字清洗（保存/读取双端）：healName 还原 Latin-1 型乱码后，再清 C1 控制符/替换符
+// 残留与孤立尾部标点（历史脏名字如「…（你的key?」「…需AI Studio key?」），杜绝面板残缺字符。
+function sanitizeName(name) {
+  if (typeof name !== 'string' || !name) return name
+  let s = healName(name)
+  s = s.replace(/[\u0080-\u009f\ufffd]/g, '')
+  s = s.replace(/[\s?！!，,。.·]+$/g, '')
+  return s
+}
+
+// ── 通道健康（代理 / Ollama / CLI）──
+// modlens 顶层 `proxy`（或 HTTPS_PROXY/HTTP_PROXY 环境变量）是云视觉读图的必经通道；
+// 代理没监听时所有云模型都会 ECONNREFUSED —— 面板必须有可感知的健康状态，而不是只靠
+// 自测失败后猜原因。这里只做 TCP 探活（1.5s 内返回），不发起任何付费请求。
+function proxyUrlFromConfig() {
+  try {
+    const cfg = readJson(MODLENS_CONFIG, {})
+    if (typeof cfg.proxy === 'string' && cfg.proxy) return cfg.proxy
+  } catch { /* ignore */ }
+  return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || ''
+}
+function tcpReachable(host, port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    try {
+      const sock = connect({ host, port })
+      const timer = setTimeout(() => { sock.destroy(); resolve(false) }, timeoutMs)
+      sock.once('connect', () => { clearTimeout(timer); sock.destroy(); resolve(true) })
+      sock.once('error', () => { clearTimeout(timer); resolve(false) })
+    } catch { resolve(false) }
+  })
+}
+async function proxyHealth() {
+  const url = proxyUrlFromConfig()
+  if (!url) return { configured: false, up: null, url: '' }
+  let host = ''
+  let port = 0
+  try {
+    const u = new URL(url)
+    host = u.hostname
+    port = Number(u.port) || (u.protocol.startsWith('https') ? 443 : 80)
+  } catch {
+    const m = String(url).match(/^https?:\/\/([^:/]+)(?::(\d+))?/)
+    if (m) { host = m[1]; port = Number(m[2]) || 8080 }
+    else return { configured: true, up: false, url }
+  }
+  const up = await tcpReachable(host, port)
+  return { configured: true, up, url, host, port }
+}
+
 // ── 配置（profiles）──
 function blankProfile() {
   return { id: '', name: '', kind: 'api', preset: 'custom', slot: 'openai', baseUrl: '', apiKey: '', model: '', structuredOutput: false, maxTokens: 4096 }
@@ -136,15 +186,15 @@ function seedProfiles() {
       // 中文配置名乱码自愈：发现乱码就还原并写回，下次读取即干净（幂等，正常名不动）。
       let dirty = false
       for (const p of cfg.profiles) {
-        const healed = healName(p.name)
+        const healed = sanitizeName(p.name)
         if (healed !== p.name) { p.name = healed; dirty = true }
       }
       if (cfg.activeProfile && typeof cfg.activeProfile.name === 'string') {
-        const healed = healName(cfg.activeProfile.name)
+        const healed = sanitizeName(cfg.activeProfile.name)
         if (healed !== cfg.activeProfile.name) { cfg.activeProfile.name = healed; dirty = true }
       }
       if (dirty) { try { writeJson(VE_CONFIG, cfg) } catch { /* 自愈写回失败不阻断 */ } }
-      return { profiles: cfg.profiles, active: typeof cfg.active === 'string' ? cfg.active : cfg.profiles[0].id }
+      return { profiles: cfg.profiles, active: typeof cfg.active === 'string' ? cfg.active : cfg.profiles[0].id, autoFailover: cfg.autoFailover === true }
     }
   }
   const mc = readJson(MODLENS_CONFIG, {})
@@ -167,7 +217,7 @@ function seedProfiles() {
   if (profiles.length === 0) {
     profiles.push(Object.assign(blankProfile(), { id: 'p-local', name: '本地 Ollama', kind: 'local', preset: 'local', slot: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5vl:7b', structuredOutput: true, maxTokens: 4096 }))
   }
-  return { profiles, active: profiles[0].id }
+  return { profiles, active: profiles[0].id, autoFailover: false }
 }
 
 function readVe() {
@@ -204,6 +254,26 @@ function writeModlensSlot(profile) {
   providers[profile.slot] = next
   cfg.providers = providers
   writeJson(MODLENS_CONFIG, cfg)
+}
+
+// 单一写者对齐（2026-08-28）：把面板 active 同步为 modlens 顶层 provider pin。
+// - autoFailover=false（默认）：pin 到面板所选槽位（openai / gemini-api），保证自动读图
+//   真实路径 = 面板「当前生效」，行为可预期；
+// - autoFailover=true：不 pin，交给 modlens 3.23 内置故障转移链按顺序尝试全部已配置引擎。
+// 只写 config.json 这两个键，绝不触碰 providers 槽位（槽位写归 writeModlensSlot）。
+function syncProviderPin(profile, autoFailover) {
+  try {
+    const cfg = readJson(MODLENS_CONFIG, {})
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) return
+    if (autoFailover === true) {
+      delete cfg.provider
+    } else if (profile && (profile.slot === 'openai' || profile.slot === 'gemini-api')) {
+      cfg.provider = profile.slot
+    } else {
+      delete cfg.provider
+    }
+    writeJson(MODLENS_CONFIG, cfg)
+  } catch { /* pin 失败不阻断保存 */ }
 }
 
 // ── 粘贴模式（pasteToPath）状态：解析 cordis.patch.yml 的 modlens 配置块 ──
@@ -369,7 +439,19 @@ async function analyzeImage({ dataUrl, path, profileId, signal }) {
     }
   } catch (error) {
     recordUsage({ source: 'panel-test', ok: false, provider: profile?.slot, model: profile?.model })
-    return { ok: false, error: String(error?.message ?? error).slice(0, 300) }
+    const errText = String(error?.message ?? error)
+    const out = { ok: false, error: errText.slice(0, 300) }
+    try {
+      // 失败尽量附上「可执行提示」：面板据此直接告诉用户该修什么，而不是只看到裸错误。
+      if (/ECONNREFUSED|never reached the network|set proxy|econnrefused/i.test(errText)) {
+        const ph = await proxyHealth()
+        if (ph.configured && ph.up === false) out.hint = { kind: 'proxy-down', url: ph.url }
+        else out.hint = { kind: 'proxy-error', url: ph.url || '(env)' }
+      } else if (/timed?\s?out|ETIMEDOUT|timeout|econnreset/i.test(errText)) {
+        out.hint = { kind: 'timeout' }
+      }
+    } catch { /* hint 加工失败不影响主结果 */ }
+    return out
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
@@ -601,6 +683,7 @@ function publicConfig() {
         }
       : null,
     presets: PRESET_ORDER.map((k) => ({ id: k, name: PRESETS[k].name })),
+    autoFailover: ve.autoFailover === true,
     pasteToPath: readPasteToPath(),
     cliFound: !!CLI,
   }
@@ -630,6 +713,8 @@ async function handleConfig(req, res, body) {
     ids.add(p.id)
   }
   if (typeof active !== 'string' || !ids.has(active)) throw new Error('active 必须指向已有配置')
+  if (body.autoFailover !== undefined && typeof body.autoFailover !== 'boolean') throw new Error('autoFailover 必须是布尔值')
+  const autoFailover = body.autoFailover === true
   const prevBy = new Map(readVe().profiles.map((p) => [p.id, p]))
   const mc = readJson(MODLENS_CONFIG, {})
   const cleaned = profiles.map((p) => {
@@ -643,14 +728,15 @@ async function handleConfig(req, res, body) {
       const k = mc?.providers?.[p.slot]?.apiKey
       if (typeof k === 'string' && k && !k.startsWith('****') && k !== 'set') apiKey = k
     }
-    const out = Object.assign({}, p, { apiKey, clearKey: undefined })
+    const out = Object.assign({}, p, { apiKey, clearKey: undefined, name: sanitizeName(p.name) })
     delete out.clearKey
     return out
   })
-  writeJson(VE_CONFIG, { profiles: cleaned, active })
+  writeJson(VE_CONFIG, { profiles: cleaned, active, autoFailover })
   const act = cleaned.find((p) => p.id === active) ?? cleaned[0]
   writeModlensSlot(act) // 失败会抛错 → 500，但 VE_CONFIG 已保存，下次保存重试即可
-  log(`profile '${act.name}' (${act.slot}/${act.model}) applied to modlens config`)
+  syncProviderPin(act, autoFailover) // 单写者：active 同步为 provider pin（autoFailover 时不 pin）
+  log(`profile '${act.name}' (${act.slot}/${act.model}) applied to modlens config (autoFailover=${autoFailover})`)
   // 本地模型 → 启动 ollama + 开机静默自启;云端模型 → 关闭 ollama + 自启(异步,不阻塞响应)
   syncOllama(act).catch(() => {})
   json(res, 200, publicConfig())
@@ -689,7 +775,7 @@ async function handleRefresh(req, res, body) {
   } catch (e) {
     test = { ok: false, error: String(e?.message ?? e).slice(0, 160), latencyMs: Date.now() - t0 }
   }
-  json(res, 200, { balance, usage: usageSummary(), test, at: Date.now() })
+  json(res, 200, { balance, usage: usageSummary(), test, proxy: await proxyHealth().catch(() => ({ configured: false, up: null, url: '' })), ollama: await probeOllama().catch(() => false), at: Date.now() })
 }
 
 async function handleOllama(req, res) {
@@ -747,6 +833,21 @@ function handlePasteImg(req, res) {
   }
 }
 
+// 通道健康（面板状态卡）：代理探活 + Ollama + CLI + 当前 pin/failover 模式。
+async function handleHealth(req, res) {
+  const proxy = await proxyHealth().catch(() => ({ configured: false, up: null, url: '' }))
+  let pinnedProvider = null
+  try { pinnedProvider = readJson(MODLENS_CONFIG, {}).provider ?? null } catch { /* ignore */ }
+  json(res, 200, {
+    proxy,
+    ollama: await probeOllama().catch(() => false),
+    cli: !!CLI,
+    autoFailover: readVe().autoFailover === true,
+    pinnedProvider,
+    at: Date.now(),
+  })
+}
+
 function registerRoutes(ctx, hs) {
   const routes = [
     { path: '/vision-engine/config', methods: ['GET', 'POST'], handler: handleConfig },
@@ -754,6 +855,7 @@ function registerRoutes(ctx, hs) {
     { path: '/vision-engine/usage', methods: ['GET'], handler: handleUsage },
     { path: '/vision-engine/balance', methods: ['POST'], handler: handleBalance },
     { path: '/vision-engine/refresh', methods: ['POST'], handler: handleRefresh },
+    { path: '/vision-engine/health', methods: ['GET'], handler: handleHealth },
     { path: '/vision-engine/ollama', methods: ['GET'], handler: handleOllama },
     { path: '/vision-engine/diag', methods: ['POST'], handler: handleDiag },
     { path: '/vision-engine/paste-img', methods: ['GET'], handler: handlePasteImg },

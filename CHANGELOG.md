@@ -6,6 +6,117 @@
 
 ---
 
+## 2026-08-28 开源技能市场目录源（DSH Skills Index）+ 工作区临时残留清理
+
+### 为什么市场要「添加目录源（manifest URL）」
+- 契约 v1 安全设计：**无默认选中源、显式选择、来源可见、浏览 ≠ 授权、绝不自动回退**（`plugins/dsh-skills-manager/docs/skill-catalog-contract.md` §1/§10）——manifest 不得自荐为默认/官方/回退，目录源必须由用户显式添加。所以 UI 需要粘贴 manifest URL，属设计而非缺陷。
+
+### 交付：开源目录源
+- 新仓库 [luomious/dsh-skill-catalog](https://github.com/luomious/dsh-skill-catalog)（public）：`manifest.json` + `skills-index.json` + 4 个可用 skill（code-review / git-commit-message / log-analysis / paper-summary），全部经插件自带校验器验证，远程字节级 E2E 全过（manifest/索引/同源/SHA-256）。
+- **已预置本地市场**：`~/.dsh/.skills-market/state.json` 添加该源并选中，索引已入 24h 缓存 → 设置页 Skills→市场 打开即可浏览/安装，无需手填 URL。
+- 维护入口：`tools/skill-catalog/`（`scripts/build-index.mjs` 重算 SHA-256；`validate-catalog.mjs` / `e2e-remote.mjs` 发布前校验；README 有新增 skill 流程）。
+
+### 顺带修复
+- 清理全工作区 **40 个 `.tmpdir` 残留**（write-shim 原子写暂存垃圾，可再生的临时产物，已走回收站）；目录源仓库加 `.gitignore`（`.*.tmpdir/`）防再犯。
+
+---
+
+## 2026-08-28 启动报错根治：@dsh-external/dsh-vision-rotator 残留引用清理
+
+### 现象
+- 启动时弹错 `dsh-plugin-desktop: cannot resolve package "@dsh-external/dsh-vision-rotator" from the Desktop installation or active Profile`（`%APPDATA%\DSH Desktop\logs\dsh-2026-08-28.error.log` 两次完整栈：`loadRecoveryFilteredProfile → prepareDesktopProfile → start`）。
+
+### 根因
+- 2026-08-28 停用 dsh-vision-rotator 时 junction 已删、源码保留，但 `~/.dsh/profiles/desktop/package.json` 的 `dsh.profile.bundles` 在 18:57 前仍残留该 bundle 名 → 启动按 bundle 解析包名必然失败（Desktop 安装侧与 Profile 侧都没有该包）。
+- 18:57 该 bundle 声明已从 package.json 移除；19:01:38 / 19:01:54 两次启动均已干净，全部插件正常装配。
+
+### 本次清理
+- 移除 `~/.dsh/profiles/desktop/cordis.patch.yml` 中失效的 `- id: dsh-vision-rotator / disabled: true` 行：该 entry 已不存在，disabled 行每次启动只产生无害的 `loader: patch: entry dsh-vision-rotator not found` 警告，无阻断作用。原件备份 `cordis.patch.yml.bak-fix-rotator-20260828-1905`。
+- 全量复查：profile package.json（desktop/web）、node_modules junction、app.asar、.dsh-market state、super-injector registry 均无 rotator 引用；源码 `dsh-vision-rotator/` 按原决定保留可回滚。
+
+### 验证
+- 启动日志 19:01:38 / 19:01:54：self-maintenance / session-hygiene / task-scheduler / file-explorer（host 已就绪 `/file-explorer/api`）/ remote-workspace 等全部装配；`/vision-engine/health` 200（proxy 已清、CLI true、pin openai）；`check-dist-integrity` OK；`dev_plugin_status` 无新失败。
+- 提示：session-hygiene 仍报 3 个 >8MB 大会话（2 个闲置可归档、1 个活跃 8.64MB 需压缩），属健康提醒而非故障。
+
+---
+
+## 2026-08-28 文件浏览器文档预览：docx/xlsx/pptx/pdf 文本提取 + 图片预览 + 系统打开兜底
+
+### 背景
+- 右侧文件浏览器此前只支持纯文本预览：`.docx/.pdf/.xlsx` 等点击即报「二进制文件，仅支持文本查看」（host `readFile` 的 `\0` 二进制探测直接拒绝），图片同样被拒。
+
+### 改动（`plugins/dsh-file-explorer`，全部插件层，不碰内核/补丁/dist）
+1. 新增 `lib/extract.js`：零依赖文档提取引擎（纯 Node 内置 zlib）——手写 ZIP 中央目录解析 + `maxOutputLength` 防 zip 炸弹；注册表式 `EXTRACTORS`（加格式 = 加一个函数）：
+   - docx（`word/document.xml` + 页眉页脚）、xlsx（sharedStrings + 工作表）、pptx（`slide*.xml`）——ZIP+XML，中文/表格/实体/域代码处理实测可靠；
+   - pdf：FlateDecode 流 + Tj/T*/TJ 文本，best-effort；新增乱码启发式（`isGarbageText`）——CID 字体/扫描 PDF 解出的乱码直接放弃走兜底，实测 CNKI/知网/学位论文 PDF 不再展示乱码；
+   - 旧版 `.doc/.xls/.ppt/.rtf`（OLE）零依赖无法解析 → 明确提示 + 打开按钮。
+2. `lib/index.js`：`read-file` 返回分类预览模式（`mode: text / extracted / image / binary`，向后兼容）；新增 `open-external`（白名单路径 + 用户点击触发；**用 `explorer.exe` 而非 `cmd /c start`**——实测 start 在沙箱/无控制台环境挂起不返回，explorer ~780ms 返回成功拉起 notepad 验证）。
+3. `lib/client.js`：按 mode 渲染（提取文本+提示条 / `<img>` / 提示+打开按钮）；原 text 高亮路径不动。
+4. 新增 `test/extract.test.mjs`（9 例内存夹具单测）+ 插件 `README.md`（架构 / LIMITS / 加格式指引）。
+5. 安全上限集中在 `LIMITS`：读文件 32MB、单条目解压 8MB、条目 500、提取文本 512KB；只读内存不写盘、正则抽文本无 XXE、零子进程零新增监听 → 长期运行无泄漏/僵尸风险。
+
+### 验证
+- `node --check` 4 文件全过；单测 9/9 过（`node --test` 在本沙箱因 spawn EPERM 不可用，直接 `node` 跑测试文件）。
+- 真实文件抽检：中文论文 docx（37KB 文本）、账单 xlsx 表格、党日活动 pptx、教学计划 docx 全正常；CNKI/知网/学位论文 PDF 正确走「打开」兜底；图片分类正确。
+- open-external：`explorer.exe` 拉起 notepad（PID 实测）。
+- ⚠️ 生效时序：`dev_reload_package` 报 `loader.internal 不可用`（同 2026-08-28 视觉引擎记录）→ **host 侧改动需重启应用生效**；client bundle 走读盘，重启后刷新浏览器即可看到新预览面板。
+
+### 回滚
+- `git checkout -- plugins/dsh-file-explorer/lib/{index.js,client.js}` + 删除新增的 `lib/extract.js`、`test/extract.test.mjs`、`README.md`；`_backups/file-explorer-verify/` 为验证脚本与夹具（可留作回归基线）。
+
+### 追加（同日）：大文本分段预览（>2MB 不再拒绝）
+- 背景：纯文本 >2MB 仍被 `MAX_READ_BYTES` 拒绝（原设计「防大文件卡死渲染」）；文档预览有 512KB 输出上限、文本预览没有，属遗留缺口。
+- 改动：
+  1. `lib/index.js`：新增 `readTextWindow`（按 `offset` 窗口读，默认 `TEXT_WINDOW_BYTES=128KB`，**只读窗口不整读**——100MB 日志也仅占一个窗口内存）+ `alignUtf8Offset`（纯函数：UTF-8 边界对齐，窗口起点回退到字符边界、尾部半个字符剥离绝不显示 �、首段剥 BOM）；`read-file` 接受可选 `offset`/`limit`，>2MB 返回首段 + `hasMore`/`chunk`/`chunks`（向后兼容：不带参的小文件整读行为不变；老客户端拿到首段而非报错）；二进制探测仅首段执行（前 1KB）。
+  2. `lib/client.js`：text 模式加「← 上一页 / 第 x/y 页 / 下一页 →」分页条；高亮阈值改用 `windowBytes`（128KB 窗口 < 200KB 上限 → 窗口内高亮始终可用）。
+  3. 新增 `test/window.test.mjs`（5 例：边界对齐、17 字节窗口翻页拼接无损、越界 offset）+ `test/fixtures/window-bytes.txt`。
+- 验证：window 5/5 + extract 9/9 过；真实 3.3MB 混合中英文文件 27 页翻页 `recombinedBytes==total`、0 个坏窗口。
+- 执行期问题已登记 `_backups/errors-20260828.log`（cmd start 挂起→explorer.exe、node --test EPERM、注释 */ 坑、BOM/引号破坏 JSON body 等，全部已修复或已规避）。
+
+---
+
+## 2026-08-28 视觉引擎修复：通道健康感知 + 单写者收敛 + rotator 停用
+
+### 背景（实测定位）
+- 「视觉引擎处理失败」根因：`~/.modlens/config.json` 顶层 `proxy: http://127.0.0.1:7897` 指向的 Clash 代理未运行（端口无监听）→ modlens 自动读图/面板自测全部 `ECONNREFUSED`（实测复现 0.36s 失败）。
+- 次因：`dsh-vision-rotator` 用 curl 直连探活（硅基/百炼标 healthy）与 modlens 实际读图路径（全局代理）不一致 → 状态"看似可用、实际失败"；且 rotator 与 vision-engine 双写 config.json（rotator 轮换会把 `extraBody.max_tokens` 压回 4096，覆盖 8192 下限，大截图 OCR 截断风险）。
+- 上游研判：modlens 3.23.1 自带故障转移链（`REMOTE_FAILOVER_ORDER`）+ `doctor` + 设置卡；DSH 内核原生支持多模态消息（`dsh-llm-deepseek` `inputModalities` / 图片块 / Files API）——自研 rotator 属重复造轮子。
+
+### 改动
+1. **dsh-vision-engine（host `lib/index.js`）**：
+   - 新增 `GET /vision-engine/health`：代理 TCP 探活（configured/up/url）+ Ollama + CLI + `pinnedProvider` + `autoFailover`。
+   - `handleRefresh` 返回 `proxy`/`ollama` 健康；`analyzeImage` 失败附加 `hint`（`proxy-down` / `timeout`），面板据此给出可执行建议而非裸错误。
+   - 名字清洗升级 `sanitizeName`：healName 之后清 C1 控制符/替换符残留与孤立尾部标点（历史脏名如「…（你的key?」），读取与保存双端生效，避免再写入脏名。
+   - **单写者 + provider pin**：保存配置时若 `autoFailover=false`（默认）把面板 active 同步为 modlens 顶层 `provider`（openai / gemini-api），保证自动读图真实路径 = 面板「当前生效」；`autoFailover=true` 时不 pin，交给 modlens 内置故障转移链。
+2. **dsh-vision-engine（client `lib/client.js`）**：新增「通道状态」卡（代理 / Ollama / CLI 三态圆点 + 故障自动切换开关）；测试/自测失败展示可执行 hint；i18n（zh/en）补齐。
+3. **dsh-vision-rotator 停用**：`dev_uninject_plugin` 卸载（loader entry 清理 + junction 删除 + profile patch 写 `disabled` 阻断自装配）；源码保留 `dsh-vision-rotator/` 可随时回滚。轮换职责由 modlens 内置 failover 链承接。
+4. **未动用户数据**：`~/.modlens/config.json` 顶层 proxy 保持原样（仅诊断提示，不擅自改网络拓扑）；`spare-keys.json` 保留供回滚/未来复用。
+
+### 验证
+- `node --check` host/client 双文件通过；`/vision-engine/config` 200（7 profiles）；GUI 根路径 200。
+- 代理死亡场景实测：`modlens analyze` 复现 `ECONNREFUSED … set proxy`；本地 Ollama `qwen2.5vl:7b` 实测读图成功（真实 PNG，2.3s）。
+- ⚠️ 生效时序：host 新路由（/health）与 rotator 彻底下线需**重启应用**后才完整生效（`dev_reload_package` 报 `loader.internal 不可用`，热重载未生效；rotator junction 已删 + patch 已禁用，重启后不再装配）。客户端 bundle 走读盘，浏览器刷新即可看到新面板（/health 字段在重启前为空属预期）。
+
+### 运行时修复（同日追加，用户要求"已有视觉模型全量可用"）
+- 实测定位：`~/.modlens/config.json` 顶层 `proxy: http://127.0.0.1:7897` 无监听（Clash Verge 未运行，GUI 程序未找到），拖死所有无独立代理字段的云模型。
+- 处置：**备份后移除顶层 `proxy`**（`_backups/vision-engine-20260828/modlens-config-before-fix.json`），保留 `gemini-api` 槽自身代理字段。直连路径实测：dashscope/siliconflow/bigmodel 均可达（200）。
+- 全模型真实读图复验（modlens analyze 实测）：
+  | 模型 | 结果 |
+  |---|---|
+  | 本地 Ollama qwen2.5vl:7b | ✅ 2.3s |
+  | 百炼 qwen3-vl-plus（active） | ✅ 7.4s（removed proxy 后恢复） |
+  | 百炼 qwen-vl-plus | ✅ 6.9s |
+  | 百炼 qwen3.7-flash-2026-07-15 | ✅ 19.9s（ID 有效，慢） |
+  | 智谱 glm-4v-flash | ✅ 直连 200（此前 401 为测试脚本误报） |
+  | 默认 failover 链（autoread 路径） | ✅ 8.1s（gemini 快速失败 → openai 成功） |
+  | gemini-3.6-flash / groq / openrouter | ⏸ 依赖 127.0.0.1:7897，等用户启动 Clash Verge 后自动恢复（不影响主链） |
+- 注：早期断言"qwen3.7-flash-2026-07-15 模型 ID 存疑"经实测撤销——DashScope 该 ID 有效可用。
+
+### 回滚
+- host/client 改动前原件：`_backups/vision-engine-20260828/`；rotator 恢复：`dev_inject_plugin dir=D:\Deepseek-Harness\dsh-vision-rotator` + 恢复 profile patch（原件同目录备份）。
+
+---
+
 ## 2026-08-27 收尾迭代（建议落实）：task-scheduler 跨通道锁一致性修复 + unpacked 健康探针
 
 ### 修复：dsh-task-scheduler 资源 key 跨通道确定性（v1.1）

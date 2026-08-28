@@ -21,7 +21,7 @@
 
 | 插件 | 状态 | 热重载 | 用途 |
 |------|------|--------|------|
-| `dsh-file-explorer` | core | ⚠️ | 右侧文件浏览器（details 面板） |
+| `dsh-file-explorer` | core | ⚠️ | 右侧文件浏览器（details 面板）：文件树 + 代码高亮 + 文档预览（docx/xlsx/pptx/pdf 零依赖文本提取、图片预览、大文本分段预览（UTF-8 边界窗口翻页）、旧版二进制「用系统程序打开」兜底；2026-08-28 增强） |
 | `dsh-force-reasoning-effort` | experimental | ✅ | 强制 reasoning-effort 能力（无 reasoning 元数据的模型也显示思考强度控件） |
 | `dsh-frontend-reload` | core | ✅ | 前端刷新按钮 + Ctrl+R（桌面壳 Windows 无应用菜单时的兜底） |
 | `dsh-hy3-gateway` | experimental | ✅ | HY3 OpenAI 兼容网关自动启动（CloudBase 免费混元） |
@@ -42,7 +42,7 @@
 | `dsh-system-notify` | core | ⚠️ | 系统通知（任务/会话完成时弹 Windows toast） |
 | `dsh-task-scheduler` | core | ✅ | 跨对话任务调度：并发操作互斥锁（文件级 `~/.dsh/.task-scheduler`）+ 优先级抢占通知 + 变更时间线 + stale 基线防覆盖 + 无锁修改检测；CLI（`scripts/task-scheduler.mjs`）+ HTTP（`/task-scheduler/*`）双通道；规则在全局 `~/.dsh/AGENTS.md` 覆盖所有工作区（2026-08-27 上线） |
 | `dsh-ui-performance` | core | ✅ | 设置面板渲染优化：禁用 backdrop-filter 毛玻璃（遮罩 blur(2px)；规则二保留为 no-op，原针对已删除的 maid-atelier 皮肤面板 blur(6px)）+ 面板视口自适应放大（clamp 80vw/82vh，封顶 1240×920，双 max 守卫）+ 各分区宽度上限适配（plugins/desktop/models/agent-presets）+ 插件清单栅格自适应与 content-visibility 渲染节流；纯 CSS 注入、无状态、幂等 |
-| `dsh-vision-engine` | core | ✅ | 视觉引擎（modlens 服务间桥接，与根级 dsh-vision-rotator 轮转配合） |
+| `dsh-vision-engine` | core | ✅ | 视觉引擎（modlens 服务间桥接）：多配置管理 + 测试/额度/用量 + 通道健康卡（代理/Ollama/CLI）+ 单写者 provider pin + autoFailover 开关（2026-08-28 增强） |
 | `dsh-web-fetch-local` | core | ✅ | 本地 HTTP(S) 抓取（SSRF 防护 + 大小限制） |
 | `dsh-web-search-bing` | core | ✅ | 免 key 必应搜索 |
 
@@ -52,7 +52,7 @@
 |------|------|--------|------|
 | `dsh-context-lifecycle` | core | ✅ | token 生命周期管理（零依赖 host 模式） |
 | `dsh-stuck-loop-guard` | core | ✅ | 失败循环守卫（零依赖 host 模式） |
-| `dsh-vision-rotator` | core | ✅ | 视觉引擎轮转（与 vision-engine 配合） |
+| `dsh-vision-rotator` | deprecated | ✅ | 视觉引擎轮转 —— 已停用（2026-08-28，双写 config.json + 探活路径与读图路径不一致（代理）导致"假健康"；轮换职责由 modlens 3.23 内置 failover 链承接；源码保留 `dsh-vision-rotator/` 可回滚） |
 
 ### profile 市场安装（community-market / npm 管理，非 plugins/ 目录）
 
@@ -62,5 +62,5 @@
 
 ## 统计
 
-- 总计: 27（plugins/ 24 + 根级 3）| core: 25 | experimental: 2 | deprecated: 0 ｜ profile 市场安装: 1（dsh-context，community-market 管理）
-- 可热重载: 12 | 必须重启: 2 (modlens 类) | 建议重启: 12 (bundle 类)
+- 总计: 27（plugins/ 24 + 根级 3）| core: 24 | experimental: 2 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 1（dsh-context，community-market 管理）
+- 可热重载: 11 | 必须重启: 2 (modlens 类) | 建议重启: 12 (bundle 类)
