@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-08-31 新增 paper-writer 论文写作预设（研究生论文模式）
+
+### 内容
+- 新用户预设 `paper-writer`（展示名「论文写作」）：生效位置 `~/.dsh/.agent-presets/paper-writer/`，工作区镜像 `agent-presets/paper-writer/`（编辑源头 + 回滚备份）。
+- 组合基于官方 standard 全量工具面，两处定制：论文写作专家快输出人设（一次成稿、批量工具调用）；`skill-filesystem.customSkillDirs` 挂载预设自带 `skills/`（技能随预设隔离，不污染其他模式）。
+- 6 个专属技能：thesis-file-reader（docx/pdf/多格式读取 + 扫描版视觉 OCR）、thesis-latex-writer（ctex 模板 + latexmk 编译 + 实时预览）、thesis-references（GB/T 7714 双路线 + Crossref/DOI 抓取 + citeproc）、thesis-figures-tables（三线表/子图/matplotlib）、thesis-docx-output（Word/PDF 生成）、thesis-math-formula（公式编写/图片识别/编译验证）。
+- 本机工具链盘点齐全未新装软件：pandoc 3.8、TeX Live 2026（xelatex/latexmk/biber/ctex/gb7714）、Python（pdfplumber/PyMuPDF/python-docx/matplotlib）。
+
+### 验证
+- 组合文件经内核 loader 方言解析 16 行合法；网关 agentPreset.list 发现 broken=no；session.create 挂载成功。
+- e2e：paper-writer 真实会话技能目录含全部 6 个 thesis-* 技能；单轮响应即时完成（快输出达成）。
+- 冒烟：latexmk+biber 编译含公式/三线表/GB7714 的中文论文出 2 页 PDF（引用与中文渲染正确）；pandoc docx/citeproc/中文 PDF 全过。产物存档 `_backups/paper-writer-smoke-20260831/`。
+- 纯新增无重启依赖；预设发现不缓存，新会话立即可选。
+
+### 风险收益
+- 收益：一站式论文写作模式；技能按预设隔离。风险：低（纯新增目录树，未动启动链路/补丁/dist；回滚=删目录）。
+- 已知限制登记：skills-manager layers 缓存使新预设在面板重启后才可见（展示层）；/skmg list 合并不含预设专属技能（会话内注入正常）；内核 agentPreset.remove 存在 Buffer 路径 bug（本次用回收站绕过）。
+
+
 ## 2026-08-31 收尾归档：better-sidebar Office 预览落地 + 前序修复核验
 
 ### better-sidebar 侧边栏 docx「此文件类型不支持预览」根治
