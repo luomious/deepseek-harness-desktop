@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createMarketApi } from "./market/api.js";
 
 export const name = "dsh-skills-manager";
@@ -218,38 +220,45 @@ export function apply(ctx) {
         return { ok: true, data: null };
       }
       // 导入文件夹：扫描 path（或其一层子目录）中的 SKILL.md，原样复制到用户 skills 根目录
+      // 2026-08-31 修复：遍历/读取改用 node:fs（跨平台）——ctx.shell 在 Windows 为 pwsh，find/cat 不可用
       if (method === "importFolder") {
         const folder = args && args.path ? String(args.path).trim() : "";
         if (!folder) return { ok: false, error: "请提供要导入的文件夹路径" };
         const root = await detectUserRoot();
         if (!root) return { ok: false, error: "无法定位用户 skills 根目录（~/.dsh/skills）" };
-        const probe = ctx.shell.resolve({ command: "find -- '" + q(folder) + "' -maxdepth 2 -name SKILL.md -print", timeoutMs: 8000, sandboxPolicy: fullPolicy });
-        const res = await ctx.shell.run(probe);
-        if (res.exitCode !== 0) return { ok: false, error: "无法读取文件夹（exit " + res.exitCode + "）" };
-        const files = res.stdout.text.split("\n").map((s) => s.trim()).filter(Boolean);
+        let files = [];
+        try {
+          const stat = fs.statSync(folder);
+          if (!stat.isDirectory()) return { ok: false, error: "路径不是文件夹：" + folder };
+          const direct = path.join(folder, "SKILL.md");
+          if (fs.existsSync(direct)) files.push(direct);
+          for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+              const nested = path.join(folder, entry.name, "SKILL.md");
+              if (fs.existsSync(nested)) files.push(nested);
+            }
+          }
+        } catch (e) {
+          return { ok: false, error: "无法读取文件夹：" + String((e && e.message) || e) };
+        }
         if (files.length === 0) return { ok: false, error: "未找到 SKILL.md（文件夹或其一层子目录内）" };
         const { items } = await collectAll();
         const imported = [], skipped = [], errors = [];
         for (const file of files) {
           try {
-            const cat = ctx.shell.resolve({ command: "cat -- '" + q(file) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
-            const catRes = await ctx.shell.run(cat);
-            if (catRes.exitCode !== 0) { errors.push(file + ": 读取失败（exit " + catRes.exitCode + "）"); continue; }
-            const text = catRes.stdout.text;
+            const text = fs.readFileSync(file, "utf8");
             const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
             const fmName = fm ? /(?:^|\n)name:\s*["']?([a-z0-9]+(-[a-z0-9]+)*)["']?/.exec(fm[1]) : null;
             let name = fmName ? fmName[1] : null;
             if (!name) {
-              const dir = file.replace(/[\\/]SKILL\.md$/i, "").split(/[\\/]/).pop() || "";
+              const dir = path.basename(path.dirname(file));
               if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(dir)) name = dir;
             }
             if (!name) { errors.push(file + ": 无法解析 name（需 kebab-case）"); continue; }
             if (items.some((i) => i.name === name)) { skipped.push(name + "（已存在）"); continue; }
-            const dir2 = root + "/" + name;
-            const mk = ctx.shell.resolve({ command: "mkdir -p -- '" + q(dir2) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
-            const mkRes = await ctx.shell.run(mk);
-            if (mkRes.exitCode !== 0) { errors.push(name + ": 创建目录失败（exit " + mkRes.exitCode + "）"); continue; }
-            await ctx.fs.writeText(await ctx.fs.resolve(dir2 + "/SKILL.md"), text, undefined, undefined, fullPolicy);
+            const dir2 = path.join(root, name);
+            fs.mkdirSync(dir2, { recursive: true });
+            await ctx.fs.writeText(await ctx.fs.resolve(path.join(dir2, "SKILL.md")), text, undefined, undefined, fullPolicy);
             imported.push(name);
           } catch (e) {
             errors.push(file + ": " + String((e && e.message) || e));
