@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-external/dsh-command-guard",
+  "version": "0.1.0",
+  "description": "命令风险检测：监听 tool/call 对 shell/exec 类命令做风险评分（复用 dsh-tool-visibility 监听模式 + 共享 risk-rules 模块），高风险命令告警 JSONL + 状态路由（v1 只读检测，v2 可迭代接入 approval 拦截）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.0"
+  }
+}

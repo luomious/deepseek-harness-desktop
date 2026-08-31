@@ -1,0 +1,4 @@
+# dsh-command-guard bundle patch: command risk detection (DSH upgrade plan v3 · P2-A-5).
+# 装配路径说明：本插件走 bundles 列表装配（与 dsh-tool-visibility 一致）。
+# 此文件仅满足 profile loader 的 dsh.bundle.patch 在位校验；不含 insert（避免
+# 「bundles + patch insert」双装配冲突，实测会导致 apply 不完整执行）。

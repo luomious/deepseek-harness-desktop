@@ -338,3 +338,27 @@
 | UA-1 | task-scheduler acquire 写锁文件 EPERM（环境性，status 显示 locks:[] 无竞争） | 登记；目标为新增文件/末尾追加，冲突面小 |
 | UA-2 | `close-stale-dsh.ps1` 在 agent shell 内因 WMI 权限受限误报「No DSH Desktop main process found」 | 改用等价 Stop-Process 对已知 stale PID 执行；用户终端跑脚本不受影响 |
 | UA-3 | 本段首次登记被并行会话重写文件时覆盖丢失（2026-08-31） | 补登记于文件末尾；共享文档写后需回读验证 |
+
+---
+
+## 阶段 3a 收尾：A1/A2 残留清理与形态统一（✅ 2026-08-31 晚）
+
+**背景**：阶段 3a 终验结论——command-guard 受打包壳装配机制层限制（清单 active、loader 无 fiber），判定为「active 但不工作」幽灵状态；交接文档待办 A1/A2 立项，用户批准执行。
+
+**执行项（A1：command-guard 装配残留清理）**：
+1. ✅ 运行态 `~/.dsh/profiles/desktop/package.json`：移除 dependencies + bundles 的 `@dsh-external/dsh-command-guard`（bundles 33→32）
+2. ✅ 模板 `profile/desktop/package.json`：同步移除（33→32）
+3. ✅ 删除 junction `~/.dsh/profiles/desktop/node_modules/@dsh-external/dsh-command-guard`（只删链接；目标目录 `plugins/dsh-command-guard/` 保留——risk-rules 评分库 + 12 单测可复用）
+4. ✅ 原子写（临时文件→rename）+ JSON 解析校验 + 回读
+
+**执行项（A2：patch 形态统一）**：
+1. ✅ `plugins/dsh-tool-visibility/cordis.patch.yml`：重写为纯注释（去 insert 块）——统一为 bundles-only 形态，消除「bundles + patch insert」双装配隐患（原文件实测含有效 insert 块，内容已留档于执行会话）
+2. ✅ `plugins/dsh-command-guard/cordis.patch.yml`：复核为纯注释（08-31 已修），无需改动
+
+**验证（全部通过）**：
+- ✅ startup-verify **10/10 PASS**：V2 模板=运行态（32=32）、V4 无孤儿 @dsh-external、V3 insert=8/disabled=0、V10 全部声明在位
+- ✅ 两个 package.json JSON 解析正常、无 command-guard 残留；junction 已删除且目标目录 `lib/risk-rules.mjs` 完好
+
+**结论**：幽灵装配状态清除，模板与运行态收敛一致。command-guard 插件保留（代码+单测+文档），装配需待打包壳 loader 机制问题解决后（阶段 3c 前置）。
+
+**问题登记**：无新增。
