@@ -217,6 +217,47 @@ export function apply(ctx) {
         await settle();
         return { ok: true, data: null };
       }
+      // 导入文件夹：扫描 path（或其一层子目录）中的 SKILL.md，原样复制到用户 skills 根目录
+      if (method === "importFolder") {
+        const folder = args && args.path ? String(args.path).trim() : "";
+        if (!folder) return { ok: false, error: "请提供要导入的文件夹路径" };
+        const root = await detectUserRoot();
+        if (!root) return { ok: false, error: "无法定位用户 skills 根目录（~/.dsh/skills）" };
+        const probe = ctx.shell.resolve({ command: "find -- '" + q(folder) + "' -maxdepth 2 -name SKILL.md -print", timeoutMs: 8000, sandboxPolicy: fullPolicy });
+        const res = await ctx.shell.run(probe);
+        if (res.exitCode !== 0) return { ok: false, error: "无法读取文件夹（exit " + res.exitCode + "）" };
+        const files = res.stdout.text.split("\n").map((s) => s.trim()).filter(Boolean);
+        if (files.length === 0) return { ok: false, error: "未找到 SKILL.md（文件夹或其一层子目录内）" };
+        const { items } = await collectAll();
+        const imported = [], skipped = [], errors = [];
+        for (const file of files) {
+          try {
+            const cat = ctx.shell.resolve({ command: "cat -- '" + q(file) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
+            const catRes = await ctx.shell.run(cat);
+            if (catRes.exitCode !== 0) { errors.push(file + ": 读取失败（exit " + catRes.exitCode + "）"); continue; }
+            const text = catRes.stdout.text;
+            const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+            const fmName = fm ? /(?:^|\n)name:\s*["']?([a-z0-9]+(-[a-z0-9]+)*)["']?/.exec(fm[1]) : null;
+            let name = fmName ? fmName[1] : null;
+            if (!name) {
+              const dir = file.replace(/[\\/]SKILL\.md$/i, "").split(/[\\/]/).pop() || "";
+              if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(dir)) name = dir;
+            }
+            if (!name) { errors.push(file + ": 无法解析 name（需 kebab-case）"); continue; }
+            if (items.some((i) => i.name === name)) { skipped.push(name + "（已存在）"); continue; }
+            const dir2 = root + "/" + name;
+            const mk = ctx.shell.resolve({ command: "mkdir -p -- '" + q(dir2) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
+            const mkRes = await ctx.shell.run(mk);
+            if (mkRes.exitCode !== 0) { errors.push(name + ": 创建目录失败（exit " + mkRes.exitCode + "）"); continue; }
+            await ctx.fs.writeText(await ctx.fs.resolve(dir2 + "/SKILL.md"), text, undefined, undefined, fullPolicy);
+            imported.push(name);
+          } catch (e) {
+            errors.push(file + ": " + String((e && e.message) || e));
+          }
+        }
+        await settle();
+        return { ok: true, data: { imported, skipped, errors } };
+      }
       // 市场 API（静态目录源 + 校验安装），实现见 lib/market/*
       if (method.startsWith("market.")) {
         const marketApi = getMarketApi();

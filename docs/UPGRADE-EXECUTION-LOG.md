@@ -457,3 +457,22 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **回滚**：删 lib/client.js + 还原 package.json（备份在 _backups）或 git revert → 重启即回滚。
 
 **风险收益**：低风险——host 逻辑零改动、不碰运行链路、不碰会话区渲染；最坏 = 设置页少一节，不影响任何功能。收益 = P2-A-0 展示层第一版落地。
+
+---
+
+## 阶段 3b（第一版）：skills-manager 导入文件夹 + 技能状态卡增强（✅ 代码就位，待重启生效）
+
+**背景**：方案书 v3 P2-A-1。skills-manager 为并行会话维护插件（v0.2.0 市场功能），按协作铁律加锁（task-scheduler `tk-mth6q2im`，resources=plugins/dsh-skills-manager）。
+
+**实现（低风险新增，不动现有 API/面板逻辑）**：
+1. **host**：`lib/index.js` 新增 `importFolder` API——`find -maxdepth 2 -name SKILL.md` 扫描文件夹（含一层子目录）→ `cat` 原样读取（**不重写 frontmatter，保留 triggers 等字段**）→ frontmatter name 解析（回退目录名，kebab-case 校验）→ 复制到 `~/.dsh/skills/<name>/SKILL.md`；跳过已存在同名；返回 `{imported, skipped, errors}`；沿用现有 shell+fullPolicy+settle 模式
+2. **client**：`lib/client.js` 用户 tab 新增「导入文件夹」输入框 + 按钮 + 结果提示（新增/跳过/失败明细）；技能状态卡原有 name/source/provider/启用/禁用/模型可调用徽章保持，作为状态卡基础
+3. **无删除/无重写操作**，导入只写用户 skills 根目录内（越界天然受限）
+
+**验证（文件级）**：index.js + client.js `node --check` OK；startup-verify **10/10**；v0.2.0 市场测试未触碰（tests/ 未改）。
+
+**待重启验证**：设置页 Skills 管理器 → 用户 tab → 输入含 SKILL.md 的文件夹路径 → 导入后列表出现新 skill（可启用/编辑/删除）。
+
+**回滚**：`git revert` 本 commit → 重启即回滚（host+client 双回滚）。
+
+**风险收益**：低风险——新增 API 与新增 UI 区块，不触碰现有 method 与面板逻辑；原样复制技能文件（不重写、不删除）；最坏 = 导入失败返回错误提示。收益 = 批量安装技能（方案书「一键安装 ≤3 步」目标的本地化第一步）。
