@@ -1,0 +1,56 @@
+﻿
+Item                             Status Evidence                                                             
+----                             ------ --------                                                             
+workspace-dev                    PASS   ADD_CHAT/ADD_REMOTE/remoteFlow                                       
+workspace-pkg                    PASS   ADD_CHAT/ADD_REMOTE/remoteFlow                                       
+conversation-dev                 PASS   chatOnly                                                             
+conversation-pkg                 PASS   chatOnly                                                             
+modlens-takeover(desktop)        PASS   patch marker (lowered0)                                              
+desktop/remote-workspace         PASS   insert-row + junction                                                
+desktop/file-explorer            PASS   insert-row + junction                                                
+desktop/system-notify            PASS   insert-row + junction                                                
+desktop/frontend-reload          PASS   insert-row + junction                                                
+desktop/bundles-count            PASS   count=31                                                             
+desktop/dshmarket                PASS   in bundles                                                           
+web/remote-workspace             PASS   insert-row + junction                                                
+web/file-explorer                PASS   insert-row + junction                                                
+web/system-notify                PASS   insert-row + junction                                                
+web/frontend-reload              PASS   insert-row + junction                                                
+web/bundles-count                PASS   count=25                                                             
+web/dshmarket                    PASS   in bundles                                                           
+dsh-remote-workspace/lib         PASS   client.js+index.js                                                   
+dsh-file-explorer/lib            PASS   client.js+index.js                                                   
+dsh-system-notify/lib            PASS   client.js+index.js                                                   
+dsh-frontend-reload/lib          PASS   client.js+index.js                                                   
+super-injector-loadcache         PASS   optional chaining                                                    
+security-fixes                   PASS   H1=True H3=True                                                      
+desktop-shortcut-icon            PASS   lnk points to exe (built-in icon fallback)                           
+audit-doc                        PASS   exists                                                               
+scripts                          PASS   port+guard+security                                                  
+frontend-reload-dep              PASS   dep=link:D:\Deepseek-Harness\plugins\dsh-frontend-reload             
+file-explorer/registerLocalApi   PASS   uses hostServices                                                    
+file-explorer/no-local-trusted   PASS   no local trusted copy                                                
+skills-manager/registerLocalApi  PASS   uses hostServices                                                    
+skills-manager/no-local-trusted  PASS   no local trusted copy                                                
+model-whitelist/registerLocalApi PASS   uses hostServices                                                    
+model-whitelist/no-local-trusted PASS   no local trusted copy                                                
+vision-engine/registerLocalApi   PASS   uses hostServices                                                    
+vision-engine/no-local-trusted   PASS   no local trusted copy                                                
+registry-no-double-channel       PASS   stale=                                                               
+title-config-template            PASS   template row                                                         
+title-config-runtime             PASS   runtime row                                                          
+runtime-patch-curated            PASS   compaction row+config block (structural) + web + frontend-reload rows
+runtime-bundles-full             PASS   count=31                                                             
+hygiene-bundle-patch             PASS   bundle patch declared                                                
+hygiene-config                   PASS   warnBytes+scanIntervalMs configured                                  
+self-maintenance-source          PASS   plugin+template bundle registered                                    
+title-config-max512              PASS   512 in template+runtime                                              
+endpoint/vision-engine/config    PASS   http 200                                                             
+endpoint/vision-rotator          FAIL   http -1                                                              
+endpoint/session-hygiene/report  PASS   http 200                                                             
+endpoint/host-services/status    PASS   http 200                                                             
+endpoint/self-maintenance/status PASS   http 200                                                             
+
+
+
+TOTAL 49, FAIL 

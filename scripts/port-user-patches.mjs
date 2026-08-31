@@ -159,6 +159,19 @@ function applyRemoteEntry(content) {
   return content
 }
 
+// zstd 会话解压异步化补丁（Option A）：热读路径 readRaw/readZstdPrefix 的同步 decoder
+// 改为逐帧异步 decompressZstdFrame（模块已有 API；帧边界/校验和/abort 语义不变；
+// 同步 decoder 类保留定义但 createZstdFrameDecoder 已无调用点）。
+const ZSTD_MODULE = {
+  name: 'dsh-session-persistence-jsonl index.js (zstd async decode)',
+  canon: join(CANON_DIR, 'dsh-session-persistence-jsonl-index.js'),
+  targets: [
+    join(DEV_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
+    join(PKG_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
+  ],
+  markers: ['PATCH(zstd-async)'],
+}
+
 let failed = 0
 const report = []
 
@@ -201,7 +214,7 @@ for (const w of WORKSPACES) {
   }
 })()
 
-for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE, DIRECTORY_PICKER]) {
+for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE, DIRECTORY_PICKER, ZSTD_MODULE]) {
   try {
     const content = ensureMarkers(readFileSync(p.canon, 'utf8'), p.markers, p.name)
     for (const t of p.targets) writeIfDifferent(t, content)

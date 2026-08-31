@@ -54,6 +54,31 @@ if ($syntaxFail -eq 0) {
 }
 $totalFail += $syntaxFail
 
+# ---- Step 1.5: health-check.mjs (assembly preflight + SLO health history) ----
+# 优先使用 health-check.mjs：内部运行 startup-verify 并记录到 ~/.dsh/.health/startup-history.jsonl
+# （SLO 健康看板，方案书 v3 阶段 6）；脚本缺失时回退直接跑 startup-verify。
+Write-Host ''
+Write-Host '=== Step 1.5: health-check.mjs (preflight + SLO record) ===' -ForegroundColor Cyan
+$healthCheck = Join-Path $PSScriptRoot 'health-check.mjs'
+$startupVerify = Join-Path $PSScriptRoot 'startup-verify.mjs'
+if (Test-Path $healthCheck) {
+  & node $healthCheck
+  $verifyCode = $LASTEXITCODE
+  if ($verifyCode -ne 0) {
+    Write-Host ('  FAIL  health-check exited with code ' + $verifyCode) -ForegroundColor Red
+    $totalFail += $verifyCode
+  }
+} elseif (Test-Path $startupVerify) {
+  & node $startupVerify
+  $verifyCode = $LASTEXITCODE
+  if ($verifyCode -ne 0) {
+    Write-Host ('  FAIL  startup-verify exited with code ' + $verifyCode) -ForegroundColor Red
+    $totalFail += $verifyCode
+  }
+} else {
+  Write-Host '  SKIP  health-check.mjs / startup-verify.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan
