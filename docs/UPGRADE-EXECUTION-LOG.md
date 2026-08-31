@@ -491,3 +491,25 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 1. `detectUserRoot` 的 printf 回退在 Windows 不可用——但主路径（resourcePath 推断）当前工作，仅在无 user-dsh skill 时触发；如遇「无法定位用户 skills 根目录」再修。
 2. `delete` 的 `rm -rf --` 在 pwsh 下 `--` 可能被当作路径参数——有越界防护兜底，暂未验证；后续可复核。
 3. 平台经验沉淀：**DSH 插件在 Windows 的 shell 命令必须用 PowerShell 语法或 node:fs，POSIX 命令（find/printf/cat）不可用**——写入 HANDOVER 教训。
+
+---
+
+## 阶段 3a 翻案：command-guard 重试装配（✅ 装配就位，待重启终验，2026-08-31 晚）
+
+**背景**：3a 曾判定「机制层限制」搁置；「阶段 3a 收尾修正」段已推翻该结论（insert 是装配入口）。本次按新认知重试——**三处关键修正 vs 3a 失败版**：
+1. `cordis.patch.yml`：纯注释 → **含 `- insert:` 块**（id/name/config enabled）——装配入口
+2. 模块形态：单文件 `lib/index.js`（无相对导入，评分逻辑内嵌）+ `inject: ['timer']`（108 行）——与 tool-visibility 完全一致
+3. 装配：A1 清理的条目全部加回——运行时+模板 dependencies/bundles（32→33）+ junction 重建（fs.symlinkSync junction）
+
+**执行（加锁 tk-mthfw5ur，备份 _backups/command-guard-patch.yml.bak-20260831 等 3 份）**：
+- ✅ patch 重写为 insert 形态（干净 UTF-8）
+- ✅ 运行时+模板 package.json：dep+bundle 加回（原子写，33 项）
+- ✅ junction 重建（LinkType=Junction → plugins/dsh-command-guard）
+
+**验证（文件级）**：JSON 解析 + 回读 OK；junction 在位；index.js `node --check` OK；startup-verify **10/10**（V2 33=33、V4 无孤儿、V10 patch 声明在位）。
+
+**待重启终验（三信号，同 tool-visibility 标准）**：① dev_plugin_status loader entries 有 command-guard fiber；② `/command-guard/status` 200；③ 触发含危险字符串命令 → `/command-guard/alerts` 出现 + JSONL 落盘 `~/.dsh/command-guard/alerts.jsonl`。
+
+**回滚**：git revert 本 commit + 删 junction + 还原 package.json（备份在 _backups）→ 重启即回滚。
+
+**风险收益**：中低风险——改动面 = patch + 装配清单 + junction（全可逆）；v1 只读观察者不拦截不干预；最坏 = 无 fiber（再清理）。收益 = 若终验通过，P2-A-5 命令风险可见性转正，3a 遗憾闭环。

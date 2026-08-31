@@ -1,4 +1,9 @@
 # dsh-command-guard bundle patch: command risk detection (DSH upgrade plan v3 · P2-A-5).
-# 装配路径说明：本插件走 bundles 列表装配（与 dsh-tool-visibility 一致）。
-# 此文件仅满足 profile loader 的 dsh.bundle.patch 在位校验；不含 insert（避免
-# 「bundles + patch insert」双装配冲突，实测会导致 apply 不完整执行）。
+# 装配路径说明：cordis include loader 依赖本文件 insert 块创建 fiber（bundles 清单仅是清单层；
+# 2026-08-31 实证：insert 是装配入口，纯注释形态无 fiber；3a 失败结论已修正，现按
+# 「insert + 单文件 + inject ['timer']」可靠形态重试装配）。
+- insert:
+    - id: dsh-command-guard
+      name: '@dsh-external/dsh-command-guard'
+      config:
+        enabled: true
