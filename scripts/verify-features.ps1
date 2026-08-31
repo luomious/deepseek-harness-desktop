@@ -90,7 +90,7 @@ Add-Check 'title-config-max512' ($tp.Contains('maxOutputTokens: 512') -and $rtp.
 $ok = $null
 try { $ok = (Invoke-WebRequest -Uri 'http://127.0.0.1:43120/' -UseBasicParsing -TimeoutSec 3).StatusCode } catch {}
 if ($ok -eq 200) {
-  foreach ($ep in @('/vision-engine/config','/vision-rotator','/session-hygiene/report','/host-services/status','/self-maintenance/status')) {
+  foreach ($ep in @('/vision-engine/config','/session-hygiene/report','/host-services/status','/self-maintenance/status')) {
     $code = -1
     try { $code = (Invoke-WebRequest -Uri "http://127.0.0.1:43120$ep" -UseBasicParsing -TimeoutSec 8).StatusCode } catch { $code = -1 }
     Add-Check "endpoint$ep" ($code -eq 200) "http $code"

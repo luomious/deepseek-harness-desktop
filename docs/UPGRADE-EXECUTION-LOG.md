@@ -392,3 +392,30 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **知识沉淀更新**：本段修正覆盖阶段 3a 终验「机制层限制」结论；HANDOVER §2 教训 1 同步修订。
 
 **问题登记**：无新增（本次为自身回归，已闭环）。
+
+---
+
+## A 组收尾：验证清理 / 契约文档 / SLO 定时巡检（✅ 2026-08-31 晚）
+
+**背景**：阶段 3a 收尾（A1/A2 + 回归修正）后，用户重启验证 tool-visibility 恢复；随后执行 A 组三项低风险收尾（用户批准 A 方案）。
+
+**重启验证（tool-visibility 回归闭环）**：
+- ✅ dev_plugin_status：`dsh-tool-visibility` **[active]**（fiber 恢复）
+- ✅ `/tool-visibility/status` 200（ok:true、bufferSize、logPath 正常）
+- ✅ startup-verify 10/10
+- 结论：**insert 是装配入口的认知完整实证**，3a 修正闭环。
+
+**A1：verify-features 过时项清理（P0-1 闭环）**
+- 移除 `scripts/verify-features.ps1` endpoint 检查中的 `/vision-rotator`（dsh-vision-rotator 已卸载，该项必 FAIL；stale 清单保留，仍防 registry 残留）
+- 验证：**TOTAL 50, FAIL 0 全绿**（此前 49 项 1 FAIL）
+
+**A2：契约文档初版**
+- 新建 `docs/plugin-contracts.md`：四类契约 v1——工具调用事件（✅ 已生效：字段/路由/可靠性）、连接器 manifest（📝 草案：等官方升级、不重复造轮子）、技能 frontmatter（📝 部分）、插件服务契约（✅ 已生效：insert 装配入口 + 单文件 + inject timer + 清单层 + dev_plugin_status 验证）
+
+**A3：SLO 定时巡检（脚本就位，注册可选）**
+- 新建 `scripts/health-task-run.ps1`：每日 runner（health-check 追加 SLO + check-update-compat 更新提醒，日志 `~/.dsh/.health/task-*.log`）
+- 新建 `scripts/install-health-task.ps1`：一键注册计划任务「DSH Health Check」每日 09:05（需管理员权限）
+- 实测：runner 手动跑通——SLO 历史 2→3 条 100% PASS；update-compat 结论输出正常
+- 说明：注册为可选；不注册时 check-all 已自动积累 SLO
+
+**问题登记**：无新增。

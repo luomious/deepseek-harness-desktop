@@ -60,7 +60,7 @@
 | 3c | 连接器市场 / MCP roots 授权 | 需装配（先解决 A1 装配机制问题） |
 | 4 | 集成面板（client bundle） | 需 client 装配路径 |
 | 5 | P3 shell 渲染器 ×20 / Mention / 主题 | 高风险单独排期，需完整备份+回归 |
-| 6 增强 | health-check 接定时巡检（self-maintenance 同款 timer）/ 告警通知 / 看板 UI | 需装配 |
+| 6 增强 | health-check 定时巡检（✅ 2026-08-31 脚本就位：`health-task-run.ps1` + `install-health-task.ps1`，注册计划任务可选）/ 告警通知 / 看板 UI | 告警/看板需装配 |
 
 ### C. 遗留验证
 | # | 项 | 状态 |
@@ -82,6 +82,11 @@ node scripts/startup-verify.mjs
 # SLO 健康看板
 node scripts/health-check.mjs            # 运行+记录+报告
 node scripts/health-check.mjs --summary  # 仅汇总
+
+# 健康巡检 runner（手动跑一次，追加 SLO 记录 + 更新提醒）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\health-task-run.ps1
+# 注册每日自动巡检（09:05，需管理员权限，可选）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-health-task.ps1
 
 # 工具调用可见性（tool-visibility）
 curl http://127.0.0.1:43120/tool-visibility/status
