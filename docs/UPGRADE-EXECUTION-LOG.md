@@ -419,3 +419,21 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 - 说明：注册为可选；不注册时 check-all 已自动积累 SLO
 
 **问题登记**：无新增。
+
+---
+
+## B 专项第一阶段：Client 装配路径只读逆向（✅ 2026-08-31 晚）
+
+**产出**：`docs/CLIENT-ASSEMBLY-FEASIBILITY.md`（可行性报告）。
+
+**核心结论（推翻旧认知）**：
+1. **client 装配路径已打通**——内核标准机制：插件 `package.json` 的 `dsh.client` 声明 + `exports["./client"]`；host 侧 `dsh-client-modules` 增量扫描 loader entries → 组合 `window.__DSH_BOOT__` wire → 浏览器 `__ModuleLoader__.load({id, factory})` lazy CJS 物化。**本地已有 10 个插件在用**（file-explorer、skills-manager、ui-performance 等）+ 第三方 dsh-community-market/dshmarket。
+2. **「client 装配路径未打通」系旧认知，已过时**——阶段 4/5 的阻塞判断不成立。
+3. **`tool.call.toolview` 插槽存在**（dsh-client-ui-tool）：工具专用渲染卡的官方注入点 → 方案书 P3「渲染器 ×20」**无需改 apps/web shell**，走 client 插件 + slot 即可。
+4. 方案书剩余展示层功能可行性全面翻新：工具流式展示 ✅、技能状态卡/导入文件夹 ✅、集成面板 ✅、渲染器 ✅（chain 条件注册）、Mention ❓（待验证输入框 slot）。
+
+**门槛**：client bundle 需 tsdown 构建（缺失 → MissingClientBundleError 启动报错）；新增 client 插件仍须重启 + dev_plugin_status 验证；装配纪律（insert + bundles + 模板同步）不变。
+
+**建议落地顺序**：① 工具流式 client 卡片（数据层已就绪）→ ② 3b 技能状态卡/导入文件夹 → ③ 集成面板 → ④ 渲染器按需注册。
+
+**问题登记**：无新增（纯只读，零风险）。
