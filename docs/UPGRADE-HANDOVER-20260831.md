@@ -36,9 +36,9 @@
 
 ## 2. 关键教训（后续开发必读）
 
-1. **打包壳插件装配两套机制**：`desktopPlugins` 清单层（bundleId）≠ `cordis include loader` fiber 层。**新插件装配验证必须以 `dev_plugin_status`（loader entries 有 fiber）为准**，不能只看清单或文件级检查。command-guard 卡在此（清单 active、无 fiber、apply 不执行）——机制层限制，非代码缺陷。
+1. **打包壳插件装配：`cordis.patch.yml` 的 `- insert:` 块是 fiber 装配入口**；`desktopPlugins` bundles 清单只是清单层（清单 active ≠ loader 已装配）。**新插件装配验证必须以 `dev_plugin_status`（loader entries 有 fiber）为准**，不能只看清单或文件级检查。command-guard 早期失败为相对导入/inject 缺失所致，后期改纯注释后必然失败（无 insert = 无装配入口）；2026-08-31 晚已实证并修正（见执行日志「阶段 3a 收尾修正」段）。
 2. **惰性依赖前先 inject 基础服务**：路由退避用 `ctx.setTimeout` 必须 `inject=['timer']`；`inject=[]` 时首次注册失败永不重试 → 永久 404。
-3. **插件可靠形态**：单文件（无相对导入）+ bundles-only（patch 纯注释）+ inject timer——与 tool-visibility 一致（已验证）。
+3. **插件可靠形态**：cordis.patch.yml 含 `- insert:`（装配入口）+ 单文件（无相对导入）+ `inject: ['timer']`——与 tool-visibility 等 19 个工作插件一致（2026-08-31 晚实证）。
 4. **热装/卸载多次操作会搅乱运行态**：验证 bundles 装配必须干净重启。
 5. **PS 5.1 编码坑**：含中文 .mjs/.yml 勿用 PowerShell `Set-Content -Encoding UTF8` 写（会破坏文件）；用 write 工具或 Node。
 6. **原子写纪律**（AGENTS.md 2026-08-29 事故印证）：运行路径文件必须临时副本→校验→原子替换。
@@ -51,7 +51,7 @@
 | # | 项 | 说明 |
 |---|----|------|
 | A1 | **command-guard 装配残留清理** | ✅ **2026-08-31 完成**（执行日志「阶段 3a 收尾」段）：运行态+模板移除 bundles/dependencies 条目、删 junction；**插件目录 + 单测保留**（risk-rules 库可复用）；startup-verify 10/10 |
-| A2 | tool-visibility/command-guard 的 cordis.patch.yml 坏文件（GBK 乱码）复核 | ✅ **2026-08-31 完成**：tool-visibility 重写为纯注释统一形态（去 insert）；command-guard 已是纯注释 |
+| A2 | tool-visibility/command-guard 的 cordis.patch.yml 复核 | ✅ **2026-08-31 完成（含回归修正）**：曾误判 GBK 乱码并改为纯注释 → 重启后 tool-visibility 无 fiber/路由 404 → 取证确认 **insert 块是装配入口** → 已恢复 insert（干净 UTF-8 + insert），详见执行日志「阶段 3a 收尾修正」 |
 
 ### B. 后续阶段（方案书 v3）
 | 阶段 | 内容 | 前置 |

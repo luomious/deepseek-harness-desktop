@@ -362,3 +362,33 @@
 **结论**：幽灵装配状态清除，模板与运行态收敛一致。command-guard 插件保留（代码+单测+文档），装配需待打包壳 loader 机制问题解决后（阶段 3c 前置）。
 
 **问题登记**：无新增。
+
+---
+
+## 阶段 3a 收尾修正：A2 回归 + 装配机制真相确认（2026-08-31 晚，重启验证后）
+
+**现象**：用户重启后验证——`dev_plugin_status` loader entries **无 dsh-tool-visibility fiber**、`/tool-visibility/status` 404。A1+A2 前（08-31 早）tool-visibility 一直 active 且路由工作。
+
+**取证（决定性）**：扫描全部 21 个插件 `cordis.patch.yml`——**19 个工作插件全部带 `- insert:` 块；仅 command-guard 与 tool-visibility（A2 改后）为纯注释，且恰好都不工作**。
+
+**真相确认（修正 3a 结论）**：
+1. **`- insert:` 块是 cordis include loader 创建 fiber 的装配入口**；`desktopPlugins` bundles 清单只是清单层（"active" 状态来自清单，不代表 loader 已装配）。
+2. 3a 排查中「tool-visibility patch 乱码吞掉 insert → 碰巧只走 bundles 装配工作正常」**系 PowerShell 5.1 编码显示误读（UTF-8 文件被按 ANSI 读成乱码）**——原文件实际一直是干净 UTF-8 + insert，tool-visibility 一直靠 insert 装配。
+3. 3a「bundles + patch insert 双装配冲突」与「机制层限制」结论**不成立或非主因**；command-guard 第一版（带 insert）失败更可能是**相对导入（lib 引用）+ inject=[]** 所致（与 tool-visibility 的「单文件 + inject timer + insert」完整形态对比可知），后续改纯注释后失败是必然（无 insert = 无装配入口）。
+
+**修复（A2 修正）**：
+- ✅ `plugins/dsh-tool-visibility/cordis.patch.yml`：**恢复 insert 块**（干净 UTF-8 + insert + 装配说明注释），与 19 个工作插件形态一致。
+
+**修正后的插件装配形态（写死为唯一可靠组合）**：
+```
+cordis.patch.yml 必须含 - insert:（id/name/config enabled）  ← 装配入口
+单文件（无相对导入）                                       ← 避免 loader 解析问题
+inject: ['timer']（用 ctx.setTimeout 前）                 ← 惰性依赖先注入
+bundles 清单 + dependencies + junction + 模板同步           ← 清单层，必须一致
+```
+
+**待验证**：重启后 tool-visibility fiber active + 路由 200（用户执行重启）。
+
+**知识沉淀更新**：本段修正覆盖阶段 3a 终验「机制层限制」结论；HANDOVER §2 教训 1 同步修订。
+
+**问题登记**：无新增（本次为自身回归，已闭环）。

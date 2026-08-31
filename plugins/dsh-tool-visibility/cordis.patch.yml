@@ -1,4 +1,9 @@
 # dsh-tool-visibility bundle patch: tool-call streaming visibility (DSH upgrade plan v3 · P2-A-0).
-# 装配路径说明：本插件走 bundles 列表装配（与 dsh-command-guard 一致）。
-# 此文件仅满足 profile loader 的 dsh.bundle.patch 在位校验；不含 insert（避免
-# 「bundles + patch insert」双装配冲突，实测会导致 apply 不完整执行）。
+# 装配路径说明：cordis include loader 依赖本文件 insert 块创建 fiber（bundles 清单仅是清单层；
+# 2026-08-31 实证：纯注释形态重启后无 fiber、路由 404，insert 恢复后即工作）。
+- insert:
+    - id: dsh-tool-visibility
+      name: '@dsh-external/dsh-tool-visibility'
+      config:
+        enabled: true
+
