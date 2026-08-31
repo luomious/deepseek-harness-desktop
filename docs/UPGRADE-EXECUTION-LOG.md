@@ -437,3 +437,23 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **建议落地顺序**：① 工具流式 client 卡片（数据层已就绪）→ ② 3b 技能状态卡/导入文件夹 → ③ 集成面板 → ④ 渲染器按需注册。
 
 **问题登记**：无新增（纯只读，零风险）。
+
+---
+
+## B 专项第二阶段第一版：tool-visibility client 展示层（✅ 代码就位，待重启生效）
+
+**目标**：P2-A-0 展示层第一版——设置页「工具调用可见性」实时面板（最近工具调用：name/status/耗时/参数摘要，2s 轮询 `/tool-visibility/recent`）。
+
+**实现（低风险设计）**：
+1. 新建 `plugins/dsh-tool-visibility/lib/client.js`：`__ModuleLoader__.load` + `require("react")` + `slots.inject("settings.section")` 注册面板（模式复制 dsh-skills-manager，已验证）；CSS 用 --dsw-alias-* 变量；轮询失败静默降级（面板内显示错误，不影响会话区）
+2. `package.json`：v0.1.0→0.1.1；加 `exports["./client"]` + `dsh.client: { platform: "web", inject: [client-runtime, client-ui-settings] }`
+3. **profile/bundles/junction 零改动**——tool-visibility 已在 loader 链路，client 部分重启后由 dsh-client-modules 自动扫描组合
+4. 备份：`_backups/tool-visibility-package.json.bak-20260831`
+
+**验证（文件级）**：client.js `node --check` OK；package.json JSON 合法；startup-verify **10/10**。
+
+**待重启验证**：① dev_plugin_status 正常（host fiber 仍在 + client 装配无报错）；② 设置页出现「工具调用可见性」面板；③ 面板显示 recent 数据（status/durationMs/argsSummary）。
+
+**回滚**：删 lib/client.js + 还原 package.json（备份在 _backups）或 git revert → 重启即回滚。
+
+**风险收益**：低风险——host 逻辑零改动、不碰运行链路、不碰会话区渲染；最坏 = 设置页少一节，不影响任何功能。收益 = P2-A-0 展示层第一版落地。
