@@ -1,7 +1,11 @@
 // market/install.js — 安装 / 更新 / 卸载流程。
-// 原则：下载 → SHA-256 强校验 → frontmatter 解析 → 路径白名单 → 原子替换 → watcher 确认。
+// 原则：下载 → SHA-256 强校验 → frontmatter 解析 → 路径白名单 → 原子落位 → watcher 确认。
 // 任何一步失败不留下半成品；更新失败自动回滚。
+// 2026-09-01 修复：Windows 下 ctx.shell 为 PowerShell，Unix 命令（mkdir -p / mv -f / rm -rf）
+// 全部失效（-p 不幂等、-f/-rf 参数不存在）。改为 ctx.fs.writeText 原子落位（内部临时文件+rename、
+// 自动建父目录，见 dsh-atomic-write），删除改用 node:fs——彻底绕开 shell 语法差异。
 
+import nodeFs from "node:fs";
 import { fetchText, assertSameOrigin } from "./fetch.js";
 import { parseSkillFrontmatter, sha256Hex } from "./validate.js";
 import { ID_RE } from "./validate.js";
@@ -39,66 +43,40 @@ export async function downloadVerifiedSkill(ctx, entryLike) {
 }
 
 /**
- * 安装新 skill：写暂存 → mkdir 目标 → mv 原子落位 → 等 watcher。
+ * 安装新 skill：校验下载 → ctx.fs.writeText 原子落位（自动建目录）→ 等 watcher。
  * @returns {{path: string, fm: object}}
  */
 export async function installNew(ctx, fs, shell, fullPolicy, userRoot, entryLike) {
   const dir = safeSkillDir(userRoot, entryLike.id);
   const { content, fm } = await downloadVerifiedSkill(ctx, entryLike);
   const target = await fs.resolve(dir + "/SKILL.md");
-
-  // 存在性检查由调用方完成（同名已存在 → 拒绝安装）
-  await runCmd(shell, "mkdir -p -- " + shq(dir), fullPolicy);
+  // 同名已存在由调用方（collectAll 预检）拒绝安装；此处直接原子写入。
+  // writeText 内部为临时文件 + rename（原子），且自动创建父目录，无需 mkdir/mv。
   await fs.writeText(target, content, undefined, undefined, fullPolicy);
   await settleMs();
   return { path: dir + "/SKILL.md", fm };
 }
 
 /**
- * 更新已安装 skill：先写新内容到暂存，再旧→.bak、新→落位，成功删 .bak，失败回滚。
+ * 更新已安装 skill：校验下载 → 原子覆盖。writeText 失败时旧文件原样保留
+ * （writeFileAtomic 失败会清理临时文件），无需显式 .bak 回滚。
  */
 export async function updateExisting(ctx, fs, shell, fullPolicy, userRoot, entryLike) {
   const dir = safeSkillDir(userRoot, entryLike.id);
-  const target = await fs.resolve(dir + "/SKILL.md");
-  const backup = await fs.resolve(dir + "/.SKILL.md.bak");
   const { content, fm } = await downloadVerifiedSkill(ctx, entryLike);
-
-  // 旧文件必须存在（调用方已确认）
-  await fs.writeText(target + ".new", content, undefined, undefined, fullPolicy);
-  await runCmd(shell, "mv -f -- " + shq(target) + " " + shq(backup), fullPolicy);
-  try {
-    await runCmd(shell, "mv -f -- " + shq(target + ".new") + " " + shq(target), fullPolicy);
-    await runCmd(shell, "rm -f -- " + shq(backup), fullPolicy);
-    await settleMs();
-    return { path: dir + "/SKILL.md", fm };
-  } catch (e) {
-    // 回滚：尽力恢复备份
-    try {
-      await runCmd(shell, "mv -f -- " + shq(backup) + " " + shq(target), fullPolicy);
-    } catch (e2) { /* 原样保留 .bak 供人工恢复 */ }
-    throw e;
-  }
+  const target = await fs.resolve(dir + "/SKILL.md");
+  await fs.writeText(target, content, undefined, undefined, fullPolicy);
+  await settleMs();
+  return { path: dir + "/SKILL.md", fm };
 }
 
 /**
  * 卸载：仅删除 userRoot 内的目标目录（越界防护复用 safeSkillDir 的检查）。
+ * 用 node:fs 而非 ctx.shell（Windows 下 PowerShell 的 rm 语法不兼容）。
  */
 export async function uninstallSkill(ctx, fs, shell, fullPolicy, userRoot, skillName) {
   const dir = safeSkillDir(userRoot, skillName);
-  await runCmd(shell, "rm -rf -- " + shq(dir), fullPolicy);
+  nodeFs.rmSync(dir, { recursive: true, force: true });
   await settleMs();
   return dir;
-}
-
-async function runCmd(shell, command, fullPolicy) {
-  const spec = shell.resolve({ command, timeoutMs: 8000, sandboxPolicy: fullPolicy });
-  const res = await shell.run(spec);
-  if (res.exitCode !== 0) {
-    throw new Error("命令失败（exit " + res.exitCode + "）：" + command.slice(0, 80));
-  }
-  return res;
-}
-
-function shq(p) {
-  return "'" + String(p).replace(/'/g, "'\\''") + "'";
 }

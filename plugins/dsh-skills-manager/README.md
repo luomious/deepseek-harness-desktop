@@ -7,7 +7,7 @@ DSH 设置页 **Skills 管理器**（宿主级 bundle 插件）：系统/用户�
 - 设置页左侧导航新增 **Skills** 入口（自定义火花星图标）
 - **系统 Skills**：只读展示（bundled/runtime/custom 来源），无开关/删除
 - **用户 Skills**（`~/.dsh/skills`）：启用开关、编辑、新建、删除
-- **市场**：添加目录源（manifest URL）→ 选择 → 浏览/搜索/分类过滤 → 一键安装/更新/卸载；安装时 SHA-256 强校验 + frontmatter 校验 + 同源下载 + 路径白名单 + 原子替换/回滚；索引 24h 本地缓存，断网可浏览缓存
+- **市场**：添加目录源（manifest URL）→ 选择 → 浏览/搜索/分类过滤 → 一键安装/更新/卸载；安装时 SHA-256 强校验 + frontmatter 校验 + 同源下载 + 路径白名单 + ctx.fs.writeText 原子落位（临时文件+rename，自动建父目录）；索引 24h 本地缓存，断网可浏览缓存
 - 底部诊断行显示扫描层范围
 
 ## 市场使用
@@ -59,16 +59,17 @@ dsh-skills-manager/
     ├── client.js     # client 端：设置页 UI（成品 bundle，无需构建）
     └── market/
         ├── api.js        # 市场业务 API（sources/list/install/update/uninstall）
-        ├── state.js      # ~/.dsh/.skills-market 状态与缓存读写
+        ├── state.js      # 市场状态与缓存读写（随 userRoot 动态定位）
         ├── fetch.js      # 复用宿主 ctx.web 受限 HTTP（SSRF/大小/超时由 provider 负责）
         ├── validate.js   # manifest/索引/frontmatter/SHA-256 严格校验（fail-closed）
-        └── install.js    # 原子安装/更新(备份回滚)/卸载 + 路径白名单
+        └── install.js    # ctx.fs.writeText 原子落位 + node:fs 删除（跨平台，不依赖 shell 语法）
 ```
 
 ## 说明
 
 - host 端依赖宿主服务：`skills` / `fs` / `shell` / `sandboxPolicy` / `webServer`（市场额外按需使用 `web` 受限 HTTP，缺席时市场功能禁用、本地管理不受影响）
 - 写操作使用 `danger-full-access` 策略以管理 `~/.dsh/skills`，写后等待 300ms 让文件 watcher 完成注册表更新
-- 市场状态/缓存存于 `~/.dsh/.skills-market/`（不影响技能扫描）；安装目标仍为 `~/.dsh/skills/<name>/SKILL.md`
+- 安装/更新落位走 `ctx.fs.writeText`（dsh-atomic-write：临时文件+rename，自动建父目录），卸载/删除走 `node:fs.rmSync`——不依赖 shell 语法，跨平台兼容（Windows PowerShell / Git Bash / WSL）
+- 市场状态/缓存存于 `<userRoot 上一级>/.skills-market/`（不影响技能扫描）；安装目标为 `<userRoot>/<name>/SKILL.md`
 - `/skmg` API 仅接受本机回环请求（源地址 + Host 头双重校验），不要将该端口暴露到局域网/公网
 - client bundle 为手写 `__ModuleLoader__` 成品，无 prepare 脚本，不受 pnpm `allowBuilds` 限制

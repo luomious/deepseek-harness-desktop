@@ -21,19 +21,7 @@ export function createMarketApi(ctx, deps) {
     const userRoot = await detectUserRoot();
     if (!userRoot) throw new Error("无法定位用户 skills 根目录（~/.dsh/skills）");
     cacheRoot = marketRootOf(userRoot);
-    // 确保状态/缓存目录存在（fs 无 mkdir，用 shell；幂等）
-    try {
-      const spec = shell.resolve({
-        command: "mkdir -p -- '" + String(cacheRoot).replace(/'/g, "'\\''") + "'/cache",
-        timeoutMs: 5000,
-        sandboxPolicy: fullPolicy
-      });
-      const r = await shell.run(spec);
-      if (r.exitCode !== 0) throw new Error("mkdir exit " + r.exitCode);
-    } catch (e) {
-      // 目录创建失败：交由写入路径给出清晰错误
-      cacheRoot = marketRootOf(userRoot);
-    }
+    // 目录无需预建：writeCache/writeState 走 ctx.fs.writeText（dsh-atomic-write），自动创建父目录。
     return cacheRoot;
   }
   async function state() {
@@ -42,6 +30,14 @@ export function createMarketApi(ctx, deps) {
 
   function uid() {
     return "rec-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
+  // 参数归一：兼容字符串与 { key: value } 两种调用形式（client bundle 曾传对象）
+  function arg(v, key) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "object" && key && v[key] != null) return String(v[key]);
+    return String(v);
   }
 
   // ---------- 源管理 ----------
@@ -68,16 +64,17 @@ export function createMarketApi(ctx, deps) {
   }
 
   async function selectSource(recordId) {
+    const id = arg(recordId, "recordId");
     const s = await state();
-    const found = s.sources.find((r) => r.recordId === recordId);
-    if (!found) return { ok: false, error: "源不存在：" + recordId };
-    for (const r of s.sources) r.selected = r.recordId === recordId;
+    const found = s.sources.find((r) => r.recordId === id);
+    if (!found) return { ok: false, error: "源不存在：" + id };
+    for (const r of s.sources) r.selected = r.recordId === id;
     await writeState(fs, await root(), s, fullPolicy);
-    return { ok: true, data: { recordId } };
+    return { ok: true, data: { recordId: id } };
   }
 
   async function addSource(manifestUrl) {
-    const url = String(manifestUrl || "").trim();
+    const url = String(arg(manifestUrl, "manifestUrl") || "").trim();
     if (!/^https:\/\//.test(url)) return { ok: false, error: "manifest URL 必须为 HTTPS" };
     const raw = await fetchText(ctx, url);
     let manifest;
@@ -101,9 +98,10 @@ export function createMarketApi(ctx, deps) {
   }
 
   async function removeSource(recordId) {
+    const id = arg(recordId, "recordId");
     const s = await state();
-    const next = s.sources.filter((r) => r.recordId !== recordId);
-    if (next.length === s.sources.length) return { ok: false, error: "源不存在：" + recordId };
+    const next = s.sources.filter((r) => r.recordId !== id);
+    if (next.length === s.sources.length) return { ok: false, error: "源不存在：" + id };
     s.sources = next;
     await writeState(fs, await root(), s, fullPolicy);
     return { ok: true, data: null };

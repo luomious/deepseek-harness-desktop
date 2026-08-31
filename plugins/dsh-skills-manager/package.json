@@ -1,6 +1,6 @@
 {
   "name": "dsh-skills-manager",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH 设置页 Skills 管理器：系统/用户技能分类展示，用户技能开关、编辑、删除、新建；集成在线技能市场（目录源浏览/搜索/校验安装/更新/卸载）。宿主级 bundle 插件，随 DSH 启动自动加载。",
   "type": "module",
   "main": "lib/index.js",

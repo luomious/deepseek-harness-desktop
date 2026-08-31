@@ -1,7 +1,7 @@
 # DSH Skill Catalog 契约（v1）
 
 > 本文档定义 dsh-skills-manager「市场」功能的统一规范与接口契约，作为 host 端实现、client 端 UI 与外部索引发布方的对齐基准。
-> 状态：**v1 implemented**（随 dsh-skills-manager 0.2.0 交付，含宿主侧 fetch/cache/validate/install 全链路与设置页 UI）。
+> 状态：**v1 implemented**（随 dsh-skills-manager 0.2.0 交付，含宿主侧 fetch/cache/validate/install 全链路与设置页 UI；0.2.1 修复 Windows PowerShell 兼容性：shell 命令改为 ctx.fs.writeText 原子落位 + node:fs 删除）。
 
 ## 1. 目标与原则
 
@@ -100,8 +100,8 @@ frontmatter 字段：
 2. **SHA-256 校验**：与索引声明不匹配 → 失败（fail closed）。
 3. **frontmatter 解析**：必须是 §2 规范（`name` 存在且等于目标名、`description` 非空）；name 不匹配或解析失败 → 失败。
 4. **路径白名单**：目标目录名 = `name`（kebab-case 正则 `^[a-z0-9]+(-[a-z0-9]+)*$`），最终路径 `<userRoot>/<name>/SKILL.md`，必须落在 `<userRoot>` 内且不含 `..` 段，防止目录穿越。
-5. **原子安装**：下载内容写入暂存，再经 shell `mv` 原子替换；更新时旧文件备份到同目录隐藏文件，失败自动回滚；成功后等 300ms 让文件 watcher 完成注册表更新。
-6. **卸载**：仅删除 `<userRoot>/<skillName>` 目录（复用现有 delete 的越界防护：startsWith(userRoot) + 无 `..` 段）。
+5. **原子安装**：下载内容经 `ctx.fs.writeText` 原子落位（dsh-atomic-write：临时文件 + rename，自动创建父目录）；更新时直接覆盖（原子替换，失败旧文件原样保留）；成功后等 300ms 让文件 watcher 完成注册表更新。
+6. **卸载**：仅删除 `<userRoot>/<skillName>` 目录（复用 safeSkillDir 越界防护 + `node:fs.rmSync`，不依赖 shell 语法）。
 
 ## 6. 受限 HTTP 信道（复用宿主 `ctx.web`）
 

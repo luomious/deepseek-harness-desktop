@@ -6,6 +6,34 @@
 
 ---
 
+## 2026-09-01 技能市场安装链路修复（PowerShell 兼容性 + fs API 原子落位）
+
+### 现象
+- `market.install` 报 `getaddrinfo ENOENT raw.githubusercontent.com`（旧缓存残留）；缓存修复后报 `mkdir -p` exit 1（PowerShell 不幂等）。
+- 根因双层：① `~/.dsh/.skills-market` 残留 v1.0.0 旧缓存（4 个 raw URL）；② **ctx.shell 在 Windows 为 PowerShell**，install.js 全写 Unix shell 语法（`mkdir -p`/`mv -f`/`rm -rf`/`printf`），PowerShell 全部不认（`-f` 歧义、`-rf` 不存在、`-p` 不幂等、`printf` 无此命令）。
+
+### 改动（3 文件，dsh-skills-manager 0.2.0 → 0.2.1）
+1. **`lib/market/install.js`**：install/update 改 `ctx.fs.writeText` 原子落位（dsh-atomic-write：临时文件+rename，自动建父目录）；uninstall 改 `nodeFs.rmSync`（import 重命名避免参数遮蔽）；删除全部 shell 命令（runCmd/shq/toPath）。
+2. **`lib/market/api.js`**：root() 删 PowerShell 不兼容的 mkdir 块（writeCache 自动建目录）。
+3. **`lib/index.js`**：create 删 mkdir；delete 改 `node:fs.rmSync`；detectUserRoot 兜底 bash `printf` 改纯 JS（`process.env.DSH_HOME \|\| homedir()`）；删死代码 q()；加 `import { homedir } from "node:os"`。
+
+### 验证
+- `node --check` 3/3 通过；集成测试 **9/9 PASS**（安装落位/升级/失败回滚/卸载/SHA-256 校验）。
+- **真实安装 `pdf`/`academy-guide`/`docx`**：`market.install` 全部 `ok:true`，DSH scanner 自动发现。
+- **真实更新 `pdf`**：`market.update` `ok:true`。
+- 全仓扫描：plugins 目录零 Unix shell 命令残留、所有 spawn 有 `windowsHide:true`、路径白名单+越界防护完整。
+
+### 清理
+- 回收 14 个 `.tmpdir` 残留 + 8 个一次性诊断脚本 + `~/.dsh/.skills-market` 旧状态。
+- 更新 README.md / docs/skill-catalog-contract.md / CHANGELOG.md。
+
+### 风险收益
+- 收益：安装/更新/卸载/create/delete 全链路打通；彻底消除 PowerShell/bash 语法差异依赖；`ctx.fs.writeText` 比 shell mv 更可靠（内核原子写）。
+- 风险：低——仅 dsh-skills-manager 落盘方式变更，不碰启动链路/内核/壳/Web GUI/其他插件；3 份备份可回滚。
+- 长期：跨平台（node:fs/node:os 纯 JS）、零 shell 依赖、测试覆盖 9 项、writeText 是 DSH 标准机制。
+
+---
+
 ## 2026-08-31 新增 paper-writer 论文写作预设（研究生论文模式）
 
 ### 内容

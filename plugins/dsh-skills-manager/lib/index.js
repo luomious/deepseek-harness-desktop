@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
 import { createMarketApi } from "./market/api.js";
 
 export const name = "dsh-skills-manager";
@@ -53,14 +54,11 @@ export function apply(ctx) {
         const hit = items.find((i) => (i.source === "user-dsh" || i.source === "user-agents") && i.resourcePath);
         if (hit) userRoot = String(hit.resourcePath).replace(/[\\/][^\\/]+$/, "");
       } catch (e) { userRoot = null; }
+      // 2026-09-01 修复：用纯 JS 替代 bash printf（PowerShell 不支持 printf 语法）
       if (userRoot === null) {
         try {
-          const spec = ctx.shell.resolve({ command: "printf '%s' \"${DSH_HOME:-$HOME/.dsh}\"", timeoutMs: 5000 });
-          const res = await ctx.shell.run(spec);
-          if (res.exitCode === 0 && res.stdout && res.stdout.text) {
-            const home = res.stdout.text.trim();
-            if (home) userRoot = home + "/skills";
-          }
+          const home = process.env.DSH_HOME || path.join(homedir(), '.dsh');
+          if (home) userRoot = home + "/skills";
         } catch (e) { userRoot = null; }
       }
     }
@@ -112,7 +110,6 @@ export function apply(ctx) {
   }
 
   function fail(e) { return { ok: false, error: String((e && e.message) || e) }; }
-  function q(p) { return String(p).replace(/'/g, "'\\''"); }
   function settle() { return new Promise((r) => setTimeout(r, 300)); }
 
   async function handle(method, args) {
@@ -160,9 +157,7 @@ export function apply(ctx) {
         const { items } = await collectAll();
         if (items.some((i) => i.name === skillName)) return { ok: false, error: "同名 skill 已存在：" + skillName };
         const dir = root + "/" + skillName;
-        const mk = ctx.shell.resolve({ command: "mkdir -p -- '" + q(root) + "' '" + q(dir) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
-        const mkRes = await ctx.shell.run(mk);
-        if (mkRes.exitCode !== 0) return { ok: false, error: "创建目录失败（exit " + mkRes.exitCode + "）" };
+        // 无需 mkdir：ctx.fs.writeText 原子写自动创建父目录（Windows PowerShell 的 mkdir 不幂等，弃用 shell）
         const target = await ctx.fs.resolve(dir + "/SKILL.md");
         await ctx.fs.writeText(target, buildFile(skillName, description, whenToUse, true, content), undefined, undefined, fullPolicy);
         await settle();
@@ -213,9 +208,8 @@ export function apply(ctx) {
         if (targetNorm.split(/[\\/]/).includes("..")) {
           return { ok: false, error: "拒绝删除含 .. 的路径：" + targetNorm };
         }
-        const spec = ctx.shell.resolve({ command: "rm -rf -- '" + q(target) + "'", timeoutMs: 5000, sandboxPolicy: fullPolicy });
-        const res = await ctx.shell.run(spec);
-        if (res.exitCode !== 0) return { ok: false, error: "删除失败（exit " + res.exitCode + "）" };
+        // 用 node:fs 而非 ctx.shell（Windows PowerShell 的 rm -rf 语法不兼容）
+        fs.rmSync(targetNorm, { recursive: true, force: true });
         await settle();
         return { ok: true, data: null };
       }
