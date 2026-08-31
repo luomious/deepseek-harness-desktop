@@ -59,8 +59,9 @@
 | 插件 | 状态 | 热重载 | 用途 |
 |------|------|--------|------|
 | `dsh-context` | external | ⚠️ 建议重启（market receipt 激活） | 上下文可视化：Context 页签 + /context 命令 + 上下文组成/演进/压缩/剪枝与 token 统计（v0.33.1，2026-08-26 经 community-market 安装，npm `dsh-context`，receipt `0cf24e00-e7aa-4d9b-a23d-b5bfe0370fee`；模板已同步 `profile/desktop/package.json`） |
+| `@huanlin/dsh-plugin-better-sidebar-plugin-office` | external | ⚠️ 建议重启（bundle 类） | better-sidebar 的 Office 预览插件：.docx/.xlsx/.pptx 真实渲染（docx-preview / Univer / xlsx / pptx-renderer）。better-sidebar v0.15.2 起 Office 预览移出主包，须装此插件（v0.1.2，2026-08-28 经 `dsh plugin --profile desktop add` 安装；官方推荐，GitHub `HuanLinOTO/dsh-plugin-better-sidebar-plugin-office`；模板已同步 `profile/desktop/package.json`） |
 
 ## 统计
 
-- 总计: 27（plugins/ 24 + 根级 3）| core: 24 | experimental: 2 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 1（dsh-context，community-market 管理）
+- 总计: 27（plugins/ 24 + 根级 3）| core: 24 | experimental: 2 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 2（dsh-context + dsh-better-sidebar-plugin-office）
 - 可热重载: 11 | 必须重启: 2 (modlens 类) | 建议重启: 12 (bundle 类)

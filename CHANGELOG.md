@@ -6,6 +6,126 @@
 
 ---
 
+## 2026-08-31 收尾归档：better-sidebar Office 预览落地 + 前序修复核验
+
+### better-sidebar 侧边栏 docx「此文件类型不支持预览」根治
+- 根因：用户侧边栏是 `dsh-better-sidebar`（npm v0.15.2），其 v0.15.2 起**故意把 .docx/.xlsx/.pptx 预览移出主包**（内置「添加预览插件」目录），"此文件类型不支持预览 / 下载查看"是其默认兜底，非 bug。
+- 处置（2026-08-28）：`dsh plugin --profile desktop add @huanlin/dsh-plugin-better-sidebar-plugin-office@0.1.2`（官方推荐，GitHub `HuanLinOTO/dsh-plugin-better-sidebar-plugin-office`）——依赖 + bundles + node_modules（+241 包：docx-preview / @univerjs/presets / xlsx / pptx-renderer）+ loader patch 行全注册；模板 `profile/desktop/package.json` 已同步（2026-08-29 会话接力）。
+- 核验（2026-08-31 重启后）：`dev_plugin_status` 中 `dsh-better-sidebar-plugin-office [active]`；引导清单下发其 client bundle（rev 正常）；启动日志无 [E]（仅例行 junction 警告）；rotator 残留警告已消失。
+- 备注：CLI 垫片 `dsh.cmd` 因中文用户名被 cmd 按 GBK 读坏 → 已绕过（PowerShell 直设 UTF-8 env 调 `DSH Desktop.exe --expose-internals desktop-cli.js`）；web profile 若也用 better-sidebar 需同样 `dsh plugin --profile web add ...`。
+
+### 本会话前序修复回顾（均已核验）
+- 启动报错 `cannot resolve package @dsh-external/dsh-vision-rotator`：bundle 残留清理 + 失效 disabled 行移除，多次重启无复现。
+- 技能市场目录源：发布开源仓库 `luomious/dsh-skill-catalog`（manifest + index + 4 skill），已预置本地市场并选中；E2E 远程字节级校验全过。
+- 工作区 `.tmpdir` 写残留：清理 40 个 + 工作区/目录源 `.gitignore` 防再犯。
+
+### 已知非阻塞项（长期运行观察）
+- session-hygiene 3 个 >8MB 会话（2 个闲置 138h/137h 可归档、1 个「小论文」10.87MB 活跃需压缩）——每次扫描强告警，24h 去重；处置需用户确认（归档可逆、压缩需在会话内触发）。
+- 会话自动标题偶发 `title output reached maxOutputTokens`（装饰性）。
+- write 工具原子写暂存 `.tmpdir` 残留的根因在 DSH 工具链（每次写文件可能再产生，已 gitignore + 定期可清理）。
+
+---
+
+## 2026-08-29 file-explorer 顶层 return 启动失败修复与启动预检加固
+
+### 现象
+- 桌面壳启动报 `dsh-plugin-desktop: plugin tree failed to load: failed to import loader entry file-explorer (@dsh-external/dsh-file-explorer): Illegal return statement`（SyntaxError，ESM 编译期顶层 return）。
+
+### 根因
+- 并行会话（file-explorer-doc-preview）编辑 `plugins/dsh-file-explorer/lib/index.js` 期间留下非法中间态：`isPathAllowed` 内的 `if (process.env.DSH_FILE_EXPLORER_UNRESTRICTED === '1') return true` 游离到函数外（顶层 return）。包为 `"type": "module"`，Node ESM 编译顶层 return 即抛 SyntaxError，启动加载器 import 插件时整棵插件树失败。
+- 文件已于 2026-08-29 02:18 修复（mtime），02:25 重启成功——属并行会话非原子写造成的瞬时故障，非插件代码持久 bug。
+
+### 改动
+1. `scripts/startup-verify.mjs`：新增 **V9 插件 bundle 语法预检**——扫描 profile 全部 `link:` 插件的 `.js/.mjs/.cjs` 逐一 `node --check`（`windowsHide:true`），任一语法错误即 FAIL 并报文件+行号；重启前即可拦截"顶层 return / 半写文件"类事故。
+2. `profile/desktop/package.json`：模板同步 `@huanlin/dsh-plugin-better-sidebar-plugin-office`（dependencies + bundles）→ startup-verify V2 恢复全绿。
+3. 全局 `~/.dsh/AGENTS.md` 与项目 `AGENTS.md`：新增**原子写纪律**条款——`plugins/` 运行路径文件必须原子替换（临时文件 + rename）并 `node --check` 验证。
+4. 并行会话接力：V10 bundle 声明守卫、`tests/plugins/startup-verify.test.mjs` 单测、tool-visibility / command-guard 新插件装配、模板双重转义修复（均另见各自条目）。
+
+### 验证
+- V9 回归测试：构造 `type:module` 顶层 return 坏文件 → `node --check` 报错 → startup-verify V9 FAIL 并列出文件+行号（夹具已清理）。
+- `startup-verify.mjs` **10/10 PASS**；`check-all.ps1` ALL PASS（Step1 全仓 node --check + Step1.5 预检 + Step2 补丁 22 项）。
+- 2026-08-29 ~ 2026-08-31 多次重启 boot 全部成功（`[file-explorer] host 已就绪：/file-explorer/api`），error log 无 [E]。
+- 备份：`_backups/preflight-hardening-20260829/`（4 个 .orig，可回滚）。
+
+### 风险收益
+- 收益：插件源文件被写坏从"启动时撞上"前移到"重启前预检拦截"；原子写纪律从源头减少并行会话半写状态；预检结构可迭代（V11 入口解析等按 `check()` 模式扩展）。
+- 风险：低——独立脚本 + 模板 + 规范文档，不碰内核 / 运行路径；本次无需重启（已在后续启动自然生效）。
+
+---
+
+## 2026-08-30 tool-visibility 路由 404 修复（timer 依赖补全 + 回归守卫）
+
+### 现象
+- 插件已装配且 active，但 `GET /tool-visibility/status` 与 `/tool-visibility/recent` 一直 404。
+
+### 根因
+- `plugins/dsh-tool-visibility/lib/index.js` 的 `inject` 为空数组；惰性路由注册依赖 `ctx.setTimeout` 重试，而 `ctx.setTimeout` 来自 `timer` 服务（同 `dsh-self-maintenance` 的 `inject: ['timer']` 模式）。缺 timer 时首次注册若遇 webServer 启动竞态失败，重试永远不会被调度，路由保持 404。
+
+### 改动
+1. `plugins/dsh-tool-visibility/lib/index.js`：`inject` 改为 `['timer']`，并更新注释说明依赖原因（原子替换 + node --check）。
+2. 新增 `tests/plugins/tool-visibility-route.test.mjs`：静态回归守卫——bundle 声明 dsh.bundle.patch + inject 含 timer + 惰性重试仍在。
+3. `plugins/dsh-tool-visibility/README.md`：设计原则与验证段补充 timer 依赖和测试命令。
+4. 清理插件目录 3 个 `.tmpdir` 原子写残留（旧 package.json / README / index.js 临时文件）。
+
+### 验证
+- `node --check` 通过；`node --test tests/plugins/tool-visibility-route.test.mjs` 通过（沙箱若 EPERM 则以直接 node 运行/重启后路由 200 为准）。
+- 重启后 `curl http://127.0.0.1:43120/tool-visibility/status` 应返回 `{"ok":true,...}`。
+
+### 风险收益
+- 收益：路由恢复可用；长期运行不再因缺 timer 静默 404；回归测试防止再被改回。
+- 风险：低——仅插件层局部改动，已备份 `_backups/tool-visibility-route-fix-20260830/`；需重启（或热重载）生效。
+
+---
+
+## 2026-08-30 tool-visibility profile 启动报错修复（bundle 缺 dsh.bundle 声明）
+
+### 现象
+- 桌面壳启动报 `dsh-plugin-desktop: profile bundle "@dsh-external/dsh-tool-visibility" declares no dsh.bundle in its package.json`。
+
+### 根因
+- profile 加载器（`vendor/.../dsh-plugin-desktop/src/profile.ts` → `lib/profile-CKnTElCd.js`）对 `dsh.profile.bundles` 列表里的每个包强校验 `package.json` 必须声明非空 `dsh.bundle.patch` 且文件在位。
+- `plugins/dsh-tool-visibility` 被加入 bundles（依赖 + junction 均在位），但自身 package.json 无 `dsh` 字段、也没有包根 `cordis.patch.yml`——装配只做了一半。
+- 附带发现：仓库模板 `profile/desktop/package.json` 的 link 路径被双重转义（`D:\\\\...`，实际两个反斜杠，路径无效）；运行态那份正确，属模板同步转义 bug。
+
+### 改动
+1. `plugins/dsh-tool-visibility/package.json`：增加 `"dsh": {"bundle": {"patch": "./cordis.patch.yml"}}`，`files` 补 `cordis.patch.yml`（原子写 + 回读验证）。
+2. `plugins/dsh-tool-visibility/cordis.patch.yml`：新建（insert 条目 `id: dsh-tool-visibility`，参照 self-maintenance 模式）。
+3. `profile/desktop/package.json`：link 路径双重转义修复（与运行态一致）。
+4. `scripts/startup-verify.mjs`：新增 **V10 bundle 声明完整性** 检查（每个 bundle 声明 `dsh.bundle.patch` 且 patch 文件在位，link 插件与内核包通吃）——同类"装配不完整"在重启前即可拦截。
+5. `plugins/dsh-tool-visibility/README.md`：安装段补全装配清单（含 `dsh.bundle` 声明这一必需项）。
+
+### 验证
+- `node --check`（startup-verify.mjs + 插件入口）通过；`startup-verify.mjs` **10/10 PASS**（含新 V10：bundles=32 all declared + patch present）；按 profile.ts 同款逻辑复扫运行态 32 个 bundle 全通过。
+- 全量相似问题扫描：32 个 bundle 中仅 tool-visibility 一处缺失（dsh-base / dsh-web-app 为内核包，声明完好）。
+- 需**重启桌面壳**生效；重启后 `curl http://127.0.0.1:43120/tool-visibility/status` 应返回 `{"ok":true,...}`。
+
+---
+
+## 2026-08-28 context-lifecycle 压缩提示条跨会话串显修复（banner sessionId 字段 bug）
+
+### 现象
+- 切换会话 / 新建会话时，大会话的「上下文已用 62% …立即压缩」提示条仍然显示，疑似固定在输入框上方。
+
+### 根因
+- `dsh-context-lifecycle/lib/client.js` 读取 `session.id` 作为当前会话 id，但 `ConversationSnapshot` 的 id 字段是 **`sessionId`**（`dsh-client-runtime buildSnapshot()` 实证），`session.id` 恒为 `undefined`。
+- 结果：严格按会话匹配永不失配；仅剩 `list.length === 1` 时取 `list[0]` 的兜底会生效 → 单会话跟踪时把 A 会话的提示带到所有会话视图；两个 `useEffect` 依赖 `[sessionId]` 恒不变 → 「切换会话清空瞬时 UI」从不触发。
+
+### 改动（纯客户端展示层，服务端零改动）
+1. `dsh-context-lifecycle/lib/client.js`：`var sessionId = props.sessionId || (session && session.sessionId);`（槽系统标准 prop 优先，快照字段兜底）；删除泄漏性 `list[0]` 兜底——dock 槽作用域内 sessionId 恒存在，拿不到即不显示。
+2. 新增回归守卫 `tests/plugins/context-lifecycle-client.test.mjs`（静态断言：必须读 `props.sessionId`/`session.sessionId`、禁止裸 `session.id`、禁止 `list[0]` 兜底；`check-all.ps1` Step 3 自动纳入）。
+3. `dsh-context-lifecycle/README.md`：Architecture 段补槽契约（dock 标准 prop `sessionId`；快照字段也叫 `sessionId` 不是 `id`）；Status probe 端口 3080 → 43120（文档漂移）。
+- 备份：`_backups/context-lifecycle-banner-fix-20260828/client.js.orig`。
+
+### 验证
+- `node --check` 通过；`node --test tests/plugins/context-lifecycle-client.test.mjs` 4/4 过；浏览器刷新后：大会话显示提示条，其他会话/新建会话不显示，点「忽略」后该会话 8s 内消失且不串显（客户端 bundle 按请求读盘，无需重启应用）。
+
+### 后续可迭代项（backlog，不阻塞交付）
+1. 切换会话时清空 effect 在 paint 后执行，理论上有 1 帧旧 banner 残留 → 可改为渲染期派生状态或按会话加 key（纯体验优化）。
+2. 客户端目前每打开的会话每 8s 拉一次全量 `/status` → 长期可学 `GoalBar` 用 `useProjection`/host 推送共享订阅（特性迭代）。
+3. 提示条可配置化：阈值已可配置，未来可加「禁用提示条」UI 开关。
+
+---
+
 ## 2026-08-28 开源技能市场目录源（DSH Skills Index）+ 工作区临时残留清理
 
 ### 为什么市场要「添加目录源（manifest URL）」
