@@ -24,8 +24,12 @@
 | 自愈单测 | `tests/plugins/startup-verify.test.mjs`（6 用例） | ✅ PASS |
 | zstd 异步化（Option A） | `patches/bundles/dsh-session-persistence-jsonl-index.js` + `port-user-patches.mjs` ZSTD_MODULE | ✅ 重启验证无报错 |
 | 工具流式可见性 | `plugins/dsh-tool-visibility/`（监听+环形缓冲+路由+JSONL） | ✅ 重启验证通过（关联修复：source.callId + turn/step + FIFO） |
+| 工具调用可见面板（client 展示） | `plugins/dsh-tool-visibility/lib/client.js`（设置页 settings.section「工具调用可见性」，2s 轮询 /recent） | ✅ 2026-08-31 晚落地，重启验证 client bundle 服务 200 |
 | 命令风险评分库 | `plugins/dsh-command-guard/lib/risk-rules.mjs` + `tests/plugins/command-guard-risk.test.mjs`（12 用例） | ✅ 单测 PASS（插件装配受限见 §3） |
 | SLO 健康看板 | `scripts/health-check.mjs` + `~/.dsh/.health/startup-history.jsonl` | ✅ 接入 check-all Step 1.5 自动记录 |
+| SLO 定时巡检（脚本） | `scripts/health-task-run.ps1` + `install-health-task.ps1` | ✅ 脚本就位，注册计划任务可选（需管理员） |
+| 契约文档 v1 | `docs/plugin-contracts.md`（工具事件✅/连接器草案/技能部分/插件服务✅） | ✅ 2026-08-31 |
+| 技能导入文件夹（3b） | `plugins/dsh-skills-manager/`（importFolder API + 用户 tab 导入 UI） | ✅ 2026-08-31 实测导入成功（echo-greet 验证后清理）；跨平台 node:fs 实现 |
 
 ### 验证基线
 - `check-all.ps1`：**ALL PASS**（Step 1 语法 + Step 1.5 health-check + Step 2 verify-patches 22 项）
@@ -57,10 +61,10 @@
 ### B. 后续阶段（方案书 v3）
 | 阶段 | 内容 | 前置 |
 |------|------|------|
-| 3b | 技能状态卡 / 导入文件夹（增强 dsh-skills-manager，注意该插件并行会话维护，需加锁） | 需重启验证 |
-| 3c | 连接器市场 / MCP roots 授权 | 需装配（先解决 A1 装配机制问题） |
-| 4 | 集成面板（client bundle） | 需 client 装配路径 |
-| 5 | P3 shell 渲染器 ×20 / Mention / 主题 | 高风险单独排期，需完整备份+回归 |
+| 3b | 技能状态卡 / 导入文件夹 | ✅ **第一版 2026-08-31 完成**：importFolder API + 用户 tab 导入 UI（实测导入成功）；技能状态卡基础（徽章/启停）已有。第二版可加：原生目录选择器、导入后自动启用 |
+| 3c | 连接器市场 / MCP roots 授权 | 让位：官方上游 0.1.2-alpha.1 已含 mcp-client 等，等官方 stable 迁移获得，不重复造轮子 |
+| 4 | 集成面板（client bundle） | ✅ 路径已打通（B 专项：dsh.client + slots，tool-visibility 面板为范例）；面板功能按需增量 |
+| 5 | P3 shell 渲染器 ×20 / Mention / 主题 | 渲染器可走 `tool.call.toolview` keyed 卡（无需改 shell）；Mention 待验证输入框 slot；主题维持搁置 |
 | 6 增强 | health-check 定时巡检（✅ 2026-08-31 脚本就位：`health-task-run.ps1` + `install-health-task.ps1`，注册计划任务可选）/ 告警通知 / 看板 UI | 告警/看板需装配 |
 
 ### C. 遗留验证
