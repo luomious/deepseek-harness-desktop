@@ -476,3 +476,18 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **回滚**：`git revert` 本 commit → 重启即回滚（host+client 双回滚）。
 
 **风险收益**：低风险——新增 API 与新增 UI 区块，不触碰现有 method 与面板逻辑；原样复制技能文件（不重写、不删除）；最坏 = 导入失败返回错误提示。收益 = 批量安装技能（方案书「一键安装 ≤3 步」目标的本地化第一步）。
+
+### 3b 修复记录：importFolder 跨平台化（2026-08-31 晚，commit a68072c）
+
+**现象**：首版 importFolder 实测报「无法读取文件夹（exit 1）」。
+
+**根因**：`ctx.shell` 在 Windows 为 **pwsh 后端（dsh-pwsh-local，`pwsh -Command` 直通，无 POSIX 翻译层）**——`find`/`cat` 不存在；而既有代码（create/delete 的 mkdir -p / rm -rf）恰好被 pwsh 的别名层容忍（mkdir→New-Item 忽略 -p/--；rm→Remove-Item 接受 -r -f），**printf（detectUserRoot 回退路径）与 find 不可用**。
+
+**修复**：importFolder 遍历/读取/建目录改用 **node:fs**（statSync/readdirSync/readFileSync/mkdirSync）——跨平台且不依赖 shell 后端；写入仍走 `ctx.fs.writeText(…fullPolicy)`。顶部新增 `import fs/path from "node:*"`。
+
+**验证**：`node --check` OK + 逻辑等价测试（扫描 E:/WorkBuddy/_skill-import-test → 发现 echo-greet/SKILL.md、name 解析正确）。
+
+**附注（疑似问题登记，未擅自修）**：
+1. `detectUserRoot` 的 printf 回退在 Windows 不可用——但主路径（resourcePath 推断）当前工作，仅在无 user-dsh skill 时触发；如遇「无法定位用户 skills 根目录」再修。
+2. `delete` 的 `rm -rf --` 在 pwsh 下 `--` 可能被当作路径参数——有越界防护兜底，暂未验证；后续可复核。
+3. 平台经验沉淀：**DSH 插件在 Windows 的 shell 命令必须用 PowerShell 语法或 node:fs，POSIX 命令（find/printf/cat）不可用**——写入 HANDOVER 教训。

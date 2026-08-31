@@ -42,6 +42,7 @@
 4. **热装/卸载多次操作会搅乱运行态**：验证 bundles 装配必须干净重启。
 5. **PS 5.1 编码坑**：含中文 .mjs/.yml 勿用 PowerShell `Set-Content -Encoding UTF8` 写（会破坏文件）；用 write 工具或 Node。
 6. **原子写纪律**（AGENTS.md 2026-08-29 事故印证）：运行路径文件必须临时副本→校验→原子替换。
+7. **Windows 平台 `ctx.shell` 后端 = pwsh**（dsh-pwsh-local，`pwsh -Command` 直通，无 POSIX 翻译）：`find`/`printf`/`cat` 不可用；`mkdir -p`/`rm -rf` 恰好被 PowerShell 别名层容忍。**插件内文件遍历/读取优先 node:fs**（跨平台），POSIX 命令仅限 Linux 环境（2026-08-31 importFolder 实证，见执行日志 3b 修复记录）。
 
 ---
 
