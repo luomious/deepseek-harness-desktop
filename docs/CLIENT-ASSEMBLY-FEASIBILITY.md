@@ -40,7 +40,7 @@ Slot 规则要点（dsh-slot-system skill）：component 必须是 `register()` 
 | 技能状态卡 / 导入文件夹（3b） | 卡 client 路径 | ✅ 可行 | skills-manager 已有 dsh.client；slots 注入状态卡；导入文件夹为 host API | 中低 |
 | 集成面板（阶段 4） | 需 client 路径 | ✅ 可行 | `settings.section` / sidebar slots 注入 | 中低 |
 | 工具专用渲染器 ×20（阶段 5） | P3 高风险 shell 重建 | ✅ **可行且无需改 shell** | `tool.call.toolview` chain 按工具条件注册专用卡 | 中 |
-| Mention 体系（阶段 5） | P3 | ❓ 待验证 | ui-input-trigger 是否存在输入框 slot（下一阶段确认） | - |
+| Mention 体系（阶段 5） | P3 | ⚠️ **部分可行**：`conversation.input.overlay` 输入框扩展插槽存在（ui-input-trigger 注册），但**无内核 mention 机制**（无 @ 触发/建议列表）→ 需自研（overlay + @解析 + 建议面板），价值中、工作量中 | overlay slot 注入 | 中 |
 | 连接器市场 / MCP roots（3c） | 卡装配 | 维持让位（官方原生实现，不重复造轮子） | - | - |
 
 ## 4. 门槛与风险
