@@ -25,7 +25,7 @@
 | zstd 异步化（Option A） | `patches/bundles/dsh-session-persistence-jsonl-index.js` + `port-user-patches.mjs` ZSTD_MODULE | ✅ 重启验证无报错 |
 | 工具流式可见性 | `plugins/dsh-tool-visibility/`（监听+环形缓冲+路由+JSONL） | ✅ 重启验证通过（关联修复：source.callId + turn/step + FIFO） |
 | 工具调用可见面板（client 展示） | `plugins/dsh-tool-visibility/lib/client.js`（设置页 settings.section「工具调用可见性」，2s 轮询 /recent） | ✅ 2026-08-31 晚落地，重启验证 client bundle 服务 200 |
-| 命令风险评分库 | `plugins/dsh-command-guard/lib/risk-rules.mjs` + `tests/plugins/command-guard-risk.test.mjs`（12 用例） | ✅ 单测 PASS（插件装配受限见 §3） |
+| 命令风险检测（3a 翻案） | `plugins/dsh-command-guard/`（insert + 单文件 + inject timer） | ✅ **2026-08-31 终验通过**：fiber [active]、/command-guard/status 200、risk-rules 12 单测 PASS |
 | SLO 健康看板 | `scripts/health-check.mjs` + `~/.dsh/.health/startup-history.jsonl` | ✅ 接入 check-all Step 1.5 自动记录 |
 | SLO 定时巡检（脚本） | `scripts/health-task-run.ps1` + `install-health-task.ps1` | ✅ 脚本就位，注册计划任务可选（需管理员） |
 | 契约文档 v1 | `docs/plugin-contracts.md`（工具事件✅/连接器草案/技能部分/插件服务✅） | ✅ 2026-08-31 |

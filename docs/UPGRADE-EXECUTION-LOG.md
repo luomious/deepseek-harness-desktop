@@ -494,7 +494,7 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 
 ---
 
-## 阶段 3a 翻案：command-guard 重试装配（✅ 装配就位，待重启终验，2026-08-31 晚）
+## 阶段 3a 翻案：command-guard 重试装配（✅ 终验通过，2026-08-31 晚）
 
 **背景**：3a 曾判定「机制层限制」搁置；「阶段 3a 收尾修正」段已推翻该结论（insert 是装配入口）。本次按新认知重试——**三处关键修正 vs 3a 失败版**：
 1. `cordis.patch.yml`：纯注释 → **含 `- insert:` 块**（id/name/config enabled）——装配入口
@@ -513,3 +513,11 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **回滚**：git revert 本 commit + 删 junction + 还原 package.json（备份在 _backups）→ 重启即回滚。
 
 **风险收益**：中低风险——改动面 = patch + 装配清单 + junction（全可逆）；v1 只读观察者不拦截不干预；最坏 = 无 fiber（再清理）。收益 = 若终验通过，P2-A-5 命令风险可见性转正，3a 遗憾闭环。
+
+**终验通过（2026-08-31 晚，用户重启后）**：
+- ✅ `dev_plugin_status`：`dsh-command-guard` **[active]**（fiber 存在）
+- ✅ `/command-guard/status`：HTTP 200，`{"ok":true,"alertCount":0,"lastAlertAt":null}`
+- ✅ `/command-guard/alerts`：HTTP 200，`{"alerts":[]}`
+- 结论：**3a 遗憾闭环，P2-A-5 命令风险可见性正式转正**。insert + 单文件 + inject timer 形态第三次实证可靠。
+
+**问题登记**：无新增。
