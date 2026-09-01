@@ -601,3 +601,21 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **风险收益**：低风险——新插件独立，最坏 = 设置页少一节；host 路由仅读 credentials + 调 DeepSeek API。收益 = 提示词一键优化，开发效率提升。
 
 **回滚**：删插件目录 + 还原 package.json + 删 junction → 重启即回滚。
+
+---
+
+## prompt-enhance 工具化重构（2026-09-01，用户要求"agent 自动判断使用"）
+
+**用户需求**：提示词增强对开发有提升可保留，但**不要放设置面板**，改为 **agent 自动判断何时调用**。
+
+**改动**：
+1. `lib/index.js`：改用 `ctx.tools.register(defineTool(...))` 注册 `prompt_enhance` 工具（`inject: ['tools']`）；工具 description 写明判断逻辑（含糊/缺约束/需重述为可执行任务/委派子代理时调用；请求已清晰时不调用）；execute 调 DeepSeek API 返回增强文本
+2. **删除** `lib/client.js`（设置面板）
+3. `package.json`：移除 `exports["./client"]` + `dsh.client` 声明（防 MissingClientBundleError）
+4. 验证：index.js `node --check` OK；startup-verify **10/10**（V1 33 bundles resolvable）
+
+**待重启验证**：dev_plugin_status 显示 prompt-enhance active + agent 工具集中出现 `prompt_enhance`。
+
+**风险收益**：低风险——仅改自身插件（工具注册替代面板），不碰其他；工具注册增加极小模型上下文开销（一个工具 schema）。收益 = 提示词增强从手动按钮升级为 agent 自动判断调用，贴合开发场景。
+
+**回滚**：git revert → 重启即回滚。
