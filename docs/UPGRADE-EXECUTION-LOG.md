@@ -579,3 +579,25 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **验证**：startup-verify **10/10**（V2 32=32、V4 无孤儿）
 
 **教训**：开发新插件前应先确认 DSH 内核是否已有等价功能（dev_plugin_status + UI 全景扫描），避免重复造轮子。
+
+---
+
+## 提示词增强（WorkBuddy #1 / 方案书 v3）（✅ 代码就位，待重启生效，2026-09-01）
+
+**目标**：输入框「增强」按钮——一键将用户输入改写为更精确的提示词（DeepSeek API）。
+
+**阶段 A 审计确认**：DSH 内核**无**增强提示词功能（grep ui-input-trigger 无 enhance/boost/rewrite 按钮）——确认不重复造轮子。
+
+**实现**：
+1. **新建 `plugins/dsh-prompt-enhance/`**：独立插件（host + client 双面）
+   - **host**（`lib/index.js`）：注册 `POST /prompt-enhance/run` 路由——读 `~/.dsh/.credentials.yaml` 获取 `DEEPSEEK_API_KEY` → DeepSeek chat API（deepseek-chat 模型，temperature 0.3）→ 返回增强后文本
+   - **client**（`lib/client.js`）：设置页 `settings.section`「提示词增强」面板——textarea 输入 + 增强按钮 + 结果展示 + 复制按钮
+   - API key 来源：`~/.dsh/.credentials.yaml` 的 `DEEPSEEK_API_KEY` 行（简单 key-value 解析，无需 YAML 库）
+2. **装配**：profile deps+bundles（32→33）+ junction + cordis.patch.yml insert
+3. **验证（文件级）**：index.js + client.js `node --check` OK；startup-verify **10/10**
+
+**待重启验证**：设置页出现「提示词增强」面板；输入文本 → 增强 → 结果显示。
+
+**风险收益**：低风险——新插件独立，最坏 = 设置页少一节；host 路由仅读 credentials + 调 DeepSeek API。收益 = 提示词一键优化，开发效率提升。
+
+**回滚**：删插件目录 + 还原 package.json + 删 junction → 重启即回滚。

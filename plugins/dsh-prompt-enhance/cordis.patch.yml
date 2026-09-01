@@ -1,0 +1,6 @@
+# dsh-prompt-enhance bundle patch (WorkBuddy #1 / 方案书 v3).
+- insert:
+    - id: dsh-prompt-enhance
+      name: '@dsh-external/dsh-prompt-enhance'
+      config:
+        enabled: true
