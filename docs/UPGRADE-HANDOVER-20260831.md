@@ -1,7 +1,7 @@
 # DSH 升级计划 · 会话归档交接文档
 
-> 归档日期：2026-08-31 → 2026-09-01（最终更新）
-> 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、3b、6）+ A/B 组收尾 + command-guard v2 + 官方 v2.0.4 评估
+> 归档日期：2026-08-31 → 2026-09-02（最终归档）
+> 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、3b、6）+ A/B 组收尾 + command-guard v2 + prompt-enhance 工具化 + 阶段 A 已有功能审计 + 官方 v2.0.4 评估
 > 主文档：`E:\WorkBuddy\learn\DSH全面升级方案书v3-最终版.md`（方案）、`E:\WorkBuddy\learn\UPGRADE-EXECUTION-LOG.md`（执行记录，D 盘副本 `D:\Deepseek-Harness\docs\UPGRADE-EXECUTION-LOG.md`）
 
 ---
@@ -15,6 +15,9 @@
 | `E:\WorkBuddy\learn\DSH全面升级方案书v3-最终版.md` | 最终方案：开发性能三角（技能/连接器/工具调用）+ 稳定性 + 治理 + 五维评估 |
 | `E:\WorkBuddy\learn\UPGRADE-EXECUTION-LOG.md` | 执行日志（阶段 0/1/2/3a/6 + 全部故障排查记录） |
 | `E:\WorkBuddy\learn\workbuddy-i18n.json` | WorkBuddy 537 条 UI 文案（功能地图） |
+| `docs/EXISTING-FEATURES-AUDIT.md` | **阶段 A 已有功能审计**：27 项借鉴清单中 5 项已内置可跳过、5 项真缺失、1 项 slot 待实现 |
+| `docs/CLIENT-ASSEMBLY-FEASIBILITY.md` | **B 专项 client 装配可行性报告**：路径已打通、tool.call.toolview slot 存在 |
+| `docs/plugin-contracts.md` | **契约文档 v1**：工具事件✅/连接器草案/技能部分/插件服务✅ |
 | 本文档 | 会话归档交接 |
 
 ### 已交付能力
@@ -26,7 +29,8 @@
 | 工具流式可见性 | `plugins/dsh-tool-visibility/`（监听+环形缓冲+路由+JSONL） | ✅ 重启验证通过（关联修复：source.callId + turn/step + FIFO） |
 | 工具调用可见面板（client 展示） | `plugins/dsh-tool-visibility/lib/client.js`（设置页 settings.section「工具调用可见性」，2s 轮询 /recent） | ✅ 2026-08-31 晚落地，重启验证 client bundle 服务 200 |
 | 命令风险检测（3a 翻案） | `plugins/dsh-command-guard/`（insert + 单文件 + inject timer） | ✅ **终验通过**：fiber [active]、/command-guard/status 200、risk-rules 12 单测 PASS |
-| 命令风险 v2（approval 拦截） | `plugins/dsh-command-guard/lib/index.js`（`tools/pre-execute` waterfall） | ✅ 2026-09-01 代码就位，fail-closed，需重启验证 approval 弹窗 |
+| 命令风险 v2（approval 拦截） | `plugins/dsh-command-guard/lib/index.js`（`tools/pre-execute` waterfall） | ✅ **生效**：fiber active、fail-closed |
+| 提示词增强（#1） | `plugins/dsh-prompt-enhance/`（`prompt_enhance` 工具，agent 自动调用） | ✅ **2026-09-02 工具化**：删设置面板，注册 `prompt_enhance` agent 工具（inject:['tools']） |
 | SLO 健康看板 | `scripts/health-check.mjs` + `~/.dsh/.health/startup-history.jsonl` | ✅ 接入 check-all Step 1.5 自动记录 |
 | SLO 定时巡检（脚本） | `scripts/health-task-run.ps1` + `install-health-task.ps1` | ✅ 脚本就位，注册计划任务可选（需管理员） |
 | 契约文档 v1 | `docs/plugin-contracts.md`（工具事件✅/连接器草案/技能部分/插件服务✅） | ✅ 2026-08-31 |
@@ -73,7 +77,7 @@
 | # | 项 | 状态 |
 |---|----|------|
 | C1 | zstd 大会话（11.4MB 实测文件）打开流畅性 | 重启后无报错，用户体验待确认 |
-| C2 | command-guard approval 拦截（v2） | ✅ **2026-09-01 代码就位**：`tools/pre-execute` waterfall + fail-closed；需重启验证 approval 弹窗 |
+| C2 | command-guard approval 拦截（v2） | ✅ **生效**：`tools/pre-execute` waterfall + fail-closed，fiber active |
 
 ---
 
@@ -116,7 +120,7 @@ node --test tests/plugins/command-guard-risk.test.mjs
 
 ---
 
-## 6. 最终状态（2026-09-01 更新）
+## 6. 最终状态（2026-09-02 最终归档）
 
 ### 方案书 v3 执行总结
 
@@ -124,21 +128,28 @@ node --test tests/plugins/command-guard-risk.test.mjs
 |------|------|------|
 | P0 稳定性五件套 | ✅ 全部完成 | startup-verify 10/10、verify-features 50 全绿、SLO 3/3 |
 | P2-A-0 工具流式可见性 | ✅ host + client 面板均完成 | host 监听+路由+JSONL；设置页面板 2s 轮询 |
-| P2-A-5 命令风险检测 | ✅ v1 审计 + v2 approval 拦截 | fiber active、fail-closed，需重启验证弹窗 |
+| P2-A-5 命令风险检测 | ✅ v1 审计 + v2 approval 拦截 | fiber active、fail-closed |
 | 3b 技能导入文件夹 | ✅ 实测成功 | importFolder API + 跨平台 node:fs |
+| #1 提示词增强 | ✅ 工具化 | `prompt_enhance` agent 工具，自动判断调用；已删设置面板 |
 | SLO 看板 + 巡检脚本 | ✅ 就位 | 注册计划任务可选 |
-| 契约文档 + 可行性报告 | ✅ 入库 | 插件服务契约 / client 装配路径已打通 |
+| 契约文档 + 可行性报告 + 功能审计 | ✅ 入库 | 插件服务契约 / client 装配路径 / 阶段 A 审计 |
 | 官方 v2.0.4 评估 | ⏸️ 暂缓 | 触发条件 0/5（alpha 未脱离）；机制已沉淀 |
-| #6 上下文用量 | ❌ 回滚 | 功能已内置（轨迹栏旁），插件冗余+报错，2026-09-01 已清理 |
+| #6 上下文用量 | ❌ 回滚 | 功能已内置（轨迹栏旁），插件冗余+报错，已清理 |
 
-### 剩余可选项（全部可选增量，不阻塞长期运行）
+### 阶段 A 已有功能审计结论（避免重复造轮子）
 
-| 项 | 价值 | 风险 | 推荐 |
+**5 项已内置可跳过**：#6 上下文用量、#7 消息折叠、#8 错误横幅、#12 @mention、#15 主题系统
+**1 项 slot 已有待实现**：#11 工具专用渲染器（`tool.call.toolview`）
+**5 项真缺失**：#1 增强提示词（✅ 已做）、#3 记忆系统、#9 插件范围、#10 Subagent watcher、#16 Mermaid/LaTeX
+
+### 剩余计划（后续会话可续，全部可选）
+
+| 阶段 | 内容 | 风险 | 说明 |
 |---|---|---|---|
-| #11 工具专用渲染器 keyed 卡 | 中 | 中 | 可选 |
-| #12 Mention 体系 | 中 | 中 | 可选 |
-| 3c 连接器/MCP roots | — | — | 等官方 |
-| 官方 v2.0.4 升级 | — | — | 等触发条件 |
+| 阶段 1 | #11 工具渲染器 keyed 卡（P1，唯一剩余） | 中 | `tool.call.toolview` slot 已有，逐个注册；完成后需重启验证 |
+| 阶段 2 | #3 记忆系统（P2） | 中 | 优先等官方 stable；急需可做最小版 |
+| 阶段 3 | #16 Mermaid/LaTeX（P2） | 中 | 按需增量 |
+| 阶段 4 | #9 插件范围 / #10 watcher / 3c / v2.0.4（P3） | 零 | 等官方；定期跑 check-update-compat.mjs |
 
 ### 已验证的插件可靠形态（后续开发标准）
 
@@ -146,12 +157,16 @@ node --test tests/plugins/command-guard-risk.test.mjs
 cordis.patch.yml 必须含 - insert:（id/name/config enabled）  ← 装配入口
 单文件（无相对导入）                                       ← 避免 loader 解析问题
 inject: ['timer']（用 ctx.setTimeout 前）                 ← 惰性依赖先注入
+inject: ['tools']（注册 agent 工具，用 defineTool）        ← 工具注册标准
 bundles 清单 + dependencies + junction + 模板同步           ← 清单层，必须一致
+host API 注册用 host-services registerLocalApi（POST）     ← webServer prefix 拒 POST（405）
 ```
 
-### 2026-09-01 新增教训
+### 关键教训（9 条）
 
+- **教训 1-7**：见 §2（insert 装配入口 / inject timer / 单文件 / 干净重启 / PS 编码 / 原子写 / pwsh shell）
 - **教训 8**：开发新插件前先确认 DSH 内核是否已有等价功能（dev_plugin_status + UI 全景扫描）——避免重复造轮子（dsh-context-usage 回滚事件）。
+- **教训 9**：host API 注册必须用 `host-services` 的 `registerLocalApi`（默认 POST + JSON body + Origin 校验），不能用 `webServer.register` prefix（拒 POST → 405）（prompt-enhance 405 修复实证）。
 
 ---
 
