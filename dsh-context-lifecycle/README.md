@@ -35,6 +35,12 @@ after the ratio grows another 3 points.
 - Client (`lib/client.js`, hand-written lazy-CJS, react only): banner in the
   `conversation.input.dock` slot; polls `/status` every 8s while a session is
   open; renders the confirm buttons and the handover overlay with copy-to-clipboard.
+  **Session scoping contract**: the dock slot injects the current conversation
+  id as the standard prop `sessionId` and as `session`
+  (`ConversationSnapshot` — whose id field is `sessionId`, **not** `id`).
+  The banner matches `/status` strictly by that id, so one conversation's
+  suggestion never leaks into another. Never read `session.id` — it is always
+  `undefined` and silently breaks per-session matching.
 - Token cost to the model: **zero** — no tools, no prompt additions; the banner
   is pure UI.
 
@@ -82,7 +88,7 @@ node scripts/smoke.mjs       # 16-check offline suite (decision engine + handove
 
 ## Status probe
 
-`GET http://127.0.0.1:3080/context-lifecycle/status` returns every tracked
+`GET http://127.0.0.1:43120/context-lifecycle/status` returns every tracked
 session (tokens/window/ratio/suggestion/reason) plus `diag` (agent count,
 tokenMeter availability, compaction resolution, last evaluation error).
 

@@ -235,7 +235,7 @@ window.__ModuleLoader__.load({
 				}).then((r) => {
 					const selected = (r.sources || []).find((s) => s.selected);
 					if (selectAfter) {
-						return callApi("market.selectSource", { recordId: selectAfter }).then(() => loadSources()).then(() => reloadList());
+						return callApi("market.selectSource", selectAfter).then(() => loadSources()).then(() => reloadList());
 					}
 					if (selected) { setSourceState(selected); return reloadList(); }
 					setSourceState(null);
@@ -267,7 +267,7 @@ window.__ModuleLoader__.load({
 				const url = String(manifestUrl || "").trim();
 				if (!url) { setError("请输入 manifest URL"); return; }
 				setBusy(true); setError(null); setMsg(null);
-				callApi("market.addSource", { manifestUrl: url }).then((r) => {
+				callApi("market.addSource", url).then((r) => {
 					setManifestUrl("");
 					setMsg("源已添加，请选择后浏览");
 					return loadSources(r.recordId);
@@ -277,12 +277,12 @@ window.__ModuleLoader__.load({
 			function onRemoveSource(recordId) {
 				if (!window.confirm("确定移除该目录源？已安装的 skill 不受影响。")) return;
 				setBusy(true); setError(null); setMsg(null);
-				callApi("market.removeSource", { recordId: recordId }).then(() => loadSources()).catch(showError).then(() => setBusy(false));
+				callApi("market.removeSource", recordId).then(() => loadSources()).catch(showError).then(() => setBusy(false));
 			}
 
 			function onSelect(recordId) {
 				setBusy(true); setError(null); setMsg(null);
-				callApi("market.selectSource", { recordId: recordId }).then(() => loadSources()).catch(showError).then(() => setBusy(false));
+				callApi("market.selectSource", recordId).then(() => loadSources()).catch(showError).then(() => setBusy(false));
 			}
 
 			function onInstall(skill) {
@@ -358,7 +358,7 @@ window.__ModuleLoader__.load({
 				),
 				sourceState ? react.createElement("div", { className: "skmg-head", style: { marginTop: "12px" } },
 					react.createElement("div", { className: "skmg-title", style: { fontSize: "13px" } }, "市场条目"),
-					react.createElement("input", { style: { flex: 1, minWidth: "120px" }, value: q, disabled: busy, placeholder: "搜索…", onChange: (e) => setQ(e.target.value) }),
+					react.createElement("input", { style: { flex: 1, minWidth: "120px" }, value: q, disabled: busy, placeholder: "搜索…", onChange: (e) => setQ(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") { reloadList(); } } }),
 					categories.length > 0 ? react.createElement("select", { value: category, disabled: busy, onChange: (e) => setCategory(e.target.value) },
 						react.createElement("option", { value: "" }, "全部分类"),
 						categories.map((c) => react.createElement("option", { key: c, value: c }, c))

@@ -6,6 +6,426 @@
 
 ---
 
+## 2026-09-03 收尾清理：临时残留清理 + 未提交成果归档提交
+
+### 背景
+- 对近期更新（2026-09-01 已提交 + 09-02/03 未提交）做了代码质量审查：新增/修改的脚本与插件
+  （apply-profile-guard / deregister-plugin / scan-dangling / dsh-tool-renderers /
+  modlens-autoread 429 自愈 / model-picker-group 稳定接管 / context-lifecycle M4 CSRF 加固等）
+  `node --check` 全部通过，未发现安全问题；本沙箱因 `spawn EPERM` 限制无法跑 `node --test`
+  （AGENTS.md 已登记的沙箱限制，脚本本体对真实环境实测可用：scan-dangling --strict 真实 profiles 0 发现）。
+
+### 改动
+1. 清理 33 个 `*.tmpdir` 原子写残留目录（docs/ 6、plugins/dsh-prompt-enhance/ 4、
+   plugins/dsh-tool-renderers/ 5、scripts/ 8、_backups/ 各类 10），每目录仅含一个 `.tmp` 可再生成文件；
+   删除游离备份 `plugins/dsh-model-picker-group/lib/client.js.bak-20260901-174233`。均走回收站，可还原。
+   `.gitignore` 已含 `*.tmpdir/` 规则，此后原子写残留不再污染 git status。
+2. 归档提交 2026-09-02/03 未提交成果：3 个新脚本 + 3 个测试 + `plugins/dsh-tool-renderers/` +
+   `docs/PROFILE-MAINTENANCE.md` + `docs/PROFILE-HARDENING-2026-09-02.md` + 24 个修改文件 +
+   `plugins/dsh-tool-visibility/` 归档删除（运行态引用已清理，git grep 零残留）。
+3. 推送 GitHub（origin/master）。
+
+### 验证
+- 删除后 `remaining_tmpdir=0`、`bak_remaining=False`；`git status` 复核无意外文件。
+- `node scripts/scan-dangling.mjs --strict` 真实 profiles 0 发现；关键文件 `node --check` 通过。
+- 建议归档前在普通终端补跑 `node --test tests/plugins/*.test.mjs` 做最终测试确认（沙箱外）。
+
+### 风险收益
+- 收益：仓库基线干净、未提交工作落库、远端同步；临时残留不再累积。
+- 风险：低——删除项均走回收站可还原、可再生成；未触运行路径/dist/加载链路，无需重启。
+
+---
+
+## 2026-09-03 autoread 读图限流自愈（model 级 429 自动切换）
+
+### 背景
+- OpenRouter :free 免费模型共享配额，偶发 429/限流。modlens 故障链是 **provider 级**（`openai→gemini-api→claude-cli`），同一 openai 槽位内的多个模型不会自动切换；此前 429 时读图直接失败。
+
+### 改动（`plugins/dsh-modlens-autoread/lib/index.js`，运行时只读配置、不改共享状态）
+- 新增 `readWithRateLimitSelfHeal`：读图先按默认配置跑；stderr 检出限流特征（`429 / rate limit / too many requests / quota exceeded / overloaded / slow down` 等）后，用 `modlens -i <img> --provider openai --model <备用>` 依次尝试 `vision-engine.json` 里登记的 OpenRouter 模型（最多 3 个，跳过当前生效模型），成功即返回，全部失败返回首错。
+- 新增 `isRateLimited` / `openRouterFallbackModels` / `currentOpenAIModel` 辅助函数（均防御式，读配置失败返回空/''，绝不抛）。
+- 两处读图调用（图片块 + paste 路径）统一走自愈路径；非限流错误不重试，保留原失败熔断（FAIL_MAX=3）语义。
+
+### 验证
+- `node --check` 语法通过；
+- 单测：限流正则 8 用例全 PASS；`vision-engine.json` 读到 5 个 OpenRouter 模型；
+- 端到端：真实 `modlens analyze --provider openai --model nemotron-3-nano-omni…` 对生成测试图返回 JSON+OCR 成功（exit 0），证明 `--model` 覆盖在 profile desktop modlens 3.23.1 上生效（L3449 `attempts.length===0 ? options.model : …`）。
+
+### 风险收益
+- 收益：免费模型 429 时读图自动换模型，长期稳定无需人工干预。
+- 风险：低——仅 autoread 插件（非 modlens 本体），不改配置、可热重载/重启、失败仍走原熔断；备用模型同样免费不产生费用。
+
+---
+
+## 2026-09-03 免费视觉模型配置修订（图片面板勾选模型甄别 + 失效 id 修正）
+
+### 背景
+- 用户重启后粘贴「图片识别模型」面板截图（OpenRouter 通道，勾选 4 个模型），要求甄别其中哪些是免费视觉模型，并执行既定计划（修 name 乱码 + 补文档 + 记录）。
+
+### 甄别结论（OpenRouter /api/v1/models 权威查询，420 个模型）
+- 免费 + 支持图像输入共 **8 个**：`dots-3-note-preview`、`gemma-4-26b-a4b-it`、`gemma-4-31b-it`、`minimax-m3`、`nemotron-3.5-content-safety`、`nemotron-3-nano-omni`、`inkling`、`inkling-small`。
+- 用户勾选的 4 个模型里**只有 `Google: Gemma 4 31B` 是视觉模型**（`google/gemma-4-31b-it:free`，图像+视频）：
+  - `Ling-3.0-flash`（`inclusionai/ling-3.0-flash-fin:free`）→ **纯文本**，不能当读图引擎；
+  - `NVIDIA: Nemotron 3 Ultra`（`nvidia/nemotron-3-ultra-550b-a55b:free`）→ **纯文本**；
+  - `NVIDIA: Nemotron Nano 12B 2 VL` → 已从 OpenRouter 免费目录**下架**（API 查无此 id）。
+
+### 改动
+- `~/.modlens/vision-engine.json`：
+  - 新增 `p-gemma4-31b`（`google/gemma-4-31b-it:free`）——用户已勾选的真视觉模型；
+  - 修正 `p-or`：原 `nvidia/nemotron-nano-12b-v2-vl:free` 已下架 → 改指 `dots-studio/dots-3-note-preview:free`（免费+视觉，实测待验）；
+  - 修复 3 个 profile 的 name 编码乱码（`OpenRouter ? …` → 规范中文名）；
+  - `autoFailover` 保持 `false`（核实 modlens 故障链为 provider 级：`LOCAL_FAILOVER_ORDER=[gemini-api,openai,anthropic,antigravity-cli,claude-cli]`，多个 OpenRouter 模型同挂 openai slot，autoFailover 不会在模型间切换；model 级自动切换列为迭代项，不做假实现）。
+- `README.md`：新增「免费视觉模型配置（OpenRouter :free 通道，2026-09-03）」小节。
+- 备份：`vision-engine.json.bak-20260903-fix-names-failover`（修改前）。
+
+### 验证
+- `node -e` 解析 vision-engine.json：11 个 profile、active=`p-minimax-m3`、autoFailover=false，JSON 合法；
+- `modlens doctor`：openai slot 就绪（baseUrl/apiKey/model 读到），Selected provider=openai。
+
+### 风险收益
+- 收益：面板甄别防误导（纯文本模型不会当视觉引擎用）；下架 id 修正避免读图报 404；文档齐备。
+- 风险：低——纯配置文件+文档改动，无需重启，实时读取生效；新 profile（p-or=dots-3）未实测，若 429/不可用可切回 minimax 或 nemotron。
+
+---
+
+## 2026-09-02 免费视觉模型调研与配置（OpenRouter :free 通道，替代本地 Ollama 提速）
+
+### 背景
+- 图片识别已打通（默认接管 + 本地 Ollama qwen2.5vl:7b），但本地 7B 读图约 20s/张、质量一般；用户要求找免费云端视觉模型提速提质。
+
+### 调研结果（OpenRouter API /api/v1/models 实测筛选）
+- 免费且支持图像输入的模型共 9 个；实测可用：
+  - ✅ `minimax/minimax-m3:free`（1M 上下文，图像+视频，实测 6.3s 读图成功，设为默认）
+  - ✅ `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`（30B，256K，图像+音频+视频，实测成功）
+  - ✅ `google/gemma-4-26b-a4b-it:free`（26B，262K，实测成功，偶发 429 限流）
+- 不可用：`gemma-4-26b:free` 临时限流(429)、`thinkingmachines/inkling-small:free` 403。
+
+### 关键排障：代理
+- 本机 clash-verge 代理(127.0.0.1:7897)对 openrouter.ai / generativelanguage.googleapis.com **连通性差（ECONNRESET / HTTP 000）**，而**直连 openrouter.ai 返回 200**。
+- 修复：清空 modlens 顶层 `proxy`，改走直连（OpenRouter 免费通道实测稳定）。
+
+### 改动（运行时配置，非代码）
+- `~/.modlens/config.json`：openai 槽 → `baseUrl=https://openrouter.ai/api/v1`、`model=minimax/minimax-m3:free`、`extraBody.max_tokens=4096`、`provider=openai`、删顶层 proxy。
+- `~/.modlens/vision-engine.json`：新增 3 个免费 VL profile（`p-minimax-m3` / `p-nemotron-omni` / `p-gemma4-26b`），`active=p-minimax-m3`。
+- 本地 Ollama 配置保留（`p-current`），可随时切回离线兜底。
+- 备份：`config.json.bak-20260902-free-vl`、`vision-engine.json.bak-20260902-free-vl`。
+
+### 验证
+- `modlens_read_image`（当前会话读图链路）实测成功，返回完整结构化 JSON（summary/OCR/layout/semantics/visual/uncertainty）。
+- minimax-m3:free 读图 6.3s（本地 Ollama 约 20s），质量更高。
+
+### 风险收益
+- 收益：读图提速约 3 倍、质量显著提升；免费无 API 额度/欠费/上限风险（OpenRouter :free 通道）；本地 Ollama 保留离线兜底。
+- 风险：低——仅改运行时配置可回滚；OpenRouter :free 共享限流偶发 429（可重试或切换 nemotron/gemma 备选）；免费通道可用性以 OpenRouter 为准。
+
+---
+
+## 2026-09-02 工具渲染器 keyed 卡·增量扩展（WorkBuddy #11 / 阶段 1 延续）
+
+### 交付
+- `plugins/dsh-tool-renderers/lib/client.js` 覆盖扩展：从 8 个 key → **17 个 key**，
+  新增 `read_image` / `tool_search` / `tool_describe` / `tool_call` / `dev_plugin_status` /
+  `workflow` / `ralph` / `mcp_call` / `mcp_search`。
+- `workflow` 摘要特化：args.meta 为对象时显示 `workflow: <meta.name>`（避免落到 script 长文本）。
+- README 工具表同步。
+- 验证：`node --check` 0；client bundle 服务 HTTP 200（len 7875，含全部新标记）。
+
+### 风险收益
+- 低风险：纯增量改已有插件 client.js（防御式 null-safe），不碰装配/内核；key 错配回退通用卡无害。
+- 收益：读图/工具目录/插件清单/编排/MCP 等高频工具获得专用摘要卡。
+- 长期稳定/可维护/可扩展：注册表驱动（TITLES/SUMMARY_KEYS/TOOL_KEYS 三表），加工具=加一行。
+
+---
+
+## 2026-09-02 工具渲染器 keyed 卡（WorkBuddy #11 / 方案书 v3 阶段 1）
+
+### 交付
+- 新插件 `plugins/dsh-tool-renderers/`（`@dsh-external/dsh-tool-renderers`，client-only）：
+  为 DSH 特有工具注册 `tool.call.toolview` keyed 渲染器，会话流显示紧凑摘要卡
+  （工具名 + 状态 + 参数摘要 + 结果首行），替代通用兜底卡。
+- 已覆盖 wire 工具：`get_goal`/`create_goal`/`update_goal`、`job_output`/`job_list`/`job_kill`、
+  `subagent`/`subagent_fork`（共 8 key）。
+- 实现：手写 lazy-CJS bundle（`window.__ModuleLoader__.load`，零构建依赖），全部防御式
+  null-safe（running/settled 两态 block 兜底，不抛异常）。
+- 装配：profile desktop `dependencies`+`bundles`（34）双路径 + junction + 自带
+  `cordis.patch.yml` insert；模板 `profile/desktop/package.json` 同步。
+- 验证：`node --check` 通过；`startup-verify` **10/10 PASS**（V2 模板==运行态 34=34、
+  V9 语法、V10 patch 声明）；`dev_plugin_status` 已热装配 fiber。
+- 回滚：`node scripts/deregister-plugin.mjs --plugin @dsh-external/dsh-tool-renderers [--yes]`。
+- 待重启终验：UI 会话里触发上述工具，卡渲染为自定义摘要；`dev_plugin_status` 显示
+  `dsh-tool-renderers` id（热装临时 id 由 patch 接管）。
+
+### 风险收益
+- 收益：完成方案书 v3 唯一剩余 P1 项（#11），工具可见性提升；slot 官方扩展面，后续加
+  渲染器仅加一行注册（可迭代）。
+- 风险：中低——仅新增独立 client 插件，不碰内核/现有逻辑；防御式渲染 + 错误边界兜底；
+  可一键回滚。
+
+---
+
+## 2026-09-02 图片识别端到端验收通过（用户实测确认）
+
+### 结论
+- 用户实测：在纯文本模型对话框中粘贴图片发送，modlens **成功读取并转成文字证据**（`[Pasted image, read by the modlens vision bridge]` + 完整 OCR 转写）——**「文本模型不能识别图片」问题彻底解决**。
+
+### 验收链路
+1. **准入放行**：`dsh-model-picker-group` 默认接管（方案 A）让纯文本模型自动改走 modlens 视觉渠道，DSH 图片准入不再拦截（报错从「当前模型不支持图片」变为进入读图流程）。
+2. **读图成功**：本地 Ollama `qwen2.5vl:7b`（max_tokens 4096）稳定返回结构化 JSON 证据；智谱（max_tokens 上限 1024 截断）、百炼（账号欠费）已排除，保留在 vision-engine 供有额度后切换。
+3. **配置一致**：`~/.modlens/config.json` openai 槽与 `~/.modlens/vision-engine.json` active 均指向本地 Ollama。
+
+### 证据
+- 用户粘贴的截图被 modlens 转写为可读文本（含上轮修复汇报的完整内容），证明读图链路全通。
+- 备份保留：`config.json.bak-20260902-*`、`vision-engine.json.bak-20260902`。
+
+### 备注
+- 本地 7B 模型读图约 20s/张，质量低于云端旗舰；如需更优效果，待智谱/百炼额度恢复后可在「图片识别模型」面板一键切回云端。
+
+---
+
+## 2026-09-02 收尾清理：大会话归档 + 多余文件整理 + 文档更新
+
+### 大会话归档（可逆移动，非删除）
+- `archive-big-sessions.ps1 -Execute` 归档 3 个 >8MB 闲置会话（共 27.7MB）→ `_backups/archived-sessions-20260901-193016/`（manifest.txt 记录原路径可还原）。
+- 之前 dsh-maintenance 报的「21 个 >4MB 会话」为单文件口径；按会话目录硬阈值（>8MB 且闲置>24h）实际 3 个为必清项，其余为正常小会话累积。
+
+### 多余文件整理
+- 清理 `tests/plugins/` 测试残留 `.tmpdir`（3 个）、`spawn-trace.log`（调试残留，可再生）。
+- 清理 `~/.dsh/_backups/` 被 deregister 测试污染的 8 个 `profile-desktop-package-dereg-*` 副产物；保留 7 个真实备份。
+
+### 备份隔离修复
+- `deregister-plugin` 支持 `DSH_BACKUPS_DIR` 环境变量（测试指向临时目录），新增断言验证真实 `_backups` 零污染（before=0 / after=0）。
+
+### 文档更新
+- `docs/PROFILE-MAINTENANCE.md` SOP 新增第 7 条「大会话卫生」步骤；`docs/PROFILE-HARDENING-2026-09-02.md` 第五节改为「收尾清理与后续建议」并记录本次动作。
+
+### 验证
+- 归档后 sessions 无 >8MB 闲置目录；仓库根/tests/`_backups` 全干净；测试 23/23 全过；`check-all` ALL PASS。
+
+---
+
+## 2026-09-02 视觉读图引擎切到本地 Ollama（修复 modlens 读图截断/欠费）
+
+### 背景
+- 方案 A（默认接管）落地后，用户实测：报错从「当前模型不支持图片」变为「图片自动读取失败（modlens）: finish_reason=length」——**证明默认接管已生效，图片已进入 modlens 读图流程**。
+- 新失败根因：modlens 读图引擎（`~/.modlens/config.json` openai 槽）指向**智谱 GLM-4V-Flash**，其 API 硬限制 `max_tokens` 上限 1024；读图结构化输出超长被截断 → 返回非 JSON。
+- 排查：max_tokens 提到 8192 → 智谱 API 400 拒绝（范围 [1,1024]）；切百炼 qwen3-vl-plus → 账号欠费（Arrearage）；**本地 Ollama qwen2.5vl:7b → 实测读图成功**（免费、max_tokens 4096）。
+
+### 改动（运行时配置，非代码）
+- `~/.modlens/config.json`：openai 槽 → `baseUrl=http://localhost:11434/v1`、`model=qwen2.5vl:7b`、`extraBody.max_tokens=4096`。
+- `~/.modlens/vision-engine.json`：`active = p-current`（本地 Ollama qwen2.5vl:7b，maxTokens 4096，preset local），与 modlens 读图链路一致。
+- 备份：`config.json.bak-20260902-max-tokens`、`config.json.bak-20260902-zhiji-1024`、`vision-engine.json.bak-20260902`。
+
+### 验证
+- `modlens_read_image`（当前会话读图链路）实测成功，返回完整结构化 JSON。
+- modlens CLI 直接读图成功（22s，prompt 1377 / completion 301 tokens）。
+
+### 风险收益
+- 收益：读图稳定可用；本地模型免费、无 API 额度/欠费/上限风险；max_tokens 4096 足够结构化输出。
+- 风险：低——仅改运行时配置，可回滚（备份在 ~/.modlens/）；本地 7B 模型读图质量/速度低于云端旗舰（约 20s/张），如需更好效果可后续换有额度的云端视觉模型。
+- 备注：智谱/百炼因各自限制暂不可用于自动读图，保留在 vision-engine 配置中供手动切换。
+
+---
+
+## 2026-09-02 归档交接：Profile 加固 0-4 阶段闭环 + 多余文件清理
+
+### 归档记录
+- 新增 `docs/PROFILE-HARDENING-2026-09-02.md`：本轮完整根因→交付→工具链→验证基线→后续建议，供会话归档后接力。
+- 0-4 阶段全部闭环：配置自检补丁（根因修复）、巡检防退化（scan-dangling --plan / check-all Step 1.6）、web profile 定位定案（保留）、删除协议工具化（deregister-plugin）、文档沉淀（PROFILE-MAINTENANCE.md）。
+- 验证基线：startup-verify 10/10、scan-dangling 0 发现、verify-patches 23 全绿、check-all ALL PASS、健康历史 10/10 启动成功；关闭自检已随重启生效。
+
+### 多余文件清理（2026-09-02）
+- 清理仓库根 `spawn-trace.log`（历史调试残留，dsh-maintenance 已无需跟踪）。
+- 清理 `~/.dsh/_backups/` 中 deregister-plugin 测试运行残留的 `profile-desktop-package-dereg-*` 临时备份（8 个，测试副产物，非真实 profile 备份）。
+- `tests/plugins/.tmpdir` 残留为测试临时目录（node --test 产物，随会话清理）。
+
+---
+
+## 2026-09-02 dsh-model-picker-group 默认接管（方案 A）：会话纯文本模型自动改走 modlens 视觉渠道
+
+### 背景
+- 上一轮「接管映射稳定化」后，`takeoverEntries` 稳定为 56（`stable-takeover` 事件出现），但用户仍报「当前模型不支持图片输入」。
+- 深挖 DSH host 准入（`dsh-host-apiproxy` prompt 处理）：**准入在插件钩子之前**调 `ctx.llm.resolveModelInfo(current.provider, current.model)`，若 `inputModalities` 不含 `image` 直接拦（`MODEL_DOES_NOT_SUPPORT_IMAGES`）。
+- 根因定位：接管映射虽稳定，但接管只在「用户点选模型」时经 `selectModel` 触发；若会话当前模型是**默认/恢复/其它途径**设置的上游纯文本模型（`~/.modlens/picker-diag.log` 显示 current 在 `tokenrhythm01` 与 `modlens-tokenrhythm01` 间交替），用户不点选直接发图 → 会话仍判纯文本 → 图片被拦。
+
+### 改动
+1. `plugins/dsh-model-picker-group/lib/client.js`：
+   - 新增 `maybeAutoTakeover(sessions, req, cur)`：每次 `sessions.models` 返回后、transform 之后（plainMap 已就绪）检查**原始 current**——
+     - 上游纯文本渠道且有 modlens 包装 → 自动 `selectModel` 改走 modlens 视觉渠道（无需用户点选）；
+     - 已是 modlens 渠道 / 无包装（原生视觉、未包装）→ 不动；
+     - **幂等**：按 sessionId（或 provider+model 兜底）记录，只接管一次，防循环。
+   - `groupedModels` 改为先捕获 `origCurrent` 再 transform，transform 后调 `maybeAutoTakeover`。
+2. `test-picker-group.mjs` 新增 3b 用例（默认接管触发 + 幂等），ALL PASS。
+3. `README.md` 补「默认接管（方案 A）」说明。
+
+### 验证
+- `node --check` 通过；`test-picker-group.mjs` ALL PASS（含 `auto-takeover` 事件、幂等不重复触发）；`startup-verify` 10/10（V9 插件语法预检 OK）。
+- HTTP 实测 `client.js` 已含 `maybeAutoTakeover` —— **刷新浏览器即生效，无需重启 DSH**。
+
+### 风险收益
+- 收益：根治「文本模型发图被准入拦截」残余问题——默认/当前模型只要可被 modlens 包装即自动走 modlens 视觉渠道（声明 image），发图放行；满足用户「对话框默认带 modlens 版本、不显示后缀」诉求。
+- 风险：低——仅改 client bundle（plugins/dsh-model-picker-group/lib/client.js）+ 测试/文档；幂等防循环；不触 host/内核/启动链路；回滚还原备份即可。
+- 相似问题：同层已扫 model-whitelist / tier-router / autoread，职责正常无需连带改动。
+
+---
+
+### 改动
+1. 新增 `docs/PROFILE-MAINTENANCE.md` —— Profile 维护权威手册：profile 结构（desktop=唯一活跃 / web=遗留装配依赖源不可删）、巡检工具链（startup-verify / scan-dangling / check-all / dsh-maintenance）、删除协议工具（deregister-plugin 流程与护栏）、回滚路径、事故复盘速查、完整巡检 SOP。
+2. `docs/README.md` 索引追加该手册；项目 `AGENTS.md` 协作指南追加「改 `~/.dsh/profiles/*` 前必读」引用。
+3. 至此 0-4 阶段全部闭环：配置自检补丁（阶段0）、巡检防退化（阶段1）、web profile 定位定案（阶段2）、删除协议工具化（阶段3）、文档沉淀（阶段4）。
+
+### 验证
+- 手册内容与既有工具/AGENTS 条款一致（deregister-plugin / scan-dangling --plan / startup-verify --repair / Profile 定位 均有交叉引用）。
+- 全链路复核：startup-verify 10/10、scan-dangling 0 发现、测试 11/11、check-all ALL PASS（此前多轮实测）。
+
+### 风险收益
+- 收益：新 agent / 新会话只看文档即可完成完整巡检与安全删除；经验不丢、可继承、可迭代。
+- 风险：低——纯新增文档与引用，无运行路径改动，无需重启。
+
+---
+
+## 2026-09-02 Profile 定位调研定案：web 保留 + 巡检工具链加固
+
+### 阶段 2：web profile 去留调研（定案：保留）
+- 调研证据：`~/.dsh/profiles/web` 无任何启动路径引用（无 `DSH_PROFILE=web` 入口）、profile 模板目录只有 `desktop`（web 非模板再生成）、无 web 独立启动脚本；但它是 `scripts/staged-profile-assemble.ps1` 的 `dsh-mcp-lens-0.1.0-rc.9.tgz` 装配来源，且 `cordis.patch.yml` 注释保留「super-injector 默认指向 web node_modules，desktop 必须覆盖」。
+- 结论：**web profile 不可删除**，定位为「遗留非活跃、装配依赖源」；已在项目 `AGENTS.md`「架构与关键路径」写入 Profile 定位说明，防止未来误判归档。
+
+### 巡检工具链（并入上文）
+- `scan-dangling.mjs --plan` 只读修复预演 + `check-all.ps1` Step 1.6 修复指引 + `dsh-maintenance.ps1` 第 6 段只读扫描 + `deregister-plugin.mjs`（删除协议工具，预检/--yes/回收站/自动验证）——详见同日期「巡检防退化 + 删除协议工具化」条目。
+
+---
+
+## 2026-09-02 dsh-model-picker-group 接管映射稳定化（修复「当前模型不支持图片」时灵时不灵）
+
+### 背景
+- 用户在对话中粘贴图片偶发报「当前模型不支持图片」（DSH 前端准入 `image.modelUnsupported` 硬拦图片块）。排查确认：modlens 引擎 / `modlens_read_image` 工具 / vision-engine 均正常，根因在 `dsh-model-picker-group` 的**静默接管映射不稳定**。
+- 根因（2026-09-01 实测）：接管映射 `plainMap`（上游 provider+model → modlens 视觉渠道）此前由 `api.sessions.models` 的 **picker 快照**构建，而该快照里 `modlens-*` 包装组**时有时无**（受 model-tier-router / 白名单影响）。快照缺 modlens 组 → `plainMap` 缺失 → 选中普通纯文本模型（如 deepseek-v4-flash-0731）无法静默改走 modlens 视觉渠道 → 会话模型仍判纯文本 → 图片块被准入拦截。
+- 证据：`~/.modlens/picker-diag.log` 中 `takeoverEntries` 在 0~2 间跳动；`api.llm.models`（host 全量目录）却**稳定包含 8 个 modlens 组、30+ 模型**。
+
+### 改动
+1. `plugins/dsh-model-picker-group/lib/client.js`：
+   - 新增 `loadStableTakeover(llmApi)`：用 **`connection.api.llm.models({})`（host 全量目录，权威源）** 预填充 `plainMap`，幂等增量、不清空；仅处理 `modlens-*` / `deepseek-modlens` 包装组。
+   - 新增 `addTakeoverModels(g, up)`：把 modlens 组模型写入接管映射（复用逻辑，去重）。
+   - `rebuildMaps()` 改为只清 `modlensToUpstream`（显示层），**不再清空权威源填充的 `plainMap`**。
+   - `mergeGroups` 第 2 步降级为「增量兜底」：快照里出现的 modlens 组补录，权威源已有部分保持不变。
+   - `apply()` 注入 connection 后异步 `loadStableTakeover`，并在每次 `sessions.models` 调用时对未就绪的权威源重试（容错时序）。
+   - 新增 `stable-takeover` 诊断事件（上报 ~/.modlens/picker-diag.log）。
+2. `plugins/dsh-model-picker-group/test-picker-group.mjs`：修正与实现不一致的旧断言（此测试此前就 FAIL——期望「双胞胎合并进显示」与「隐藏双胞胎+静默接管」实际设计不符）；并修复 `window.setInterval` mock 缺失与 kill-switch mock 语义错误（此前 `getItem` 恒返回 `'{"enabled":false}'` 而非 `'off'`，导致关闭分支从未被真实验证）。现 6 组断言全部 PASS。
+3. `plugins/dsh-model-picker-group/README.md`：补「接管映射稳定性」说明（根因、权威源机制、生效方式、回滚）。
+
+### 验证
+- `node --check` client.js / test 均通过；`node test-picker-group.mjs` → **ALL TESTS PASSED**。
+- `node scripts/startup-verify.mjs` → **10/10 PASS**（V9 插件语法预检含 link 插件）。
+- HTTP 实测 `http://127.0.0.1:43120/plugins/@dsh-external/dsh-model-picker-group/client.js` 返回内容已含 `loadStableTakeover` / `addTakeoverModels` / `stable-takeover` —— **刷新浏览器即生效，无需重启 DSH**。
+
+### 风险收益
+- 收益：修复「图片时灵时不灵」根因——接管映射从此由 host 全量目录（稳定权威源）构建，不再随 picker 快照波动；文本模型默认静默走 modlens 视觉渠道，不显示 `(modlens vision)` 后缀（满足用户需求）；原生视觉模型不受影响。
+- 风险：低——仅改 `plugins/dsh-model-picker-group/lib/client.js`（client bundle）+ 测试/文档；不触 host / 内核 / dist / 启动链路；回滚：还原备份 `lib/client.js.bak-20260901-174233` 即可。
+- 长期可维护性：权威源 + 增量兜底双保险；`stable-takeover` 诊断可观测；单测已对齐实际设计，后续迭代有回归护栏。
+
+---
+
+### 背景
+- 「插件删除协议」此前靠文档条款 + 手工清理，仍有漏项风险（2026-08-31 dsh-tool-visibility 事故）。本轮把「发现问题」和「删插件注销」两条链路线性化、工具化。
+
+### 改动
+1. `scripts/scan-dangling.mjs` 新增 `--plan` 只读修复预演：把发现映射为「动作+目标+命令」清单（孤儿 junction→回收站删除、悬空引用→startup-verify --repair 指引、stale-decl→移除声明、真实副本→人工确认），只列不执行。
+2. `scripts/check-all.ps1` Step 1.6 失败分支追加修复指引 HINT（`--plan` / `--repair` / 删除协议）。
+3. `scripts/dsh-maintenance.ps1` 新增第 6 段：profile 悬空只读扫描（实测 No dangling, healthy）。
+4. 新增 `scripts/deregister-plugin.mjs` 删除协议工具：`--plugin <name>` 默认只读预检 3 处引用（deps / bundles / junction），`--yes` 才执行——先备份到 `_backups/`、junction 走回收站（仅删链接）、真实副本拒绝自动删、核心 bundle 永不触碰、原子写、清理后自动跑 scan-dangling 验证。
+5. 新增 `tests/plugins/deregister-plugin.test.mjs`（5/5 通过）；`scan-dangling` 测试 4→6。
+6. 全局 `~/.dsh/AGENTS.md` + 项目 `AGENTS.md` 删除协议追加 deregister-plugin / scan-dangling 工具引用。
+
+### 验证
+- `node --check` 通过；两个测试套件 11/11 全过；`check-all` ALL PASS 退出 0（Step 1.6 实测 0 发现）；`scan-dangling --strict` 真实 profiles 0 发现。
+- `deregister-plugin --plugin dsh-model-picker-group` 预检演练：desktop/web 两 profile 正确列出 3 处引用，只读未改。
+- `dsh-maintenance.ps1` 端到端运行，第 6 段输出 `No dangling/orphan references - healthy`。
+
+### 风险收益
+- 收益：删除插件回归「零事故」半自动闭环；巡检从人工/偶发变为每次 check-all 自动拦截；可维护/可迭代（工具+测试+文档齐备）。
+- 风险：中——deregister-plugin 具备写能力，已用「预检只读默认 + --yes 才动 + 每步备份 + 回收站 + 自动验证」护栏兜底，真实 profile 演练确认只读。不触 dist/加载链路，无需重启。
+- 回滚：删除新增脚本/段落即可；备份在 `_backups/`。
+
+---
+
+## 2026-09-02 web profile 残留清理 + scan-dangling 巡检脚本（可复用工具沉淀）
+
+### 背景
+- 9-02「插件删除协议」落地后，对 `~/.dsh/profiles/*` 做跨 profile 悬空引用扫描：桌面（活跃）profile 干净；web（遗留/非活跃）profile 发现 4 处残留——3 个未声明孤儿 junction（`dsh-force-reasoning-effort` / `dsh-modlens-autoread` / `dsh-vision-engine`，注销后残留链接）与 1 处失效 `file:` 声明（`dsh-client-ui-skin-maid-atelier`，声明目标已删但 node_modules 有真实副本，不影响加载）。
+
+### 改动
+1. 清理 web profile：3 个孤儿 junction 回收站删除（仅删链接，`D:\Deepseek-Harness\plugins\` 源目录完好）；移除 `web/package.json` 中失效 maid-atelier `file:` 声明（保留 `dsh.profile.bundles` 条目与真实副本）。
+2. 新增只读扫描器 `scripts/scan-dangling.mjs`：检出 DANGLING（启动风险）/ STALE-DECL / ORPHAN / NOT-INSTALLED / INFO 五类，支持 `--json` / `--strict` / `--profile`；语义对齐 startup-verify V1/V4 与 profile-guard（node_modules 实体优先、兼容嵌套/点号键 `dsh.profile`、相对 `file:`、构建嵌套布局）。
+3. 新增回归测试 `tests/plugins/scan-dangling.test.mjs`（4/4 通过，锁定三类检出语义 + 汇总计数 + strict 退出码）。
+4. `scripts/check-all.ps1` 新增 Step 1.6：每次巡检自动跑 `scan-dangling --strict`（发现 DANGLING 才计入 FAIL）。
+
+### 验证
+- `node scripts/startup-verify.mjs` 10/10 PASS（桌面活跃 profile V1/V2/V4 全绿）。
+- `node scripts/scan-dangling.mjs` 真实 profiles 0 发现；fixture 负向测试正确检出 4 类（DANGLING=1 / STALE-DECL=1 / ORPHAN=1 / INFO=1）。
+- `node --test tests/plugins/scan-dangling.test.mjs` 4/4 通过。
+- 备份：`~/.dsh/_backups/profile-web-package-20260901-154556.json`。
+
+### 风险收益
+- 收益：消除遗留脏数据与未来误判；扫描器沉淀为常驻巡检项，任何 profile 改动可一键复检，长期可维护/可迭代。
+- 风险：低——仅 web（非活跃）profile + 新增脚本/步骤；未触 dist/profile 加载链路；可回滚（回收站 + 备份）。
+- 回滚：junction/声明改动可用备份还原；check-all 新增步骤删除即还原。
+
+---
+
+## 2026-09-02 关闭前「配置自检」补丁 + 插件删除协议固化（防删插件后重启打不开）
+
+### 背景
+- 2026-08-31 事故复盘：归档 `dsh-tool-visibility` 只改了源码模板，漏了运行态 `~/.dsh/profiles/desktop/package.json` 的 dependencies/bundles 两处 → 悬空 junction → 重启报 `cannot resolve package "@dsh-external/dsh-tool-visibility"` 进恢复页（恢复页连续操作还会撞上一次性动作守卫 `the Profile recovery action is no longer valid`）。
+- 壳层原有关闭自检（`checkDesktopFileIntegrity`，文件完整性 + 工作区）**不查 Profile 插件引用**，是本次盲区。
+
+### 改动
+1. 新增 `scripts/apply-profile-guard.mjs`：向构建产物注入自包含 `dshCheckProfileIntegrity()`/`dshProfileLabel()`（仅用 `process.getBuiltinModule`，不依赖 chunk 内导入）：
+   - `lib/electron-runtime-*.js` 关闭弹窗：摘要追加「配置自检：通过/异常（缺失 N 项）」、problems 列表列出缺失项、弹窗标题按自检结果切换；
+   - `lib/main.js` 退出守卫：integritySummary 追加配置自检结果。
+   - 检查逻辑对齐 startup-verify V1/V2：node_modules 条目（junction/拷贝）优先，link:/file: 声明目标兜底；跨全部 `~/.dsh/profiles/*` 扫描；模板漂移仅提示不阻断。
+2. `scripts/verify-patches.ps1`：+2 校验项（main.js 静态 + electron-runtime chunk 动态 marker）。
+3. `scripts/startup-verify.mjs`：新增 `--repair`（自动移除悬空 bundle 引用，备份两份；`--yes` 才删孤儿悬空 junction，目标目录存在即中止）。
+4. 全局 `~/.dsh/AGENTS.md` + 项目 `AGENTS.md`：新增「插件删除协议」条款。
+5. 已应用补丁于当前构建（build202608272104），备份在 `_backups/dist-profile-guard-2026-09-01T04-39-28-669Z/`。
+
+### 验证
+- `node scripts/apply-profile-guard.mjs` 幂等重打通过；注入函数从产物抽取实测：基线 `ok:true, checked:2`（desktop+web 两 profile 全部 bundles 可解析）；故障演练（临时加悬空 link:）能检出、恢复后干净。
+- `node scripts/startup-verify.mjs` 10/10 PASS；`verify-patches.ps1` 全绿（含 2 项新校验）。
+- 附带发现：`~/.dsh/profiles/web/package.json` 的 `@dsh-external/dsh-client-ui-skin-maid-atelier` 声明 `file:D:/Deepseek-Harness/plugins/dsh-deep-whale-main/maid-atelier` 目标已不存在，但 web node_modules 内有真实拷贝，启动不受影响（仅过期声明路径，未动）。
+
+### 风险收益
+- 收益：关闭时即可发现「删了插件但没注销」类残留，杜绝关得掉起不来的回归；删除协议让 agent/用户有章可循。
+- 风险：中——改动 dist 关闭/退出路径（启动链路），已备份、原子写、补丁体系登记；不自动重启，等用户指示。
+- 回滚：`_backups/dist-profile-guard-*` 两份原件拷回 + 重跑 `apply-winhide-patches.mjs` 兜底。
+
+---
+
+## 2026-09-01 清理已归档 dsh-tool-visibility 的运行时 Profile 残留引用（修复启动解析报错）
+
+### 现象
+- 启动报 `dsh-plugin-desktop: cannot resolve package "@dsh-external/dsh-tool-visibility" from the Desktop installation or active Profile`。
+
+### 根因
+- `plugins/dsh-tool-visibility/` 已归档至 `_backups/archived-plugins/dsh-tool-visibility-20260901/`（源目录不存在）；工作区模板 `profile/desktop/package.json` 已同步移除引用，但**运行时 Profile** `~/.dsh/profiles/desktop/package.json` 未同步——第 43 行 `dependencies` 的 `link:` 指向缺失目录、第 80 行 `dsh.profile.bundles` 仍列入 → 悬空 junction → 装配期解析失败。
+- 教训：**工作区 `profile/desktop/package.json` 只是源模板，应用真正读取的是 `~/.dsh/profiles/desktop/package.json`**，改模板必须同步运行时，否则必现此类解析报错（`startup-verify.mjs` 的 V2 检查即为此设）。
+- 注意：`dsh-command-guard` 仅提供 `/command-guard/*` 路由，**未接管** `/tool-visibility/*` 路由与设置页面板，两者非替代关系。
+
+### 改动
+1. `~/.dsh/profiles/desktop/package.json`：删除 2 处引用（dependencies 1 行 + bundles 1 行）。
+2. 删除悬空 junction `~/.dsh/profiles/desktop/node_modules/@dsh-external/dsh-tool-visibility`（`fs.rmdirSync` 仅删链接；前置安全闸：目标目录存在即中止，防误删）。
+3. 备份 2 份：`~/.dsh/profiles/desktop/package.json.bak-tv-20260901-1115`、`_backups/runtime-profile-package.json.bak-tv-20260901-1115`。
+
+### 验证
+- `node scripts/startup-verify.mjs` → **10/10 PASS**（V1 bundles=32 全部可解析、V2 模板=运行态 32 项一致、V4 无孤儿 @dsh-external 包、V10 bundle 声明完整）。
+- 全仓扫描确认仅此 1 处悬空引用，无同类残留。
+
+### 风险收益
+- 收益：消除启动解析报错，运行时 Profile 与源码模板重新对齐。
+- 风险：低——仅删引用与悬空链接，未动 dist / 其他插件 / 用户数据（`~/.dsh/tool-visibility/events.jsonl` 历史数据保留）。
+- 回滚：备份 cp 回原路径 + 重建 junction（`mklink /J`）。
+- 代价：`/tool-visibility/status`、`/tool-visibility/recent` 路由与设置页「工具调用可见性」面板不再存在；归档包完整，如需恢复可从 `_backups/archived-plugins/dsh-tool-visibility-20260901/` 还原（需同时补回模板与运行时两处引用）。
+
+---
+
 ## 2026-09-01 技能市场安装链路修复（PowerShell 兼容性 + fs API 原子落位）
 
 ### 现象

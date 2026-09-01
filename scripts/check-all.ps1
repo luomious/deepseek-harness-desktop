@@ -79,6 +79,25 @@ if (Test-Path $healthCheck) {
   Write-Host '  SKIP  health-check.mjs / startup-verify.mjs not found' -ForegroundColor Yellow
 }
 
+# ---- Step 1.6: scan-dangling.mjs (跨 profile 悬空/孤儿引用巡检) ----
+# 只读扫描全部 profile 的 @dsh-external 引用；--strict 仅在发现 DANGLING 时退出码 1。
+Write-Host ''
+Write-Host '=== Step 1.6: scan-dangling.mjs (cross-profile dangling check) ===' -ForegroundColor Cyan
+$scanDangling = Join-Path $PSScriptRoot 'scan-dangling.mjs'
+if (Test-Path $scanDangling) {
+  & node $scanDangling --strict
+  $scanCode = $LASTEXITCODE
+  if ($scanCode -ne 0) {
+    Write-Host ('  FAIL  scan-dangling exited with code ' + $scanCode) -ForegroundColor Red
+    Write-Host '  HINT  preview fixes (read-only): node scripts/scan-dangling.mjs --plan' -ForegroundColor Yellow
+    Write-Host '  HINT  auto-clean dangling refs: node scripts/startup-verify.mjs --repair  (backs up first)' -ForegroundColor Yellow
+    Write-Host '  HINT  deletion protocol: ~/.dsh/AGENTS.md "插件删除协议"' -ForegroundColor Yellow
+    $totalFail += $scanCode
+  }
+} else {
+  Write-Host '  SKIP  scan-dangling.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan

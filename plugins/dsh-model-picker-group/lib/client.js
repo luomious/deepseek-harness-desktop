@@ -59,7 +59,51 @@ window.__ModuleLoader__.load({
     // 双胞胎上必须保持该标记,否则裁决误判纯文本 → 图片被转成路径。
     var modlensVisionActive = false
 
-    function rebuildMaps() { plainMap = {}; modlensToUpstream = {} }
+    // plainMap 只由「权威源」构建/累积（loadStableTakeover），绝不因 picker 快照
+    // 里 modlens 组「时有时无」被清空——这正是图片被拦（接管失效）的根因。
+    // modlensToUpstream 仍随快照重建，保证显示层（rewriteCurrent）与当前目录同步。
+    var stableTakeoverLoaded = false
+    function rebuildMaps() { modlensToUpstream = {} }
+    // 把一个 modlens 包装组（g，上游=up）的模型幂等地写入接管映射（增量、不清空）
+    function addTakeoverModels(g, up) {
+      if (!g || !up) return 0
+      var added = 0
+      for (var j = 0; j < (g.models || []).length; j++) {
+        var m = g.models[j]
+        var key = up + '\u0000' + m.id
+        plainMap[key] = g.id
+        plainMap['\u0000' + m.id] = g.id // 兜底：model 全局唯一时可直接命中
+        added++
+      }
+      return added
+    }
+    // 权威源：从 host 全量目录（llm.models，稳定包含全部 modlens-* 组）构建接管
+    // 映射。llm.models 不经 picker 包装层，modlens 组稳定在场，因此接管映射不会
+    // 因为某次 sessions.models 快照里 modlens 组缺席而缺失。幂等、增量、不清空。
+    function loadStableTakeover(llmApi) {
+      if (!llmApi || typeof llmApi.models !== 'function') return Promise.resolve(false)
+      if (stableTakeoverLoaded) return Promise.resolve(true)
+      return llmApi.models({}).then(function (res) {
+        if (!res || !res.result || !res.result.ok || !res.result.value) return false
+        var groups = res.result.value.groups || []
+        var added = 0
+        for (var i = 0; i < groups.length; i++) {
+          var g = groups[i]
+          if (!g) continue
+          var up = toUpstream(g.id)
+          if (!up) continue // 只处理 modlens-* 包装组
+          modlensToUpstream[g.id] = up
+          added += addTakeoverModels(g, up)
+        }
+        stableTakeoverLoaded = true
+        if (added > 0) {
+          try {
+            diag({ event: 'stable-takeover', modlensGroups: groups.filter(function (x) { return toUpstream(x && x.id) }).length, entries: Object.keys(plainMap).length })
+          } catch (e) {}
+        }
+        return added > 0
+      }).catch(function () { return false })
+    }
 
     // 诊断自动上报：console + POST 到 host 落盘（~/.modlens/picker-diag.log），无需手动抄日志
     function diag(payload) {
@@ -101,18 +145,16 @@ window.__ModuleLoader__.load({
           order.push(g.id)
         }
       }
-      // 2) 记录接管映射：上游 (provider, model) -> modlens 渠道；modlens 渠道 -> 上游
+      // 2) 记录接管映射：上游 (provider, model) -> modlens 渠道；modlens 渠道 -> 上游。
+      //    幂等增量（addTakeoverModels 不清空），权威源（loadStableTakeover）已填充
+      //    的部分保持不变；这里仅补充快照里出现、权威源尚未覆盖的组。
       for (var i = 0; i < groups.length; i++) {
         var g = groups[i]
         if (!g) continue
         var up = toUpstream(g.id)
         if (!up || !byId[up]) continue
         modlensToUpstream[g.id] = up
-        for (var j = 0; j < (g.models || []).length; j++) {
-          var m = g.models[j]
-          plainMap[up + '\u0000' + m.id] = g.id
-          plainMap['\u0000' + m.id] = g.id // 兜底：model 全局唯一时可直接命中
-        }
+        addTakeoverModels(g, up)
       }
       // 诊断：定位接管是否生效（自动上报 ~/.modlens/picker-diag.log）
       try {
@@ -155,6 +197,36 @@ window.__ModuleLoader__.load({
       return value
     }
 
+    // 默认接管（方案 A，2026-09-02）：会话「当前模型」可能停在上游纯文本渠道
+    // （默认模型 / 会话恢复 / 其它途径设置），此时 DSH 图片准入（host prompt 调
+    // resolveModelInfo 判 inputModalities）会拦截图片。这里在每次会话目录刷新时
+    // 检查：若当前是「上游纯文本 + 有 modlens 包装」→ 自动 selectModel 改走 modlens
+    // 视觉渠道（声明 image），让图片准入放行，无需用户手动点选。
+    // 幂等：按 sessionId（或 provider+model 兜底）记录，只自动接管一次，防循环。
+    var autoTaken = {}
+    function maybeAutoTakeover(sessions, req, cur) {
+      try {
+        if (!cur) return
+        if (!sessions || typeof sessions.selectModel !== 'function') return
+        if (typeof cur.provider !== 'string' || typeof cur.model !== 'string') return
+        // 已是 modlens 视觉渠道（modlens-* / deepseek-modlens）→ 无需接管
+        if (toUpstream(cur.provider)) return
+        // 上游渠道：查接管映射（权威源 plainMap）是否有 modlens 包装
+        var mp = plainMap[cur.provider + '\u0000' + cur.model] || plainMap['\u0000' + cur.model]
+        if (!mp) return // 该模型无 modlens 包装 → 不动（原生视觉模型/未包装模型）
+        var sid = (req && req.sessionId) || ''
+        var key = sid || (cur.provider + '\u0000' + cur.model)
+        if (autoTaken[key]) return // 已自动接管过
+        autoTaken[key] = true
+        diag({ event: 'auto-takeover', sessionId: sid || null, from: cur.provider + '/' + cur.model, to: mp })
+        // 传给 modlens 渠道：groupedSelect 对 modlens 渠道的键查不到（plainMap 键是
+        // 上游+model），会原样提交给 host → host 会话切到 modlens 视觉渠道。
+        sessions.selectModel(Object.assign({}, req, { provider: mp, model: cur.model })).catch(function () {})
+      } catch (e) {
+        console.error('[dsh-model-picker-group] auto takeover error:', e)
+      }
+    }
+
     // ---------- 无缝接管（默认开启；kill-switch: localStorage dsh.model-picker-group.takeover = "off"）----------
     // 接管默认行为保留（modlens 视觉双胞胎合并 + 静默改道），但提供显式关闭开关
     // （投产审计 P1-E5）。开关改动后需重新加载页面生效。
@@ -183,15 +255,34 @@ window.__ModuleLoader__.load({
         }
         ctx.inject(['connection'], function (scope) {
           var sessions = scope.connection && scope.connection.api && scope.connection.api.sessions
+          var llmApi = scope.connection && scope.connection.api && scope.connection.api.llm
           var restore = []
+          // 权威接管映射：用全量目录（llm.models）预填充 plainMap，不依赖
+          // sessions.models 快照里 modlens 组是否在场（修复「图片被拦」根因）。
+          if (llmApi) {
+            loadStableTakeover(llmApi).then(function (ok) {
+              if (ok) console.log('[dsh-model-picker-group] stable takeover map loaded (' + Object.keys(plainMap).length + ' entries)')
+              else console.warn('[dsh-model-picker-group] stable takeover load failed; falling back to snapshot')
+            }).catch(function () { /* 失败不影响现有行为 */ })
+          }
           // 包 models：合并分组 + 改写 current（默认接管）
           if (sessions && typeof sessions.models === 'function' && !sessions.models.__dshGrouped) {
             var origModels = sessions.models.bind(sessions)
             var groupedModels = function (req, signal) {
+              // 权威源未就绪时，借每次会话目录刷新重试（避免早期失败后永久缺失）
+              if (!stableTakeoverLoaded && llmApi) {
+                loadStableTakeover(llmApi).catch(function () {})
+              }
               return origModels(req, signal).then(function (res) {
                 try {
                   if (res && res.result && res.result.ok && res.result.value) {
+                    // 捕获原始 current（transform 会把 modlens 渠道改写成上游坐标，
+                    // 必须在改写前取原始值）；transform 同时构建/补齐 plainMap
+                    var origCurrent = res.result.value.current
                     res.result.value = transformModels(res.result.value)
+                    // 默认接管：transform 之后（plainMap 已就绪）再检查原始 current——
+                    // 若会话停在上游纯文本渠道且有 modlens 包装，自动改走 modlens 视觉渠道
+                    maybeAutoTakeover(sessions, req, origCurrent)
                   }
                 } catch (e) {
                   console.error('[dsh-model-picker-group] models transform error:', e)

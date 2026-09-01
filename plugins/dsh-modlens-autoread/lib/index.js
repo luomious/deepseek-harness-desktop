@@ -17,7 +17,7 @@
 //  3. 幂等与健壮：同一附件/路径只读一次（promise 级缓存，失败不缓存）；任何
 //     异常降级为原 decision，绝不让 agent 步骤失败。
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
@@ -97,6 +97,75 @@ function run(command, args, signal) {
   })
 }
 
+// ── 限流自愈（2026-09-03）：OpenRouter :free 免费模型共享配额，偶发 429/限流。
+// modlens 故障链是 provider 级（openai→gemini-api→claude-cli），不会在同一个 openai
+// 槽位的多个模型间自动切换。这里在 autoread 层做 **model 级** 重试：检出限流特征后，
+// 用 `modlens -i <img> --provider openai --model <备用模型>` 依次尝试 vision-engine.json
+// 里登记的 OpenRouter 模型（最多 FALLBACK_LIMIT 个），成功即返回，全部失败返回首错。
+// 不改共享配置、不触碰 dsh-vision-engine 单写者；仅影响 autoread 这一次读图。
+const MODLENS_HOME = join(homedir(), '.modlens')
+const VE_CONFIG_PATH = join(MODLENS_HOME, 'vision-engine.json')
+const MODLENS_CONFIG_PATH = join(MODLENS_HOME, 'config.json')
+const FALLBACK_LIMIT = 3
+const RATE_LIMIT_RE = /(429|rate\s*limit|too\s+many\s+requests|quota\s*(exceeded|reached|limited)|overloaded|slow\s*down|concurrent\s*requests|temporarily\s*(unavailable|rate-limited))/i
+
+function isRateLimited(text) {
+  return typeof text === 'string' && RATE_LIMIT_RE.test(text)
+}
+
+/** 读 JSON 文件；不存在/解析失败返回 null（绝不抛）。 */
+function readJsonSafe(file) {
+  try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
+}
+
+/** 从 vision-engine.json 读 OpenRouter 槽的免费模型清单（去重保序）。 */
+function openRouterFallbackModels() {
+  const ve = readJsonSafe(VE_CONFIG_PATH)
+  if (!ve || !Array.isArray(ve.profiles)) return []
+  const seen = new Set()
+  const out = []
+  for (const p of ve.profiles) {
+    if (typeof p?.model !== 'string' || !p.model) continue
+    if (typeof p?.baseUrl === 'string' && /openrouter\.ai/i.test(p.baseUrl)) {
+      if (!seen.has(p.model)) { seen.add(p.model); out.push(p.model) }
+    }
+  }
+  return out
+}
+
+/** 当前 openai 槽生效模型（config.json providers.openai.model），读不到返回 ''。 */
+function currentOpenAIModel() {
+  const cfg = readJsonSafe(MODLENS_CONFIG_PATH)
+  return typeof cfg?.providers?.openai?.model === 'string' ? cfg.providers.openai.model : ''
+}
+
+/**
+ * 带 model 级限流自愈的读图：先按默认配置跑；若检出限流特征，再换 OpenRouter 备用
+ * 模型重试（跳过当前生效模型）。返回最后一次的 { stdout, stderr, code }。
+ */
+async function readWithRateLimitSelfHeal(target, signal) {
+  const args = [CLI, '-i', target, '--timeout', String(CLI_TIMEOUT_MS)]
+  const first = await run(process.execPath, args, signal)
+  if (first.code === 0) return first
+  const errText = `${first.stderr || ''}\n${first.stdout || ''}`
+  if (!isRateLimited(errText)) return first // 非限流错误不重试，直接走原失败路径
+  const current = currentOpenAIModel()
+  const candidates = openRouterFallbackModels().filter((m) => m !== current).slice(0, FALLBACK_LIMIT)
+  if (candidates.length === 0) return first
+  log(`rate-limit detected; retrying with OpenRouter fallback models: ${candidates.join(', ')}`)
+  let last = first
+  for (const model of candidates) {
+    try {
+      const retry = await run(process.execPath, [...args, '--provider', 'openai', '--model', model], signal)
+      last = retry
+      if (retry.code === 0) { log(`fallback success with model ${model}`); return retry }
+    } catch (error) {
+      last = { stdout: '', stderr: String(error?.message ?? error), code: 1 }
+    }
+  }
+  return last // 全部备用模型失败：返回最后一次错误（含原错误在 stderr 首错中）
+}
+
 function evidenceText(value) {
   const lines = ['[图片已由 modlens 自动读取转写]']
   if (value && typeof value.summary === 'string' && value.summary) lines.push(value.summary)
@@ -156,11 +225,7 @@ async function readImageBlock(ctx, block, signal) {
     try {
       const file = join(dir, `paste${ext}`)
       await writeFile(file, Buffer.from(stored.data), { mode: 0o600 })
-      const { stdout, stderr, code } = await run(
-        process.execPath,
-        [CLI, '-i', file, '--timeout', String(CLI_TIMEOUT_MS)],
-        signal,
-      )
+      const { stdout, stderr, code } = await readWithRateLimitSelfHeal(file, signal)
       if (code !== 0) throw new Error((stderr || stdout).trim().slice(0, 300))
       const parsed = JSON.parse(stdout)
       void reportVisionUsage(true)
@@ -183,11 +248,7 @@ async function readImageBlock(ctx, block, signal) {
 /** 读一个 paste 根目录下的图片路径。绝不抛错。 */
 async function readPath(ctx, path, signal) {
   try {
-    const { stdout, stderr, code } = await run(
-      process.execPath,
-      [CLI, '-i', path, '--timeout', String(CLI_TIMEOUT_MS)],
-      signal,
-    )
+    const { stdout, stderr, code } = await readWithRateLimitSelfHeal(path, signal)
     if (code !== 0) throw new Error((stderr || stdout).trim().slice(0, 300))
     const parsed = JSON.parse(stdout)
     void reportVisionUsage(true)

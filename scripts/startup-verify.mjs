@@ -283,6 +283,88 @@ try {
   check('V10', 'bundle dsh.bundle.patch declared', false, `error: ${e.message}`)
 }
 
+// ---------- REPAIR 模式（--repair，可选 --yes） ----------
+// 修复两类「删插件没注销」残留（2026-08-31 dsh-tool-visibility 事故形态）：
+//   R1 悬空 bundle 引用：bundles 中的包在 node_modules 无条目、且 link:/file: 声明
+//      目标不存在 -> 从 dsh.profile.bundles + dependencies 移除（先备份两份）。
+//   R2 孤儿 @dsh-external junction：--yes 才删，仅删「目标已缺失」的链接，
+//      目标目录存在即中止（防误删真实包）。
+if (process.argv.includes('--repair')) {
+  const pkgPath = path.join(runtime, 'package.json')
+  const pkg = readJson(pkgPath)
+  const repairs = []
+  if (!pkg) {
+    console.log('[repair] cannot read ' + pkgPath)
+  } else {
+    const bundles = pkg?.dsh?.profile?.bundles || []
+    const deps = pkg.dependencies || {}
+    const nm = path.join(runtime, 'node_modules')
+    const req = createRequire(path.join(runtime, 'noop.cjs'))
+    const dangling = bundles.filter((b) => {
+      // 对齐 V1 可解析性：profile node_modules、共享 profiles node_modules、
+      // require.resolve 向上探测（内核 @deepseek-ai/* 在构建产物 node_modules）、
+      // 以及 link:/file: 声明目标——任一命中即视为可解析，绝不误删。
+      const rel = b.replace('/', path.sep)
+      if (fs.existsSync(path.join(nm, rel))) return false
+      if (fs.existsSync(path.join(PROFILES_ROOT, 'node_modules', rel))) return false
+      try { req.resolve(b); return false } catch { /* fall through to declared target */ }
+      const spec = deps[b]
+      if (typeof spec === 'string' && (spec.startsWith('link:') || spec.startsWith('file:'))) {
+        const target = spec.slice(5)
+        const resolved = path.isAbsolute(target) ? target : path.join(runtime, target)
+        if (fs.existsSync(resolved)) return false
+      }
+      return true
+    })
+    if (dangling.length > 0) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      const b1 = `${pkgPath}.bak-repair-${ts}`
+      fs.copyFileSync(pkgPath, b1)
+      let b2 = null
+      try {
+        const repoBk = path.join(REPO, '_backups', `runtime-profile-package.json.bak-repair-${ts}`)
+        fs.mkdirSync(path.dirname(repoBk), { recursive: true })
+        fs.copyFileSync(pkgPath, repoBk)
+        b2 = repoBk
+      } catch { /* repo _backups unavailable: keep local backup only */ }
+      pkg.dsh.profile.bundles = bundles.filter((b) => !dangling.includes(b))
+      for (const b of dangling) delete pkg.dependencies[b]
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
+      repairs.push(`R1 removed dangling bundle refs: ${dangling.join(', ')} | backups: ${b1}${b2 ? ' , ' + b2 : ''}`)
+    }
+    if (process.argv.includes('--yes')) {
+      const extDir = path.join(nm, '@dsh-external')
+      const declared = new Set([
+        ...Object.keys(deps).filter((d) => d.startsWith('@dsh-external')).map((d) => d.replace('@dsh-external/', '')),
+        ...bundles.filter((b) => b.startsWith('@dsh-external/')).map((b) => b.replace('@dsh-external/', '')),
+      ])
+      if (fs.existsSync(extDir)) {
+        for (const e of fs.readdirSync(extDir, { withFileTypes: true })) {
+          if (!(e.isDirectory() || e.isSymbolicLink())) continue
+          if (declared.has(e.name)) continue
+          const entry = path.join(extDir, e.name)
+          try {
+            const st = fs.lstatSync(entry)
+            let danglingJunction = false
+            if (st.isSymbolicLink()) {
+              try { fs.realpathSync(entry) } catch { danglingJunction = true }
+            }
+            if (danglingJunction) {
+              fs.rmdirSync(entry)
+              repairs.push(`R2 removed orphan dangling junction: @dsh-external/${e.name}`)
+            } else {
+              repairs.push(`R2 skipped orphan (not a dangling junction): @dsh-external/${e.name}`)
+            }
+          } catch { /* entry raced away */ }
+        }
+      }
+    }
+  }
+  if (repairs.length === 0) console.log('[repair] nothing to repair')
+  else for (const r of repairs) console.log('[repair] ' + r)
+  console.log('[repair] re-run without --repair to confirm the checks pass after repair')
+}
+
 // ---------- 报告（仅直接运行时执行；import 用于测试时不执行） ----------
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 if (isMain) {

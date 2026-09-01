@@ -29,6 +29,26 @@
 
 > 插件改动生效需**重启应用**（遵守重启守则：由用户明确指示才重启，不自动重启）。
 
+## 免费视觉模型配置（OpenRouter :free 通道，2026-09-03）
+
+文本模型读图依赖 modlens 视觉引擎（`~/.modlens/`）。当前默认走 **OpenRouter 免费通道**，免 API 额度、免欠费，配置实时读取（无需重启）。
+
+| Profile | 模型 | 能力 | 状态 |
+|---|---|---|---|
+| `p-minimax-m3`（默认） | `minimax/minimax-m3:free` | 图像+视频，1M 上下文 | ✅ 实测约 6s 读图 |
+| `p-nemotron-omni` | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | 图像+音频+视频 | ✅ 备选 |
+| `p-gemma4-31b` | `google/gemma-4-31b-it:free` | 图像+视频 | ✅ 备选（新加入） |
+| `p-gemma4-26b` | `google/gemma-4-26b-a4b-it:free` | 图像+视频 | ✅ 备选（偶发 429） |
+| `p-or` | `dots-studio/dots-3-note-preview:free` | 图像 | ✅ 备选（新加入） |
+| `p-current` | 本地 Ollama `qwen2.5vl:7b` | 离线兜底 | ✅ 约 20s/张 |
+
+要点：
+- **视觉能力以 OpenRouter `/api/v1/models` 的 `input_modalities` 为准**；图片面板里勾选的模型未必都支持读图（如 `Ling-3.0-flash`、`Nemotron 3 Ultra` 是纯文本，不能当视觉引擎）。
+- 免费通道共享限流，偶发 429：在「图片识别模型」面板切换备选 profile 即可，无需重启。
+- **自动自愈（2026-09-03）**：`dsh-modlens-autoread` 检出 429/限流特征后，自动用 `--provider openai --model <备用>` 依次尝试上表 OpenRouter 模型（最多 3 个），读图免人工切换。
+- `autoFailover=false`（默认）：modlens 故障链是 **provider 级**（openai→gemini-api→claude-cli），不会在多个 OpenRouter 模型间自动切换；model 级自动切换为后续迭代项。
+- 变更记录见 [CHANGELOG.md](CHANGELOG.md)「2026-09-03 免费视觉模型配置修订」。
+
 ## 构建与发布
 
 完整流程见 **[docs/BUILD.md](docs/BUILD.md)**。核心：

@@ -144,9 +144,12 @@ node --test tests/plugins/command-guard-risk.test.mjs
 
 ### 剩余计划（后续会话可续，全部可选）
 
+> 阶段 1 已于 2026-09-02 落地（`plugins/dsh-tool-renderers/`，覆盖 goal/jobs/subagent 8 个 key；
+> 详见 CHANGELOG + UPGRADE-EXECUTION-LOG「阶段 1」段）；**待重启终验**。
+
 | 阶段 | 内容 | 风险 | 说明 |
 |---|---|---|---|
-| 阶段 1 | #11 工具渲染器 keyed 卡（P1，唯一剩余） | 中 | `tool.call.toolview` slot 已有，逐个注册；完成后需重启验证 |
+| 阶段 1 | #11 工具渲染器 keyed 卡（P1，唯一剩余） | 中 | ✅ **已落地待重启终验**：`tool.call.toolview` keyed 渲染器已注册（get_goal/create_goal/update_goal/job_output/job_list/job_kill/subagent/subagent_fork）；startup-verify 10/10 |
 | 阶段 2 | #3 记忆系统（P2） | 中 | 优先等官方 stable；急需可做最小版 |
 | 阶段 3 | #16 Mermaid/LaTeX（P2） | 中 | 按需增量 |
 | 阶段 4 | #9 插件范围 / #10 watcher / 3c / v2.0.4（P3） | 零 | 等官方；定期跑 check-update-compat.mjs |

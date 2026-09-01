@@ -1,0 +1,4 @@
+# Bundle layer: mount the dsh-tool-renderers plugin (host stub + client bundle).
+- insert:
+    - id: dsh-tool-renderers
+      name: '@dsh-external/dsh-tool-renderers'

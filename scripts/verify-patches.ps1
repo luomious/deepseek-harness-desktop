@@ -34,7 +34,8 @@ $checks = @(
   @{ n = 'safe-delete-shim.cjs exists';       f = Join-Path $unpacked 'lib\safe-delete-shim.cjs'; p = 'safe-delete-shim' },
   @{ n = 'safe-delete-shim injected in main';  f = Join-Path $unpacked 'lib\main.js'; p = 'safe-delete-shim.cjs' },
   @{ n = 'pwsh recycle-bin guard defined';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = 'RECYCLE_GUARD_PREAMBLE' },
-  @{ n = 'pwsh argv uses recycle-bin guard';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = '${RECYCLE_GUARD_PREAMBLE}${spec.command}' }
+  @{ n = 'pwsh argv uses recycle-bin guard';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = '${RECYCLE_GUARD_PREAMBLE}${spec.command}' },
+  @{ n = 'profile-guard quit guard (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dshCheckProfileIntegrity' }
 )
 
 $fail = 0
@@ -63,6 +64,9 @@ if ($rtChunks.Count -ne 1) {
   $micaHit = Select-String -Path $rt -Pattern 'if (process.env.DSH_DESKTOP_FORCE_GPU) window.setBackgroundMaterial' -SimpleMatch -Quiet
   if ($micaHit) { Write-Host 'PASS  mica refresh guarded (electron-runtime)' -ForegroundColor Green }
   else { Write-Host 'FAIL  mica refresh guard (pattern missing)' -ForegroundColor Red; $fail++ }
+  $pgHit = Select-String -Path $rt -Pattern 'dshCheckProfileIntegrity' -SimpleMatch -Quiet
+  if ($pgHit) { Write-Host 'PASS  profile-guard close dialog (electron-runtime)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  profile-guard close dialog (pattern missing)' -ForegroundColor Red; $fail++ }
 }
 
 # unpack-everything contract + module-graph integrity. Dist patches target

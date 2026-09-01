@@ -1,0 +1,23 @@
+{
+  "name": "@dsh-external/dsh-tool-renderers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Tool renderer keyed cards (#11): register tool.call.toolview keyed renderers for DSH-specific tools (goal/jobs/subagent) with defensive null-safe summaries.",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

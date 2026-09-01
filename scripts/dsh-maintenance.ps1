@@ -134,4 +134,23 @@ foreach ($name in $residueFiles) {
     }
 }
 
+# --- 6. Profile dangling scan (read-only) ---
+Log "--- Profile dangling scan (read-only) ---"
+$scanDangling = Join-Path $root 'scripts\scan-dangling.mjs'
+if (Test-Path $scanDangling) {
+    $env:DSH_REPO = $root
+    $scanOut = & node $scanDangling --strict 2>&1
+    $scanCode = $LASTEXITCODE
+    if ($scanCode -ne 0) {
+        Log "WARNING: profile dangling/orphan references found (exit $scanCode):"
+        Log "  HINT: node scripts\scan-dangling.mjs --plan (preview, read-only)"
+        Log "  HINT: node scripts\startup-verify.mjs --repair (auto-clean, backs up first)"
+    } else {
+        Log "No dangling/orphan references - healthy"
+    }
+    $scanOut | ForEach-Object { Log "  $_" }
+} else {
+    Log "scan-dangling.mjs not found at $scanDangling"
+}
+
 Log "=== DSH Maintenance done ==="

@@ -120,7 +120,9 @@ window.__ModuleLoader__.load({
     // ---------- banner ----------
     function ContextBanner(props) {
       var session = props.session || (props.useSession ? props.useSession(function (s) { return s; }) : null);
-      var sessionId = session && session.id;
+      // ConversationSnapshot 的 id 字段是 sessionId（不是 id）；槽系统还把当前会话
+      // sessionId 作为标准 prop 注入。两处都取不到时保持 undefined → 不显示，绝不串显。
+      var sessionId = props.sessionId || (session && session.sessionId);
 
       var infoState = React.useState(null);
       var info = infoState[0];
@@ -154,9 +156,9 @@ window.__ModuleLoader__.load({
               for (var i = 0; i < list.length; i++) {
                 if (sessionId && list[i].sessionId === sessionId) { mine = list[i]; break; }
               }
-              // 仅在确实拿不到当前会话 id 时才兜底；否则严格按会话作用域匹配，
+              // dock 槽作用域内 sessionId 恒存在（标准 prop 或快照字段），
+              // 严格按会话作用域匹配；拿不到即视为无匹配，不兜底取第一个，
               // 避免 A 会话的压缩/新会话建议在切换到 B 会话时串显（跨会话作用域 bug）。
-              if (!mine && !sessionId && list.length === 1) mine = list[0];
               setInfo(mine || null);
             })
             .catch(function () { /* host route unavailable — stay silent */ });

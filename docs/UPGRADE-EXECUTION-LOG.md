@@ -619,3 +619,44 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **风险收益**：低风险——仅改自身插件（工具注册替代面板），不碰其他；工具注册增加极小模型上下文开销（一个工具 schema）。收益 = 提示词增强从手动按钮升级为 agent 自动判断调用，贴合开发场景。
 
 **回滚**：git revert → 重启即回滚。
+---
+
+## 阶段 1：工具渲染器 keyed 卡（WorkBuddy #11 / 方案书 v3）—— 2026-09-02 落地
+
+**目标**：为 DSH 特有、原本只走通用兜底卡的工具注册 `tool.call.toolview` keyed 渲染器，
+会话流中显示紧凑摘要卡（工具名 + 状态 + 参数摘要 + 结果首行）。
+
+**依据（源码确认）**：
+- slot：`dsh-client-ui-tool` 在 `conversation.chat.node` 声明 `tool.call.toolview`（keyed / session）；
+  渲染 `renderSlot("tool.call.toolview", owner, { entryKey: toolName, fallback: GenericToolCard })`。
+- 内置已占用 key：ask_user_question / bash / edit / write / read / grep / glob / todo_write / web_search / web_fetch。
+
+**实现**：
+1. 新建 `plugins/dsh-tool-renderers/`：package.json（dsh.bundle.patch + dsh.client web）+
+   cordis.patch.yml（insert: dsh-tool-renderers）+ lib/index.js（host stub）+ lib/client.js（手写 lazy-CJS bundle）。
+2. `lib/client.js`：TITLES/SUMMARY_KEYS 注册表 + ToolSummaryCard（防御式，running/settled 两态 block 兜底）+
+   TOOL_KEYS = [get_goal, create_goal, update_goal, job_output, job_list, job_kill, subagent, subagent_fork]。
+3. 装配：dev_install_package 热装（deps + bundles 34 + junction + loader.create fiber 激活）；
+   模板 `profile/desktop/package.json` 同步（V2 一致）。
+4. README：机制 / 迭代指南（加渲染器 = 加一行注册）/ 回滚。
+
+**验证**：
+- node --check：index.js + client.js 均 0；
+- startup-verify **10/10 PASS**（V2 模板==运行态 34=34、V9 语法、V10 patch 声明）；
+- dev_plugin_status：dsh-tool-renderers 热装 fiber active（临时 id 由自带 patch 重启接管）；
+- CHANGELOG 已登记。
+
+**待重启终验**：UI 会话触发上述工具 → 卡渲染为自定义摘要；dev_plugin_status 显示 id=dsh-tool-renderers。
+
+**风险收益**：中低风险（独立 client 插件、防御式渲染、错误边界兜底、可一键回滚）；
+收益 = 完成方案书 v3 唯一剩余 P1 项，工具可见性提升，后续加渲染器仅加一行（可迭代）。
+
+**回滚**：`node scripts/deregister-plugin.mjs --plugin @dsh-external/dsh-tool-renderers [--yes]`。
+
+---
+
+## 阶段 1 扩展：工具渲染器 keyed 卡覆盖扩展到 17 个工具 —— 2026-09-02
+**目标**：在阶段 1 落地插件上增量扩展，覆盖更多 DSH 高频工具（读图/工具目录/插件清单/编排/MCP）。
+**改动**：lib/client.js 的 TITLES/SUMMARY_KEYS/TOOL_KEYS 三表 8→17 key；workflow meta.name 摘要特化；README 同步。
+**验证**：node --check 0；client bundle 服务 200（len 7875，含 read_image/mcp_call/workflow/Tool Search 标记）；startup-verify 10/10 不变。
+**风险收益**：低风险纯增量（防御式渲染、key 错配回退通用卡）；长期稳定/可扩展（注册表驱动）。

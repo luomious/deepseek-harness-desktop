@@ -21,9 +21,11 @@ generator: @dsh-external/dsh-project-brief
 - 建新插件优先克隆/借鉴 `plugins/` 与 `dsh-stuck-loop-guard`、`dsh-context-lifecycle` 的零依赖 host 模式。
 - **关键操作退出保护**：在不可中断操作（pnpm 安装 / 补丁应用 / 长任务）开始前调用 `POST http://127.0.0.1:43120/desktop/critical-busy`，body `{"busy":true,"reason":"..."}`；结束后 body `{"busy":false}`（仅 loopback）。⚠️ **新壳端口为 43120（非 3080）**，随壳版本可能变化，先用 `Get-NetTCPConnection -State Listen` 确认。
 - **Windows 子进程铁律**：桌面壳无控制台，任何 `spawn`/`execFile`/`execSync` 必须带 `windowsHide:true`，否则闪黑框（已修 8 处，见 CHANGELOG 2026-08-23）。dist 改动先备份再改；重建后跑 `scripts/verify-patches.ps1` 校验。
-- 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`。
+- 生产上线方案见 `docs/PRODUCTION-UPGRADE-PLAN.md`，构建见 `docs/BUILD.md`；**Profile 维护（结构/巡检/删除协议/回滚/SOP）见 `docs/PROFILE-MAINTENANCE.md`**——改 `~/.dsh/profiles/*` 前必读。
 - **工作区感知**：回答涉及工作区具体文件/代码/配置的问题时，先用 glob/grep/read 搜索相关文件内容，再结合搜索结果回答；不要只凭记忆或假设回答。
 - **多对话协作铁律（task-scheduler，2026-08-27）**：改共享文件/install/build/补丁前先 `node scripts/task-scheduler.mjs status`，关键操作 `acquire`、改完 `release --summary`、长任务 `touch`；冲突时低优先级让路。机制与全量规则见全局 `~/.dsh/AGENTS.md`「多对话协作铁律」及 `plugins/dsh-task-scheduler/README.md`。
+- **原子写纪律（2026-08-29 事故）**：写 `plugins/` 运行路径文件（lib/**、入口、client bundle）必须**原子替换**（临时文件 + rename），禁止直接截断覆盖；改完回读 + `node --check` 验证，并跑 `node scripts/startup-verify.mjs`（V9 插件语法预检，挂 check-all Step 1.5）兜底。
+- **插件删除协议（2026-09-02）**：删除/归档 `plugins/<name>/` 必须同步运行态 Profile 3 处引用（`~/.dsh/profiles/desktop/package.json` 的 dependencies link/file 行、`dsh.profile.bundles` 项、node_modules 悬空 junction），否则重启报 `cannot resolve package`（2026-08-31 dsh-tool-visibility 事故）；首选 `dev_uninject_plugin`，CLI/离线兜底用 `scripts/deregister-plugin.mjs --plugin <name> [--yes]`（默认只读预检，`--yes` 才执行：备份+回收站+自动验证）。删后跑 `scripts/startup-verify.mjs`（`--repair` 自动清理）。桌面壳关闭/退出弹窗已内置「配置自检」（`scripts/apply-profile-guard.mjs` 补丁，重建后需重打，verify-patches.ps1 已含校验项）。跨 profile 巡检：`scripts/scan-dangling.mjs --strict`（并入 check-all Step 1.6），`--plan` 只读预演清理动作。
 
 ## 工作流程铁律（read → plan → patch → verify → review，策展 · 2026-08-25 新增）
 
@@ -46,6 +48,7 @@ generator: @dsh-external/dsh-project-brief
 
 - **当前架构**：桌面应用本体在 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（DSH Desktop v2，Electron）。**当前入口 = `dist\win-unpacked`（junction，快捷方式永指它，由 `scripts\promote-build.ps1` 换版重指）；真实构建为 `dist\win-unpacked-build<N>`，补丁脚本经 `scripts\resolve-dist.mjs` 定位最新构建。勿写死/归档 junction 目标，勿再产生 buildN 歧义**。插件生态在根目录 `plugins/`（link 加载，改后重启 dsh 生效）；旧 Electron 壳（`src/`、`app/`、`build-app.ps1`）已归档 `legacy/`。
 - Web GUI（http://127.0.0.1:43120，新壳端口；旧壳为 3080）由桌面应用内嵌 DSH 内核提供；客户端 bundle（`dsh-client-ui-*/lib/client.js`）按请求读盘 + `no-cache`，改完刷新浏览器即生效。
+- **Profile 定位（2026-09-02 调研定案）**：`~/.dsh/profiles/desktop` 是**唯一活跃运行 profile**（`startup-verify` 默认 DSH_PROFILE=desktop，模板在 `profile/desktop/`）；`~/.dsh/profiles/web` 是**遗留非活跃 profile，不可删除**——它是 desktop 装配脚本 `scripts/staged-profile-assemble.ps1` 的 `dsh-mcp-lens-0.1.0-rc.9.tgz` 来源（装配时从 web 复制 tgz），且 `cordis.patch.yml` 注释保留「super-injector 默认指向 web node_modules，desktop 必须覆盖」的兜底说明。巡检工具（scan-dangling / deregister-plugin）覆盖全部 profile，web 需保持无悬空/孤儿。
 - 插件在 `plugins/`，经 `dsh-super-injector`（`dev_inject_plugin`/`dev_install_package`/`dev_reload_package`）运行时注入、热重载、持久化装配。
 
 ## 三层维护架构（策展 · 2026-08-26 定稿）
