@@ -3,17 +3,18 @@
  *
  * Command risk detection (P2-A-5 of the DSH upgrade plan v3).
  *
- * v1 (this version): read-only observer. Listens to `tool/call` on the kernel
+ * v1: read-only observer. Listens to `tool/call` on the kernel
  * `session/event` bus, extracts the command from shell/exec-like tools, scores
- * it with the shared `risk-rules` module, and:
+ * it with the inline `risk-rules`, and:
  *   - keeps a bounded ring of alerts (high/medium only),
  *   - appends alerts to a JSONL log (`~/.dsh/command-guard/alerts.jsonl`, 1MB rotated),
  *   - exposes two loopback routes:
  *       GET /command-guard/status  → { ok, alertCount, lastAlertAt }
  *       GET /command-guard/alerts  → { alerts: [...recent high/medium commands] }
  *
- * v2 (iterative): wire `approval.request` before executing high-risk commands
- * (the kernel already ships the approval seam; policy ask→confirm, never→fail closed).
+ * v2: registers `tools/pre-execute` waterfall to gate high-risk commands through
+ * `approval.request` BEFORE execution (fail-closed: no approval service = deny).
+ * v1 session/event listener retained as audit trail.
  *
  * Design rules (identical to dsh-tool-visibility):
  *   1. Read-only observer; never mutates sessions/agents/events.
@@ -105,7 +106,7 @@ export const name = '@dsh-external/dsh-command-guard'
 
 // 硬依赖 timer（与 dsh-tool-visibility 同款）：路由退避重试依赖 ctx.setTimeout；
 // inject=[] 时 ctx.setTimeout 不可用 → 首次注册失败后永不重试 → 启动竞态下路由永久 404。
-export const inject = ['timer']
+export const inject = ['timer', 'approval']
 
 const ALERT_RING = 100
 const MAX_LOG_BYTES = 1024 * 1024
@@ -170,7 +171,31 @@ export function apply(ctx, rawConfig) {
     } catch { /* tolerate */ }
   }
 
-  // ── 事件监听（复用 tool-visibility 已验证模式） ──────────
+  // ── v2: tools/pre-execute waterfall（执行前拦截高危命令） ──
+  try {
+    ctx.on('tools/pre-execute', (exec, next) => {
+      try {
+        const command = extractCommand(exec?.arguments)
+        if (command === null) return next()
+        const { level, reasons } = scoreCommand(command, { allowlist: config.allowlist })
+        if (level === 'low') return next()
+        const approval = ctx.get('approval')
+        if (approval === undefined) return { kind: 'deny', reason: `命令风险[${level}] ${reasons.join('; ')}（无 approval 服务，fail-closed）` }
+        return approval.request({
+          agent: exec.agent,
+          toolName: exec.name,
+          callId: exec.callId,
+          reason: `命令风险[${level}]: ${reasons.join('; ')} — ${command.length > 200 ? command.slice(0, 200) + '…' : command}`,
+          signal: exec.signal
+        }).then((outcome) => {
+          if (outcome === 'allowed-once') return { kind: 'allow' }
+          return { kind: 'deny', reason: `命令风险[${level}] 已拒绝: ${reasons.join('; ')}` }
+        })
+      } catch { return next() }
+    })
+  } catch (e) { safeWarn(`pre-execute handler failed: ${String(e)}`) }
+
+  // ── v1 审计：session/event 监听（保留为审计日志） ──────────
   const onEvent = (subject, event) => {
     try {
       if (event?.type !== 'tool/call') return

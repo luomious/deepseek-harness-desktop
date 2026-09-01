@@ -521,3 +521,24 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 - 结论：**3a 遗憾闭环，P2-A-5 命令风险可见性正式转正**。insert + 单文件 + inject timer 形态第三次实证可靠。
 
 **问题登记**：无新增。
+
+---
+
+## command-guard v2：approval 拦截（✅ 代码就位，待重启生效，2026-08-31 晚）
+
+**目标**：高危 shell 命令执行前弹确认（approve/reject），安全防线闭合（方案书 P2-A-5 完整交付）。
+
+**实现**：
+- 注册 `tools/pre-execute` waterfall handler（内核标准机制，`dsh-sandbox`/`dsh-tool-bash` 已用此模式）
+- 流程：shell 工具执行前 → `extractCommand(exec.arguments)` → `scoreCommand` → high/medium → `ctx.approval.request({agent, toolName, callId, reason})` → approval 弹窗
+- fail-closed：无 approval 服务 = 拒绝；approval policy "never" = 拒绝；approval 异常 = 拒绝
+- inject 加 `'approval'`（`ctx.get('approval')` 拿 ApprovalService）
+- v1 审计监听器保留（session/event 记录高危命令到 alerts/JSONL，无论 approval 结果）
+
+**验证（文件级）**：index.js `node --check` OK；startup-verify **10/10**
+
+**待重启验证**：重启后触发一条高危命令（如 `rm -rf /tmp/test-dummy`）→ 应弹 approval 确认框 → 拒绝后命令不执行、alerts 有记录
+
+**回滚**：git revert → 重启即回滚（v1 审计保留，只移除 waterfall handler）
+
+**风险收益**：中风险——在工具执行路径加拦截（`tools/pre-execute` waterfall），但这是内核标准机制；fail-closed 保障。收益 = 安全防线闭合，方案书 P2-A-5 完整交付。
