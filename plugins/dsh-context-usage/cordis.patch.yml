@@ -1,6 +1,0 @@
-# dsh-context-usage bundle patch (DSH upgrade plan v3 · #6 context usage indicator).
-- insert:
-    - id: dsh-context-usage
-      name: '@dsh-external/dsh-context-usage'
-      config:
-        enabled: true

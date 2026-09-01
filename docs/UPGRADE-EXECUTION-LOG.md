@@ -563,3 +563,19 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **回滚**：删插件目录 + 还原 package.json + 删 junction → 重启即回滚
 
 **风险收益**：低风险——新插件独立，不碰现有逻辑；最坏 = 设置页少一节。收益 = 每次对话实时看到上下文使用情况，防截断（方案书 #6 达标）。
+
+---
+
+## 上下文用量插件回滚（2026-09-01，用户确认功能已存在）
+
+**原因**：用户重启后发现设置页「上下文用量」面板报错，且 DSH 已有上下文用量功能（轨迹栏旁边已有内置展示）——该插件冗余且报错，用户要求删除清理。
+
+**清理清单（全部已执行）**：
+1. ✅ 运行态 `~/.dsh/profiles/desktop/package.json`：移除 `@dsh-external/dsh-context-usage` 的 dependencies + bundles（33→32）
+2. ✅ 模板 `profile/desktop/package.json`：同步移除（33→32）
+3. ✅ 删除 junction `~/.dsh/profiles/desktop/node_modules/@dsh-external/dsh-context-usage`
+4. ✅ 删除 `plugins/dsh-context-usage/` 整个目录（回收站）
+
+**验证**：startup-verify **10/10**（V2 32=32、V4 无孤儿）
+
+**教训**：开发新插件前应先确认 DSH 内核是否已有等价功能（dev_plugin_status + UI 全景扫描），避免重复造轮子。
