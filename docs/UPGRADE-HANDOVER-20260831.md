@@ -1,7 +1,7 @@
 # DSH 升级计划 · 会话归档交接文档
 
-> 归档日期：2026-08-31
-> 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、6）
+> 归档日期：2026-08-31 → 2026-09-01（最终更新）
+> 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、3b、6）+ A/B 组收尾 + command-guard v2 + 官方 v2.0.4 评估
 > 主文档：`E:\WorkBuddy\learn\DSH全面升级方案书v3-最终版.md`（方案）、`E:\WorkBuddy\learn\UPGRADE-EXECUTION-LOG.md`（执行记录，D 盘副本 `D:\Deepseek-Harness\docs\UPGRADE-EXECUTION-LOG.md`）
 
 ---
@@ -25,7 +25,8 @@
 | zstd 异步化（Option A） | `patches/bundles/dsh-session-persistence-jsonl-index.js` + `port-user-patches.mjs` ZSTD_MODULE | ✅ 重启验证无报错 |
 | 工具流式可见性 | `plugins/dsh-tool-visibility/`（监听+环形缓冲+路由+JSONL） | ✅ 重启验证通过（关联修复：source.callId + turn/step + FIFO） |
 | 工具调用可见面板（client 展示） | `plugins/dsh-tool-visibility/lib/client.js`（设置页 settings.section「工具调用可见性」，2s 轮询 /recent） | ✅ 2026-08-31 晚落地，重启验证 client bundle 服务 200 |
-| 命令风险检测（3a 翻案） | `plugins/dsh-command-guard/`（insert + 单文件 + inject timer） | ✅ **2026-08-31 终验通过**：fiber [active]、/command-guard/status 200、risk-rules 12 单测 PASS |
+| 命令风险检测（3a 翻案） | `plugins/dsh-command-guard/`（insert + 单文件 + inject timer） | ✅ **终验通过**：fiber [active]、/command-guard/status 200、risk-rules 12 单测 PASS |
+| 命令风险 v2（approval 拦截） | `plugins/dsh-command-guard/lib/index.js`（`tools/pre-execute` waterfall） | ✅ 2026-09-01 代码就位，fail-closed，需重启验证 approval 弹窗 |
 | SLO 健康看板 | `scripts/health-check.mjs` + `~/.dsh/.health/startup-history.jsonl` | ✅ 接入 check-all Step 1.5 自动记录 |
 | SLO 定时巡检（脚本） | `scripts/health-task-run.ps1` + `install-health-task.ps1` | ✅ 脚本就位，注册计划任务可选（需管理员） |
 | 契约文档 v1 | `docs/plugin-contracts.md`（工具事件✅/连接器草案/技能部分/插件服务✅） | ✅ 2026-08-31 |
@@ -47,6 +48,7 @@
 5. **PS 5.1 编码坑**：含中文 .mjs/.yml 勿用 PowerShell `Set-Content -Encoding UTF8` 写（会破坏文件）；用 write 工具或 Node。
 6. **原子写纪律**（AGENTS.md 2026-08-29 事故印证）：运行路径文件必须临时副本→校验→原子替换。
 7. **Windows 平台 `ctx.shell` 后端 = pwsh**（dsh-pwsh-local，`pwsh -Command` 直通，无 POSIX 翻译）：`find`/`printf`/`cat` 不可用；`mkdir -p`/`rm -rf` 恰好被 PowerShell 别名层容忍。**插件内文件遍历/读取优先 node:fs**（跨平台），POSIX 命令仅限 Linux 环境（2026-08-31 importFolder 实证，见执行日志 3b 修复记录）。
+8. **开发新插件前先确认 DSH 内核是否已有等价功能**：dev_plugin_status（现有 loader entries）+ UI 全景扫描——避免重复造轮子（2026-09-01 dsh-context-usage 回滚事件）。
 
 ---
 
@@ -71,7 +73,7 @@
 | # | 项 | 状态 |
 |---|----|------|
 | C1 | zstd 大会话（11.4MB 实测文件）打开流畅性 | 重启后无报错，用户体验待确认 |
-| C2 | command-guard 若未来接入：approval.request 拦截（v2） | ApprovalService.request 需 open turn + fail-closed，接入点已摸清 |
+| C2 | command-guard approval 拦截（v2） | ✅ **2026-09-01 代码就位**：`tools/pre-execute` waterfall + fail-closed；需重启验证 approval 弹窗 |
 
 ---
 
@@ -111,3 +113,46 @@ node --test tests/plugins/command-guard-risk.test.mjs
 - zstd 补丁备份：`_backups/zstd-async-20260828/index.js.orig`（补丁经 port-user-patches ZSTD_MODULE 登记，重建可重打）
 - 全部改动已登记 task-scheduler 时间线（dsh-upgrade-plan: stage0/1/2/3a/6）
 - 执行日志 D 盘副本：`D:\Deepseek-Harness\docs\UPGRADE-EXECUTION-LOG.md`
+
+---
+
+## 6. 最终状态（2026-09-01 更新）
+
+### 方案书 v3 执行总结
+
+| 分类 | 状态 | 说明 |
+|------|------|------|
+| P0 稳定性五件套 | ✅ 全部完成 | startup-verify 10/10、verify-features 50 全绿、SLO 3/3 |
+| P2-A-0 工具流式可见性 | ✅ host + client 面板均完成 | host 监听+路由+JSONL；设置页面板 2s 轮询 |
+| P2-A-5 命令风险检测 | ✅ v1 审计 + v2 approval 拦截 | fiber active、fail-closed，需重启验证弹窗 |
+| 3b 技能导入文件夹 | ✅ 实测成功 | importFolder API + 跨平台 node:fs |
+| SLO 看板 + 巡检脚本 | ✅ 就位 | 注册计划任务可选 |
+| 契约文档 + 可行性报告 | ✅ 入库 | 插件服务契约 / client 装配路径已打通 |
+| 官方 v2.0.4 评估 | ⏸️ 暂缓 | 触发条件 0/5（alpha 未脱离）；机制已沉淀 |
+| #6 上下文用量 | ❌ 回滚 | 功能已内置（轨迹栏旁），插件冗余+报错，2026-09-01 已清理 |
+
+### 剩余可选项（全部可选增量，不阻塞长期运行）
+
+| 项 | 价值 | 风险 | 推荐 |
+|---|---|---|---|
+| #11 工具专用渲染器 keyed 卡 | 中 | 中 | 可选 |
+| #12 Mention 体系 | 中 | 中 | 可选 |
+| 3c 连接器/MCP roots | — | — | 等官方 |
+| 官方 v2.0.4 升级 | — | — | 等触发条件 |
+
+### 已验证的插件可靠形态（后续开发标准）
+
+```
+cordis.patch.yml 必须含 - insert:（id/name/config enabled）  ← 装配入口
+单文件（无相对导入）                                       ← 避免 loader 解析问题
+inject: ['timer']（用 ctx.setTimeout 前）                 ← 惰性依赖先注入
+bundles 清单 + dependencies + junction + 模板同步           ← 清单层，必须一致
+```
+
+### 2026-09-01 新增教训
+
+- **教训 8**：开发新插件前先确认 DSH 内核是否已有等价功能（dev_plugin_status + UI 全景扫描）——避免重复造轮子（dsh-context-usage 回滚事件）。
+
+---
+
+*本文件由多次会话增量维护。最终更新：2026-09-01。*
