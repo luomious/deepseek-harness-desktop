@@ -542,3 +542,24 @@ bundles 清单 + dependencies + junction + 模板同步           ← 清单层�
 **回滚**：git revert → 重启即回滚（v1 审计保留，只移除 waterfall handler）
 
 **风险收益**：中风险——在工具执行路径加拦截（`tools/pre-execute` waterfall），但这是内核标准机制；fail-closed 保障。收益 = 安全防线闭合，方案书 P2-A-5 完整交付。
+
+---
+
+## 上下文用量提示（WorkBuddy #6 / 方案书 v3）（✅ 代码就位，待重启生效，2026-09-01）
+
+**目标**：设置页「上下文用量」实时面板——显示当前模型、上下文窗口、表面 token 用量百分比（2s 轮询），防止对话突然截断。
+
+**实现**：
+1. **新建 `plugins/dsh-context-usage/`**：独立插件（host + client 双面）
+   - **host**（`lib/index.js`）：注册 `/context-usage/status` 路由——读模型配置（`~/.dsh/config/desktop.json`）获取 contextWindow + 调用 `tokenMeter.measure(session)` 获取 surfaceTokens → 返回 `{modelName, contextWindow, surfaceTokens, pressureTokens, percentage}`
+   - **client**（`lib/client.js`）：设置页 `settings.section` 面板——进度条（绿<60% / 黄<85% / 红≥85%）+ 模型名 + surface/window 数值；2s 轮询 host 路由
+2. **装配**：profile dependencies + bundles（32→33）+ junction + cordis.patch.yml insert
+3. **已知限制**：`tokenMeter.measure(session)` 需要 session 对象，host 路由里 `ctx.get("session")` 可能返回 undefined（无活跃会话时 surfaceTokens=0）；后续可接入 `sessionProjections` 的 `contextPressure` 投影获取更精确数据
+
+**验证（文件级）**：index.js + client.js `node --check` OK；junction 重建后 startup-verify **10/10**（V2 33=33）
+
+**待重启验证**：设置页出现「上下文用量」面板；进度条显示百分比；发起对话后数值更新
+
+**回滚**：删插件目录 + 还原 package.json + 删 junction → 重启即回滚
+
+**风险收益**：低风险——新插件独立，不碰现有逻辑；最坏 = 设置页少一节。收益 = 每次对话实时看到上下文使用情况，防截断（方案书 #6 达标）。

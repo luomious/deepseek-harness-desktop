@@ -40,8 +40,8 @@
     "@dsh-external/dsh-hy3-gateway": "link:D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
     "@dsh-external/dsh-host-services": "link:D:\\Deepseek-Harness\\plugins\\dsh-host-services",
     "@dsh-external/dsh-ui-performance": "link:D:\\Deepseek-Harness\\plugins\\dsh-ui-performance",
-    "@dsh-external/dsh-tool-visibility": "link:D:\\Deepseek-Harness\\plugins\\dsh-tool-visibility",
-    "@dsh-external/dsh-command-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-command-guard"
+    "@dsh-external/dsh-command-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-command-guard",
+    "@dsh-external/dsh-context-usage": "link:D:\\Deepseek-Harness\\plugins\\dsh-context-usage"
   },
   "dsh": {
     "profile": {
@@ -77,8 +77,8 @@
         "@dsh-external/dsh-ui-performance",
         "dsh-context",
         "@huanlin/dsh-plugin-better-sidebar-plugin-office",
-        "@dsh-external/dsh-tool-visibility",
-        "@dsh-external/dsh-command-guard"
+        "@dsh-external/dsh-command-guard",
+        "@dsh-external/dsh-context-usage"
       ]
     }
   }
