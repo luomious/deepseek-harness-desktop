@@ -1,7 +1,7 @@
 <!-- brief:meta
-generated: 2026-08-27T15:23:42.144Z
-fingerprint: a13f5a733ba9
-workspace: D:/Deepseek-Harness
+generated: 2026-09-02T03:52:26.096Z
+fingerprint: 6bd6629e5e6e
+workspace: D:\Deepseek-Harness
 generator: @dsh-external/dsh-project-brief
 -->
 
@@ -116,6 +116,7 @@ generator: @dsh-external/dsh-project-brief
 - `spawn-trace.log`
 
 **插件 (plugins/)**:
+- `dsh-command-guard`
 - `dsh-file-explorer`
 - `dsh-force-reasoning-effort`
 - `dsh-frontend-reload`
@@ -127,6 +128,7 @@ generator: @dsh-external/dsh-project-brief
 - `dsh-modlens-autoread`
 - `dsh-modlens-guard`
 - `dsh-project-brief`
+- `dsh-prompt-enhance`
 - `dsh-remote-workspace`
 - `dsh-routing-suite`
 - `dsh-self-maintenance`
@@ -136,6 +138,7 @@ generator: @dsh-external/dsh-project-brief
 - `dsh-skills-manager`
 - `dsh-system-notify`
 - `dsh-task-scheduler`
+- `dsh-tool-renderers`
 - `dsh-ui-performance`
 - `dsh-vision-engine`
 - `dsh-web-fetch-local`
@@ -206,12 +209,12 @@ generator: @dsh-external/dsh-project-brief
 ## changelog
 
 <!-- brief:auto:changelog:start -->
-- 2026-08-27 收尾：代码质量全检 + 错误日志 + 文档同步 + 清理登记
-- 2026-08-27 跨对话任务调度机制（dsh-task-scheduler）—— 多会话并发冲突防护
-- 2026-08-27 桌面壳鲁棒性修复（launcher / 退出完整性提示 / 工作区检测 / 解包契约护栏）
-- 2026-08-27 safe-delete-shim 启动崩溃根治修复
-- 2026-08-26 维护清扫周报（缓存清理 / 补丁修复 / bundles 收敛 / 插件清理 / 竞态加固）
-- 2026-08-26 插件市场加载失败排障与市场提供方切换（dsh-market → dsh-community-market）
+- 2026-09-02 审计修正：#16 LaTeX 实为已内置（初版误判），Mermaid 评估暂缓
+- 2026-09-03 收尾清理：临时残留清理 + 未提交成果归档提交
+- 2026-09-03 autoread 读图限流自愈（model 级 429 自动切换）
+- 2026-09-03 免费视觉模型配置修订（图片面板勾选模型甄别 + 失效 id 修正）
+- 2026-09-02 免费视觉模型调研与配置（OpenRouter :free 通道，替代本地 Ollama 提速）
+- 2026-09-02 工具渲染器 keyed 卡·增量扩展（WorkBuddy #11 / 阶段 1 延续）
 <!-- brief:auto:changelog:end -->
 
 ## 安全守则（防止误删/破坏性操作，2026-08-23 新增）

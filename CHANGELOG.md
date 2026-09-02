@@ -6,6 +6,67 @@
 
 ---
 
+## 2026-09-03 清理：确认无影响的游离调试日志
+
+### 改动
+- 清理根目录游离调试日志 `spawn-trace.log`（588B，2026-09-01 遗留的 modlens spawn 追踪输出）：
+  被 `.gitignore:90` 忽略、未被 git 跟踪、无任何代码/脚本引用 → 确认对系统零影响；
+  走回收站删除（可还原），非永久删除。
+
+### 未清理范围（评估后保留，避免误删回滚保险）
+- `_backups/` 下 22 个子目录逐项核验后**无其他可单方面认定"确认无影响"的文件**：
+  - `dist-archive`（626MB）被 `scripts/promote-build.ps1` 引用、`logs` 被 `scripts/apply-profile-guard.mjs` 引用 → 耦合构建/维护，不能清。
+  - `archived-sessions-*`（46MB）为可恢复会话数据（AGENTS 明文），删除属破坏数据。
+  - 其余历史快照（tool-visibility-route-fix / file-explorer-verify / vision-engine / dist-profile-guard 等）承担回滚保险且被 CHANGELOG/docs 回溯引用。
+- 结论：`_backups/` 保留，待用户点名具体目录才按「回收站 + 清单确认」协议处理单个清理。
+
+### 风险收益
+- 收益：清除根目录游离调试残留，仓库目录更干净。
+- 风险：零——被清理项确认无影响且走回收站可还原；未触碰 profile/patch/dist/node_modules，无需重启。
+
+---
+
+## 2026-09-03 文档对账：插件清单补全 + AGENTS.md 自动区刷新
+
+### 背景
+- 复核 `plugins/INVENTORY.md` 与 `plugins/` 实物对账，发现遗漏最近新增的 3 个插件
+  （`dsh-command-guard` / `dsh-prompt-enhance` / `dsh-tool-renderers`），且未标注装配方式，
+  导致清单与实际目录对不上账。
+
+### 改动
+- `plugins/INVENTORY.md`：插件清单 24→27 补齐 3 个；新增「装配方式」判读章节（bundle vs
+  patch-insert）并为每个插件逐行标注；更新统计（bundle 19 / patch-insert 8）。
+- `AGENTS.md`：触发 `@dsh-external/dsh-project-brief` 刷新自动生成区，structure 区插件列表
+  补齐 3 个（24→27），与 `plugins/` 实物一致；策展区 176 行原样保留，无需重启。
+
+### 验证
+- structure 区 27 个插件与 `plugins/` 目录逐一相符；INVENTORY 装配标注与 profile
+  `dsh.profile.bundles` 逐一比对一致；本次纯文档改动，无代码需 `node --check`。
+
+### 风险收益
+- 收益：消除插件清单对账滞后、固化装配方式判读依据，提升可维护性/可迭代性/可扩展性。
+- 风险：零——纯文档改动，不碰运行态 profile/patch/node_modules，无需重启。
+
+---
+
+## 2026-09-02 审计修正：#16 LaTeX 实为已内置（初版误判），Mermaid 评估暂缓
+
+### 结论
+- 源码确认（`dsh-client-ui-primitives/lib/index.js`）：`MarkdownText` 已启用 `katex` + `mdast-util-math`
+  （`mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()]`，`math`/`inlineMath` 节点走
+  `renderTexToReact`）——**LaTeX 公式渲染已内置**，审计初版「#16 无 katex」误判已修正。
+- **Mermaid 确实缺失**：primitives/conversation/renderer 三 client 包均无 mermaid 引用；
+  `CodeBlock` 走 shiki 高亮 + 纯文本 fallback，无 slot 注入点。
+- **落地路径评估**：本地做 Mermaid 需改内核 `CodeBlock`（升级被覆盖、不可迭代）或 DOM hack
+  （稳定性差）→ **中高风险、不满足可维护/可迭代/可扩展** → **评估为暂缓**（等官方或用户明确需要）。
+- `docs/EXISTING-FEATURES-AUDIT.md` 已修正：#16 行 + 审计结论 + 后续计划表同步。
+
+### 风险收益
+- 收益：修正过时审计，避免后续会话对已内置 LaTeX 重复造轮子（教训 8）。
+- 风险：零（纯文档修正，无代码改动）。
+
+---
+
 ## 2026-09-03 收尾清理：临时残留清理 + 未提交成果归档提交
 
 ### 背景
