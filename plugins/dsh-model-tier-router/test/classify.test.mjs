@@ -1,8 +1,12 @@
 // dsh-model-tier-router 纯逻辑单元测试（不依赖 DSH 运行时）
 // 运行：node plugins/dsh-model-tier-router/test/classify.test.mjs
 import assert from 'node:assert'
+import { mkdtempSync, existsSync, rmSync, readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import {
   classify, decide, applyDecision, extractText, latestUserText, normalizeConfig, isSubagent,
+  atomicWriteJson, recordFailure, failureKey,
 } from '../lib/index.js'
 
 const cfg = normalizeConfig({})
@@ -79,5 +83,55 @@ assert.equal(isSubagent({ session: { header: { origin: undefined } } }), false) 
 assert.equal(isSubagent({ session: { header: {} } }), false)
 assert.equal(isSubagent({ session: {} }), false)
 assert.equal(isSubagent(null), false)
+
+// ── atomicWriteJson：原子写不残留损坏、不遗留临时文件 ─────────────────────────
+{
+  const dir = mkdtempSync(join(tmpdir(), 'mtr-atomic-'))
+  const target = join(dir, 'stats.json')
+  try {
+    atomicWriteJson(target, { downgrades: 1, upgrades: 2, byClass: { simple: 1 } })
+    // 写成功且内容正确
+    assert.equal(existsSync(target), true)
+    const parsed = JSON.parse(readFileSync(target, 'utf8'))
+    assert.equal(parsed.downgrades, 1)
+    assert.equal(parsed.upgrades, 2)
+    // 无残留临时文件
+    const leftovers = readdirSync(dir).filter((f) => f.endsWith('.tmp'))
+    assert.equal(leftovers.length, 0, `leftover tmp files: ${leftovers.join(',')}`)
+    // 二次覆盖仍正确
+    atomicWriteJson(target, { downgrades: 9 })
+    assert.equal(JSON.parse(readFileSync(target, 'utf8')).downgrades, 9)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// ── recordFailure / failureKey：隐性昂贵账目（失败率/重试率/byCode） ─────────
+{
+  assert.equal(failureKey('p-a', 'model-1'), 'p-a/model-1')
+  assert.equal(failureKey(null, 'm'), '?/m')
+
+  const stats = { downgrades: 0, upgrades: 0, byClass: {}, failures: {} }
+  // 两次失败：一次 code=RATE_LIMIT 无重试，一次 code=TRANSPORT 且带 retryPolicy
+  recordFailure(stats, 'modlens-x', 'deepseek-v4-flash', 'RATE_LIMIT', false)
+  recordFailure(stats, 'modlens-x', 'deepseek-v4-flash', 'TRANSPORT', true)
+  const f = stats.failures['modlens-x/deepseek-v4-flash']
+  assert.equal(f.failed, 2)
+  assert.equal(f.retried, 1)
+  assert.deepEqual(f.byCode, { RATE_LIMIT: 1, TRANSPORT: 1 })
+  assert.equal(f.routed, 0) // routed 由 recordDecision 侧计入，这里默认 0
+  // 不同 model 独立计数
+  recordFailure(stats, 'modlens-x', 'mimo-v2.5-pro', 'SERVER', false)
+  assert.equal(stats.failures['modlens-x/mimo-v2.5-pro'].failed, 1)
+  assert.equal(stats.failures['modlens-x/mimo-v2.5-pro'].byCode.SERVER, 1)
+  // 容错：stats 无效不抛
+  assert.equal(recordFailure(null, 'p', 'm', 'X', false), null)
+}
+
+// ── 开关：observeFailures 可关闭（默认开） ───────────────────────────────────
+{
+  assert.equal(normalizeConfig({}).observeFailures, true)
+  assert.equal(normalizeConfig({ observeFailures: false }).observeFailures, false)
+}
 
 console.log('ALL TESTS PASSED')

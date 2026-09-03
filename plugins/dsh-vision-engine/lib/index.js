@@ -237,7 +237,10 @@ function writeModlensSlot(profile) {
   const next = Object.assign({}, prev, { baseUrl: String(profile.baseUrl || ''), model: String(profile.model || '') })
   if (typeof profile.apiKey === 'string' && profile.apiKey !== '') next.apiKey = profile.apiKey
   else if (profile.clearKey === true) delete next.apiKey
-  next.structuredOutput = profile.structuredOutput === true
+  // 默认启用 structuredOutput（强制模型返回 JSON），避免自由格式文本导致解析失败。
+  // OpenRouter 等兼容网关支持 response_format: json_schema，不支持的网关会返回 400，
+  // 此时 modlens 会自动降级（见 modlens changelog #37）。
+  next.structuredOutput = profile.structuredOutput !== false
   const extraBody = Object.assign({}, prev.extraBody && typeof prev.extraBody === 'object' && !Array.isArray(prev.extraBody) ? prev.extraBody : {})
   const mt = Number(profile.maxTokens)
   // Gemini 原生 API 不识别 max_tokens(400: Unknown name "max_tokens");该字段只对

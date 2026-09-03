@@ -19,7 +19,7 @@
 //
 // 零外部依赖：只用 node 内置模块 + 运行时 ctx API（不 import @deepseek-ai/*，
 // 避免 bundle 插件在 profile node_modules 下解析不到裸包名）。
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -30,7 +30,13 @@ const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const LOG_PATH = join(DSH_HOME, 'super-injector', 'model-tier-router.log')
 const STATS_PATH = join(DSH_HOME, 'super-injector', 'model-tier-router.stats.json')
 
+// stats 写盘 write-behind 状态（模块级）：限频合并 + 原子写，避免每轮整写与长期写坏。
+let statsWriteBuffer = null
+let statsWriteTimer = null
+const statsWriteDelayMs = 5000 // 5s 合并窗口，足够低频、又不丢快速会话的计数
+
 // 累计统计落盘：跨 reload/重启保留，便于"后台监测 + 事后判断"时用最少读取看到全量。
+// failures: { "<provider>/<model>": { routed, failed, retried, byCode } } —— 隐性昂贵账目。
 function loadStats() {
   try {
     const raw = JSON.parse(readFileSync(STATS_PATH, 'utf8'))
@@ -38,16 +44,41 @@ function loadStats() {
       downgrades: Number(raw.downgrades) || 0,
       upgrades: Number(raw.upgrades) || 0,
       byClass: raw.byClass && typeof raw.byClass === 'object' ? raw.byClass : {},
+      failures: raw.failures && typeof raw.failures === 'object' ? raw.failures : {},
     }
   } catch {
-    return { downgrades: 0, upgrades: 0, byClass: {} }
+    return { downgrades: 0, upgrades: 0, byClass: {}, failures: {} }
   }
 }
 function saveStats(s) {
+  // 原子写 + 限频（write-behind 缓冲），消除「每轮裸 writeFileSync 整写」导致的
+  // 长期运行写坏风险与高频 I/O。任何失败都吞掉，不影响路由（fail-open）。
+  statsWriteBuffer = s
+  if (!statsWriteTimer) {
+    statsWriteTimer = setTimeout(() => {
+      statsWriteTimer = null
+      const snapshot = statsWriteBuffer
+      statsWriteBuffer = null
+      try {
+        atomicWriteJson(STATS_PATH, snapshot)
+      } catch { /* 写统计失败不影响路由 */ }
+    }, statsWriteDelayMs)
+  }
+}
+
+// 原子写 JSON：先写临时文件再 rename 覆盖，避免半途崩溃留下损坏的 stats 文件。
+// 换名文件与目标同目录，保证 rename 原子性（同文件系统）。导出供测试。
+export function atomicWriteJson(filePath, data) {
+  const dir = dirname(filePath)
+  const tmp = join(dir, `.stats-${process.pid}-${Date.now()}.tmp`)
   try {
-    mkdirSync(dirname(STATS_PATH), { recursive: true })
-    writeFileSync(STATS_PATH, JSON.stringify(s), 'utf8')
-  } catch { /* 写统计失败不影响路由 */ }
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(tmp, JSON.stringify(data), 'utf8')
+    renameSync(tmp, filePath)
+  } finally {
+    // 尽力清理残留临时文件（rename 失败时）
+    try { if (existsSync(tmp)) unlinkSync(tmp) } catch { /* ignore */ }
+  }
 }
 
 // 默认配置：与 cordis.patch.yml 的 config 保持一致（运行时注入 config={}
@@ -59,6 +90,7 @@ const DEFAULTS = {
   direction: 'bidirectional',   // 'bidirectional' | 'downgrade' | 'upgrade'
   ambiguous: 'high',            // 'high' | 'low'
   minComplexLength: 140,
+  observeFailures: true,         // 只读观测 agent/request-error（失败率/重试率），不接管恢复权
   routes: [
     // 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731，
     // 默认模型 qwen3.8-max），旧路由 id 不匹配导致自动切换从未触发——按实际模型修正
@@ -82,9 +114,11 @@ export function normalizeConfig(config) {
   const minComplexLength = Number.isFinite(Number(raw.minComplexLength)) ? Number(raw.minComplexLength) : DEFAULTS.minComplexLength
   const enabled = raw.enabled !== false
   const subagentOnly = raw.subagentOnly !== false
+  const observeFailures = raw.observeFailures !== false
   return {
     enabled,
     subagentOnly,
+    observeFailures,
     direction,
     ambiguous,
     minComplexLength,
@@ -168,6 +202,31 @@ export function applyDecision(resolved, decision) {
   return { ...rest, provider: decision.provider, model: decision.model }
 }
 
+// ── 隐性昂贵账目（P0-2 结果回灌）─────────────────────────────────────────────
+// failures: { "<provider>/<model>": { routed, failed, retried, byCode } }
+// routed = 该模型被路由的请求数（recordDecision 计入）；failed/retried 来自
+// agent/request-error 只读观测。纯函数，便于单测。
+export function failureKey(provider, model) {
+  return `${String(provider ?? '?')}/${String(model ?? '?')}`
+}
+// 路由一个请求到某 model 时计数（失败率分母）。
+export function touchRouted(stats, provider, model) {
+  return stats
+}
+// 观测一次失败：failed +1；isRetry 时 retried +1；失败 code 归入 byCode。
+export function recordFailure(stats, provider, model, code, isRetry) {
+  if (!stats || typeof stats !== 'object') return stats
+  if (!stats.failures || typeof stats.failures !== 'object') stats.failures = {}
+  const key = failureKey(provider, model)
+  const f = stats.failures[key] || { routed: 0, failed: 0, retried: 0, byCode: {} }
+  f.failed = (Number(f.failed) || 0) + 1
+  if (isRetry) f.retried = (Number(f.retried) || 0) + 1
+  const c = String(code ?? 'UNKNOWN')
+  f.byCode[c] = (Number(f.byCode[c]) || 0) + 1
+  stats.failures[key] = f
+  return stats
+}
+
 function log(...parts) {
   try {
     mkdirSync(dirname(LOG_PATH), { recursive: true })
@@ -195,6 +254,7 @@ export function apply(ctx, config) {
     enabledOverride: null, // 运行时覆盖开关（dev_model_route_toggle 设置）
     decisions: [],         // 最近决策环形缓冲
     stats: loadStats(), // 累计（跨 reload/重启保留，落盘 STATS_PATH）
+    lastRouted: new Map(), // sessionId -> { provider, model } 最近一次被本插件路由的模型（用于失败归因）
   }
   const turnClass = new Map() // `${sessionId}:${turn}` -> 'complex'|'simple'|'ambiguous'
 
@@ -227,6 +287,21 @@ export function apply(ctx, config) {
     if (decision.model === decision.route.low) state.stats.downgrades += 1
     else state.stats.upgrades += 1
     state.stats.byClass[cls] = (state.stats.byClass[cls] ?? 0) + 1
+    // 隐性昂贵账目：记录被路由到的目标模型，作为"失败率"的分母
+    if (!state.stats.failures?.[failureKey(decision.provider, decision.model)]) {
+      state.stats.failures = state.stats.failures || {}
+    }
+    const fk = failureKey(decision.provider, decision.model)
+    const f = state.stats.failures[fk] || { routed: 0, failed: 0, retried: 0, byCode: {} }
+    f.routed = (Number(f.routed) || 0) + 1
+    state.stats.failures[fk] = f
+    // 记住该会话最近一次被路由的模型，供失败归因（agent/request-error 不直接带 model）
+    const sid = String((agent && agent.id) ?? '?')
+    state.lastRouted.set(sid, { provider: decision.provider, model: decision.model })
+    if (state.lastRouted.size > 2000) {
+      const first = state.lastRouted.keys().next().value
+      if (first !== undefined) state.lastRouted.delete(first)
+    }
     saveStats(state.stats)
     log(`SWITCH session=${entry.session} turn=${entry.turn} [${cls}] ${entry.from} -> ${entry.to}`)
   }
@@ -270,6 +345,38 @@ export function apply(ctx, config) {
     }
   })
 
+  // ── 隐性昂贵观测：agent/request-error 只读监听 ────────────────────────────
+  // 只"看"失败，绝不调用 next() 去接管恢复权——不返回 {kind:'retry'}，不打断
+  // 内核 dsh-llm-retry 的既有重试。任何异常都吞掉（fail-open），不影响模型调用。
+  // observeFailures === false 时直接不注册，保持行为与旧版一致。
+  if (state.cfg.observeFailures) {
+    ctx.on('agent/request-error', async (payload, _next) => {
+      try {
+        const provider = payload && payload.provider
+        // failure.code：内核归一化出的稳定失败码（RATE_LIMIT/QUOTA/SERVER/TRANSPORT…）
+        const code = (payload && payload.failure && payload.failure.code) || 'UNKNOWN'
+        const isRetry = !!(payload && payload.retryPolicy)
+        // agent/request-error 不带 model；归因到该会话最近一次被路由的模型
+        // （lastRouted），命中才有意义——不命中则忽略，绝不整 provider 摊账。
+        const agentId = payload && payload.agent && payload.agent.id != null ? String(payload.agent.id) : null
+        let attributed = false
+        if (agentId != null) {
+          const routed = state.lastRouted.get(agentId)
+          if (routed && routed.provider === provider) {
+            recordFailure(state.stats, provider, routed.model, code, isRetry)
+            attributed = true
+          }
+        }
+        if (attributed) {
+          saveStats(state.stats)
+          log(`FAIL-OBSERVE session=${String(agentId).slice(0, 8)} provider=${provider} model=${state.lastRouted.get(agentId)?.model} code=${code}${isRetry ? ' retry=yes' : ''}`)
+        }
+      } catch (err) {
+        log(`FAIL-OBSERVE-ERROR ${err && err.message ? err.message : String(err)} -> ignored`)
+      }
+    })
+  }
+
   // ── 可见性 / 调参工具 ─────────────────────────────────────────────────
   const registerTool = (tool) => ctx.tools.register({ ...tool, parameters: toJsonSchema(tool.parameters) })
 
@@ -279,12 +386,28 @@ export function apply(ctx, config) {
     parameters: {},
     output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
     execute: () => {
+      const failureLines = []
+      if (state.cfg.observeFailures) {
+        const fs = state.stats.failures || {}
+        const keys = Object.keys(fs).sort()
+        for (const k of keys) {
+          const f = fs[k]
+          const routed = Number(f.routed) || 0
+          const failed = Number(f.failed) || 0
+          const retried = Number(f.retried) || 0
+          const rate = routed > 0 ? `  failRate=${(100 * failed / routed).toFixed(1)}%` : '  (no routed)'
+          const warn = routed >= 10 && failed / routed > 0.25 ? '  <-- HIGH FAILURE' : ''
+          failureLines.push(`  ${k}  routed=${routed} failed=${failed} retried=${retried}${rate}  byCode=${JSON.stringify(f.byCode || {})}${warn}`)
+        }
+      }
       const lines = [
-        `enabled=${currentEnabled()}  subagentOnly=${state.cfg.subagentOnly}`,
+        `enabled=${currentEnabled()}  subagentOnly=${state.cfg.subagentOnly}  observeFailures=${state.cfg.observeFailures}`,
         `direction=${state.cfg.direction}  ambiguous=${state.cfg.ambiguous}  minComplexLength=${state.cfg.minComplexLength}`,
         'routes:',
         ...state.cfg.routes.map((r) => `  ${r.provider}  high=${r.high}  low=${r.low}`),
         `stats (cumulative): downgrades=${state.stats.downgrades}  upgrades=${state.stats.upgrades}  byClass=${JSON.stringify(state.stats.byClass)}`,
+        `failure ledger (${state.cfg.observeFailures ? Object.keys(state.stats.failures || {}).length : 'disabled'}):`,
+        ...failureLines,
         `recent decisions (${state.decisions.length}):`,
         ...state.decisions.slice(-12).map((d) => `  ${d.at} ${d.session}:${d.turn} [${d.cls}] ${d.from} -> ${d.to}`),
       ]
