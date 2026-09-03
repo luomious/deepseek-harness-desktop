@@ -1,0 +1,27 @@
+# 统一行尾策略（2026-09-04 新增，消除跨平台 LF/CRLF 抖动告警）
+# 代码类文件强制 LF（干净 diff、无内容变动告警）；二进制与无关文件不声明
+
+* text=auto
+
+*.js      text eol=lf
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+*.ts      text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.ps1     text eol=lf
+*.psm1    text eol=lf
+*.sh      text eol=lf
+*.md      text eol=lf
+
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.tgz     binary
+*.gz      binary
+*.zip     binary
+*.woff    binary
+*.woff2   binary

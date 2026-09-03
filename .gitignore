@@ -49,8 +49,10 @@ tools/
 # Local analysis/temp directories
 .dsh-analysis/
 
-# External repo clone (separate repo, clone per respective README)
-plugins/dsh-routing-suite/
+# External repo clone (separate repo, clone per respective README) —
+# keep the super-injector tarball tracked (profile file: dep requires it for fresh clones)
+plugins/dsh-routing-suite/*
+!plugins/dsh-routing-suite/dsh-external-dsh-super-injector-*.tgz
 
 # Plugin build artifacts (tsdown/tsc output; source in src/)
 plugins/*/lib/**/*.d.ts
@@ -93,4 +95,11 @@ scripts/test-siliconflow-vision.mjs
 # write-shim atomic-staging leftovers
 .*.tmpdir/
 *.tmpdir/
+
+# Defensive general log/secret rules (no current tracked files affected)
+*.log
+*.pem
+*.key
+.env
+*.local.env
 
