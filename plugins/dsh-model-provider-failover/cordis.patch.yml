@@ -1,0 +1,13 @@
+# dsh-model-provider-failover — provider 级请求故障转移（host-only bundle 插件）
+# 默认 no-op（fallback 为空）。如需启用，在 config.fallback 配置主→备映射。
+- insert:
+    - id: dsh-model-provider-failover
+      name: '@dsh-external/dsh-model-provider-failover'
+      config:
+        enabled: true
+        cooldownMs: 60000
+        maxFailures: 3
+        fallback: {}
+        # 示例：
+        # fallback:
+        #   modlens-tokenrhythm01: modlens-xiaomi-token-plan-cn

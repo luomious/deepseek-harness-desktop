@@ -372,8 +372,24 @@ async function convertMessage(ctx, message, signal) {
   return changed ? { ...message, content: out } : message
 }
 
-/** 当前模型是否声明了 image 输入（原生多模态 / modlens 包装器都算）。未知→false。 */
-async function modelDeclaresImage(ctx, payload) {
+/**
+ * 判断 provider 是否为 modlens 包装器渠道。
+ * modlens 包装器虽然声明 image 输入，但实际视觉处理依赖配置的视觉引擎
+ * （如 OpenRouter 免费模型），可能因限流/配额耗尽而失败。
+ * 对 modlens 包装模型强制走 CLI（带限流自愈），保证可靠性。
+ */
+function isModlensProvider(provider) {
+  return typeof provider === 'string' && (
+    provider === 'deepseek-modlens' || provider.startsWith('modlens-')
+  )
+}
+
+/**
+ * 判断是否应跳过自动读图（让模型原生处理图片）。
+ * 仅对「原生多模态模型」（非 modlens 包装）返回 true。
+ * modlens 包装模型返回 false → 走 CLI 处理（带限流自愈，更可靠）。
+ */
+async function shouldSkipAutoRead(ctx, payload) {
   try {
     const agent = payload?.agent
     let provider = ''
@@ -392,8 +408,16 @@ async function modelDeclaresImage(ctx, payload) {
       model = typeof opts.model === 'string' ? opts.model : ''
     }
     if (!provider || !model) return false
+    // modlens 包装模型：不跳过，走 CLI 处理（限流自愈更可靠）
+    if (isModlensProvider(provider)) {
+      log(`modlens provider detected (${provider}), using CLI for reliability`)
+      return false
+    }
+    // 原生多模态模型：跳过，让模型自己处理图片
     const info = await ctx.llm.resolveModelInfo(provider, model, undefined)
-    return Array.isArray(info?.inputModalities) && info.inputModalities.includes('image')
+    const native = Array.isArray(info?.inputModalities) && info.inputModalities.includes('image')
+    if (native) log(`native multimodal model detected (${provider}/${model}), skipping autoread`)
+    return native
   } catch {
     return false // 未知 → 按纯文本处理（自动转换），保守但不破坏
   }
@@ -414,7 +438,7 @@ export function apply(ctx) {
           return decision
         }
         try {
-          if (await modelDeclaresImage(ctx, payload)) return decision // 原生多模态 / modlens 包装器：不干预
+          if (await shouldSkipAutoRead(ctx, payload)) return decision // 原生多模态：不干预；modlens 包装器：走 CLI
           const converted = []
           for (const message of messages) {
             converted.push(await convertMessage(ctx, message, payload.signal))
