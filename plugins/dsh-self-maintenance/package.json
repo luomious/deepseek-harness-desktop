@@ -19,5 +19,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.3"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
   }
 }

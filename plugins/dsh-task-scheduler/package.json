@@ -17,5 +17,9 @@
   },
   "scripts": {
     "check": "node --check lib/core.js && node --check lib/index.js"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
   }
 }

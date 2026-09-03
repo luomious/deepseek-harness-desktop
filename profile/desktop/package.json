@@ -42,7 +42,8 @@
     "@dsh-external/dsh-ui-performance": "link:D:\\Deepseek-Harness\\plugins\\dsh-ui-performance",
     "@dsh-external/dsh-command-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-command-guard",
     "@dsh-external/dsh-prompt-enhance": "link:D:\\Deepseek-Harness\\plugins\\dsh-prompt-enhance",
-    "@dsh-external/dsh-tool-renderers": "link:D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers"
+    "@dsh-external/dsh-tool-renderers": "link:D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers",
+    "@openviking/dsh-memory-plugin": "0.3.0"
   },
   "dsh": {
     "profile": {
@@ -80,7 +81,8 @@
         "@huanlin/dsh-plugin-better-sidebar-plugin-office",
         "@dsh-external/dsh-command-guard",
         "@dsh-external/dsh-prompt-enhance",
-        "@dsh-external/dsh-tool-renderers"
+        "@dsh-external/dsh-tool-renderers",
+        "@openviking/dsh-memory-plugin"
       ]
     }
   }

@@ -2,12 +2,16 @@
   "name": "@dsh-external/dsh-session-hygiene",
   "version": "1.0.0",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "./lib/index.js",
   "description": "Session file size hygiene monitor",
   "dependencies": {},
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
   }
 }
