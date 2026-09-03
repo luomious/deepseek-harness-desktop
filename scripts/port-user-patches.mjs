@@ -74,7 +74,7 @@ const SETTINGS_MODELS = {
     join(DEV_ROOT, 'dsh-client-ui-settings-models', 'lib', 'client.js'),
     join(PKG_ROOT, 'dsh-client-ui-settings-models', 'lib', 'client.js'),
   ],
-  markers: ['dsh-desktop patch: fetch-dialog search', 'dsh-desktop patch: fetch-dialog default none', 'dsh-desktop patch: model-catalog search', 'filterModels', 'catalogQuery', 'pickQuery', 'modelsSearch'],
+  markers: ['dsh-desktop patch: fetch-dialog search', 'dsh-desktop patch: fetch-dialog default none', 'dsh-desktop patch: model-catalog search', 'filterModels', 'catalogQuery', 'pickQuery', 'modelsSearch', 'settings.models.whitelist'],
 }
 
 // 前端静态资源 no-cache（防浏览器缓存旧 index.html/前端产物）。

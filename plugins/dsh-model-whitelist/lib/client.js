@@ -40,11 +40,11 @@ window.__ModuleLoader__.load({
     var NS = 'model-whitelist';
     var zh = {
       title: '模型管理',
-      flowHint: '① 先在「模型」页添加/导入厂商模型 → ② 回到这里勾选要显示的模型',
+      flowHint: '① 在上方配置/添加厂商模型 → ② 在下方勾选要显示的模型（目录变更自动刷新）',
       enableLabel: '只显示我选择的模型',
       enableHint: '开启后，会话里的模型选择器只显示下面勾选的模型（当前正在用的模型始终保留）',
       loading: '正在加载模型列表…',
-      empty: '暂无可用模型（请先在「模型」页配置厂商）',
+      empty: '暂无可用模型（请先在上方配置厂商）',
       error: '加载失败',
       count: '已选 {n} / {total}',
       selectAll: '全选',
@@ -57,11 +57,11 @@ window.__ModuleLoader__.load({
     };
     var en = {
       title: 'Model Manager',
-      flowHint: '① Add/import provider models in the "Models" page first → ② come back here and check the ones to show',
+      flowHint: '① Configure/add provider models above → ② check the ones to show below (auto-refreshes on catalog changes)',
       enableLabel: 'Only show models I select',
       enableHint: 'When enabled, the conversation model picker shows only the checked models below (the currently active model is always kept)',
       loading: 'Loading models…',
-      empty: 'No models available (configure a provider in the Models page first)',
+      empty: 'No models available (configure a provider above first)',
       error: 'Failed to load',
       count: 'Selected {n} / {total}',
       selectAll: 'Select all',
@@ -237,27 +237,37 @@ window.__ModuleLoader__.load({
       var current = editing ? draft : cfg;
 
       // load the FULL (unfiltered) catalog via llm.models (host-scoped, no session needed)
+      // P1-merge 自动刷新:监听 dsh-model-whitelist:refresh(目录变更事件)原地重载,
+      // 在上方厂商模型页改动后无需翻页/重进设置页即可看到最新列表。
       React.useEffect(function () {
         var cancelled = false;
-        var api = connection && connection.api && connection.api.llm;
-        if (!api || typeof api.models !== 'function') {
-          setLoading(false);
-          setError('llm models api unavailable');
-          return;
-        }
-        api.models({}).then(function (res) {
-          if (cancelled) return;
-          setLoading(false);
-          if (res && res.result && res.result.ok && res.result.value && Array.isArray(res.result.value.groups)) {
-            setGroups(res.result.value.groups);
-          } else {
-            var msg = res && res.result && res.result.error ? (res.result.error.message || res.result.error.code) : 'unknown';
-            setError(String(msg));
+        function loadCatalog() {
+          var api = connection && connection.api && connection.api.llm;
+          if (!api || typeof api.models !== 'function') {
+            setLoading(false);
+            setError('llm models api unavailable');
+            return;
           }
-        }).catch(function (e) {
-          if (!cancelled) { setLoading(false); setError(String((e && e.message) || e)); }
-        });
-        return function () { cancelled = true; };
+          api.models({}).then(function (res) {
+            if (cancelled) return;
+            setLoading(false);
+            if (res && res.result && res.result.ok && res.result.value && Array.isArray(res.result.value.groups)) {
+              setGroups(res.result.value.groups);
+            } else {
+              var msg = res && res.result && res.result.error ? (res.result.error.message || res.result.error.code) : 'unknown';
+              setError(String(msg));
+            }
+          }).catch(function (e) {
+            if (!cancelled) { setLoading(false); setError(String((e && e.message) || e)); }
+          });
+        }
+        loadCatalog();
+        var onRefresh = function () { if (!cancelled) loadCatalog(); };
+        window.addEventListener('dsh-model-whitelist:refresh', onRefresh);
+        return function () {
+          cancelled = true;
+          window.removeEventListener('dsh-model-whitelist:refresh', onRefresh);
+        };
       }, [connection]);
 
       function commit(next) {
@@ -437,7 +447,7 @@ window.__ModuleLoader__.load({
     }
 
     // ---------- plugin entry ----------
-    var inject = ['locale'];
+    var inject = ['locale', 'remote'];
 
     function apply(ctx) {
       try {
@@ -470,11 +480,11 @@ window.__ModuleLoader__.load({
             } catch (e) { surfaceError('patch', e); }
           }
 
-          scope.slots.inject('settings.section', function () {
+          scope.slots.inject('settings.models.whitelist', function () {
             return scope.slots.register({
-              name: 'settings.section',
+              name: 'settings.models.whitelist',
               id: 'model-whitelist',
-              order: 11,
+              order: 0,
               label: function () { return t('title'); },
               locale: NS,
               inject: function () { return { connection: scope.connection }; },
@@ -485,6 +495,24 @@ window.__ModuleLoader__.load({
           if (typeof ctx.effect === 'function') ctx.effect(function () { return restoreAll; }, 'dsh-model-whitelist: filter restore');
           return restoreAll;
         });
+
+        // P1-merge 自动刷新:目录变更(settings/credentials/adapters)时广播,白名单面板原地重载,
+        // 上方厂商模型页改动后无需翻页/重进设置页即可看到最新列表。
+        if (typeof ctx.effect === 'function') {
+          ctx.effect(function () {
+            var offs = [];
+            if (ctx.remote && typeof ctx.remote.$on === 'function') {
+              ['settings/document-updated', 'credentials/reference-updated', 'llm/adapters-updated'].forEach(function (evt) {
+                try {
+                  offs.push(ctx.remote.$on(evt, function () {
+                    try { window.dispatchEvent(new CustomEvent('dsh-model-whitelist:refresh')); } catch (e) { /* ignore */ }
+                  }));
+                } catch (e) { /* ignore */ }
+              });
+            }
+            return function () { for (var i = 0; i < offs.length; i++) { try { offs[i](); } catch (e) { /* ignore */ } } };
+          }, 'dsh-model-whitelist: catalog auto-refresh');
+        }
         console.log('[dsh-model-whitelist] client apply registered hooks');
       } catch (error) {
         surfaceError('apply', error);

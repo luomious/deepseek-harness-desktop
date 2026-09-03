@@ -46,6 +46,8 @@ if ($code -eq 0) {
   node D:\Deepseek-Harness\scripts\apply-gpu-opaque-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\patch-host-apiproxy-default-cwd.mjs 2>&1 | Tee-Object -FilePath $log -Append
   node D:\Deepseek-Harness\scripts\apply-community-market-settings-section.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\apply-community-market-no-lag.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  node D:\Deepseek-Harness\scripts\apply-community-market-media-no-lag.mjs 2>&1 | Tee-Object -FilePath $log -Append
   powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\verify-patches.ps1 2>&1 | Tee-Object -FilePath $log -Append
   # Auto-promote: point the stable junction at this fresh build (smoke-test with
   # rollback on failure, then prune old buildN dirs). Promote is only safe with

@@ -1858,18 +1858,19 @@ window.__ModuleLoader__.load({
 		* @returns the section, or null while the shell has not injected yet.
 		*/
 		function ModelsSection(props) {
-			const { controller, useSnapshot, api, schema, t } = props;
+			const { controller, useSnapshot, api, schema, t, renderSlot } = props;
 			if (controller === void 0 || useSnapshot === void 0 || api === void 0 || schema === void 0 || t === void 0) return null;
 			return (0, react_jsx_runtime.jsx)(Loaded, { injected: {
 				controller,
 				useSnapshot,
 				api,
 				schema,
-				t
+				t,
+				renderSlot
 			} });
 		}
 		function Loaded({ injected }) {
-			const { controller, api, schema, t } = injected;
+			const { controller, api, schema, t, renderSlot } = injected;
 			const state = injected.useSnapshot((snapshot) => snapshot);
 			const [editing, setEditing] = (0, react.useState)(void 0);
 			const [adding, setAdding] = (0, react.useState)(false);
@@ -2170,6 +2171,10 @@ window.__ModuleLoader__.load({
 							className: ModelsSection_module_css_default["error"],
 							children: deleteFailure
 						})
+					}),
+					(0, react_jsx_runtime.jsx)("div", {
+						style: { marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--dsw-alias-border-l1)" },
+						children: renderSlot === void 0 ? null : renderSlot("settings.models.whitelist")
 					})
 				]
 			});
@@ -2858,7 +2863,8 @@ window.__ModuleLoader__.load({
 				id: "models",
 				order: 10,
 				label: () => t("nav"),
-				inject: injected
+				inject: injected,
+				children: { "settings.models.whitelist": { kind: "list", scope: "root" } }
 			}, ModelsSection));
 			ctx.slots.inject("settings.onboarding", () => ctx.slots.register({
 				name: "settings.onboarding",
