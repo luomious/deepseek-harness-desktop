@@ -4,6 +4,8 @@
 > 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、3b、6）+ A/B 组收尾 + command-guard v2 + prompt-enhance 工具化 + 阶段 A 已有功能审计 + 官方 v2.0.4 评估
 > 主文档：`E:\WorkBuddy\learn\DSH全面升级方案书v3-最终版.md`（方案）、`E:\WorkBuddy\learn\UPGRADE-EXECUTION-LOG.md`（执行记录，D 盘副本 `D:\Deepseek-Harness\docs\UPGRADE-EXECUTION-LOG.md`）
 
+> ⚠️ **2026-09-04 对账注记**：本归档文中 §1「已交付能力」与 §4 验证命令仍引用 **`dsh-tool-visibility`**（`/tool-visibility/status`、`/recent`、`plugins/dsh-tool-visibility/`）。该插件已于 **2026-08-31 归档移除**（档案见 `docs/PROFILE-HARDENING-2026-09-02.md`、`docs/PROFILE-MAINTENANCE.md`），当前运行态 profile 与 `plugins/` 均无此插件，相关路由已不存在。上方为**历史交付记录**，不代表当前可用状态——以 `plugins/INVENTORY.md` 与 `dev_plugin_status` 为准。本次盘点结论见 `docs/HANDOVER-2026-09-04.md`。
+
 ---
 
 ## 1. 会话产出总览
@@ -139,19 +141,21 @@ node --test tests/plugins/command-guard-risk.test.mjs
 ### 阶段 A 已有功能审计结论（避免重复造轮子）
 
 **5 项已内置可跳过**：#6 上下文用量、#7 消息折叠、#8 错误横幅、#12 @mention、#15 主题系统
-**1 项 slot 已有待实现**：#11 工具专用渲染器（`tool.call.toolview`）
-**5 项真缺失**：#1 增强提示词（✅ 已做）、#3 记忆系统、#9 插件范围、#10 Subagent watcher、#16 Mermaid/LaTeX
+**1 项 slot 已有待实现**：#11 工具专用渲染器（`tool.call.toolview`）— ✅ 已落地（dsh-tool-renderers，17 工具）
+**真缺失已做**：#1 增强提示词（✅ 已做 prompt_enhance）
+**真缺失待官方/暂缓**：#3 记忆系统、#9 插件范围（等官方）；#10 Subagent watcher（P3）；#16 Mermaid（LaTeX 已内置，Mermaid 暂缓）
 
 ### 剩余计划（后续会话可续，全部可选）
 
-> 阶段 1 已于 2026-09-02 落地（`plugins/dsh-tool-renderers/`，覆盖 goal/jobs/subagent 8 个 key；
-> 详见 CHANGELOG + UPGRADE-EXECUTION-LOG「阶段 1」段）；**待重启终验**。
+> 阶段 1 已于 2026-09-02 落地并**重启终验通过**（`plugins/dsh-tool-renderers/`，覆盖 17 个 DSH
+> 工具；详见 CHANGELOG + UPGRADE-EXECUTION-LOG「阶段 1」及「阶段 1 扩展」段）。
+> 审计修正（2026-09-02）：#16 LaTeX 已内置，仅 Mermaid 缺失。
 
 | 阶段 | 内容 | 风险 | 说明 |
 |---|---|---|---|
-| 阶段 1 | #11 工具渲染器 keyed 卡（P1，唯一剩余） | 中 | ✅ **已落地待重启终验**：`tool.call.toolview` keyed 渲染器已注册（get_goal/create_goal/update_goal/job_output/job_list/job_kill/subagent/subagent_fork）；startup-verify 10/10 |
+| 阶段 1 | #11 工具渲染器 keyed 卡（P1，唯一剩余） | 中 | ✅ **已落地 + 重启终验通过**：`dsh-tool-renderers` 覆盖 17 个工具（get/create/update_goal、job_output/list/kill、subagent/fork、read_image、tool_search/describe/call、dev_plugin_status、workflow、ralph、mcp_call/search）；startup-verify 10/10、client bundle 200 |
 | 阶段 2 | #3 记忆系统（P2） | 中 | 优先等官方 stable；急需可做最小版 |
-| 阶段 3 | #16 Mermaid/LaTeX（P2） | 中 | 按需增量 |
+| 阶段 3 | #16 Mermaid（仅 Mermaid；LaTeX 已内置）（P2） | 中 | 暂缓：无 slot 注入点，改内核/DOM hack 中高风险不可迭代；等官方或用户明确需要 |
 | 阶段 4 | #9 插件范围 / #10 watcher / 3c / v2.0.4（P3） | 零 | 等官方；定期跑 check-update-compat.mjs |
 
 ### 已验证的插件可靠形态（后续开发标准）

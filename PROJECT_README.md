@@ -8,9 +8,9 @@
 
 | 目录 | 内容 |
 |---|---|
-| `plugins/` | 21 个自研 bundle 插件（模型/视觉/路由/工具/守护） |
+| `plugins/` | 28 个自研 bundle/插件（模型/视觉/路由/工具/守护；含 1 个未装配 no-op 的 model-provider-failover） |
 | `scripts/` | 构建-发布-运维脚本（package-vendor / promote-build / smoke-test / verify-patches / install-desktop 等） |
-| `profile/desktop/` | 装机模板（与运行时 desktop profile 同步：33 deps / 27 bundles，含 dsh-mcp-lens tgz） |
+| `profile/desktop/` | 装机模板（与运行时 desktop profile 同步：42 deps / 35 bundles，含 dsh-mcp-lens tgz） |
 | `patches/bundles/` | 补丁 canon 权威副本（`port-user-patches.mjs` 重建后自动重打） |
 | `patches/reference/` | 旧壳补丁清单参考（只读） |
 | `legacy/` | 旧壳归档（含指向已删除 src/ 的死测试，`legacy/tests/`） |

@@ -123,6 +123,7 @@ generator: @dsh-external/dsh-project-brief
 - `dsh-host-services`
 - `dsh-hy3-gateway`
 - `dsh-model-picker-group`
+- `dsh-model-provider-failover`
 - `dsh-model-tier-router`
 - `dsh-model-whitelist`
 - `dsh-modlens-autoread`

@@ -22,6 +22,7 @@
 | `dev_plugin_status` 报 `loadCache` 崩溃 | §9 |
 | 桌面版粘贴图片变路径 | §10 |
 | 插件市场（dshmarket）桌面端消失 | §11 |
+| 插件市场（community-market）加载慢/可安装一直转圈/图标卡住 | §18 |
 | 安全类问题（误删/任意文件读/命令注入） | §12 |
 | 重打包 exe 后功能再次消失（补丁丢失） | §13 |
 | 皮肤（maid-atelier）不生效 | §14 |
@@ -194,4 +195,18 @@
   2. `pnpm --dir <profile> install`（把 link 依赖注册进 lockfile，以后再 pnpm 操作不会丢）；
   3. cordis.patch.yml 加回 insert 行：`- insert: { id: frontend-reload, name: @dsh-external/dsh-frontend-reload }`。
 - **预防**：新增手动 link 依赖后立即 `pnpm install` 入 lockfile；`verify-features.ps1` 已含 frontend-reload-dep 检查（防复发）。
+
+## 18. 插件市场（community-market）加载慢 / 可安装一直转圈 / 图标卡住
+
+- **症状**：设置→插件市场「发现」搜索像没反应；「可安装」一直"正在检查可安装插件…"；列表出现但图标长时间空白/转圈。
+- **根因**（2026-09-02 实测，两层）：
+  1. **目录缓存过短 + 无失败回退**：上游目录源（`deepseek1024.com` / `api.dshfind.com`）从本机走内核受限通道**又慢又抖**（冷扫 5–8s，且直连失败率高）；community-market 内存目录缓存默认仅 **5 分钟**，且「可安装」与未过滤「发现」在扫描失败时**不回退**磁盘缓存 → 直接转圈/空白。
+  2. **图标走 Node 原生 https 直连上游**：图标来自 `github.com` / `avatars.githubusercontent.com` / `deepseek1024.com` 图片，本机外网 HTTPS 直连不稳定；`restricted-image.js` 默认超时高达 **30s**、并发仅 **2**、失败不缓存 → 一个图标卡 30 秒，整页网格串行阻塞，失败图标**每次打开都重试再卡 30s**。
+- **解决**（已打补丁并登记补丁体系，见 `scripts/` 与 `verify-patches.ps1`）：
+  - 目录：`lib/host/routes.js` 注入 `cacheTtlMs: 4h` + 「可安装」/「未过滤发现」扫描失败回退 24h 磁盘缓存（stale 标记）。
+  - 图标：`lib/media/restricted-image.js` 超时收紧（连接 3s / 首字节 5s / 总 8s）；`lib/media/service.js` 并发 2→8 + 失败 10 分钟 negative-cache。
+  - **图标可达性**（2026-09-02 追加）：实测 `github.com` 主站在本机 TCP 超时、`avatars.githubusercontent.com` 200 可达；`lib/adapters/dsh-1024store.js` 的 fallback 头像域名 `github.com/{owner}.png` → `avatars.githubusercontent.com/{owner}?size=96`（同一 GitHub 头像资源）。
+  - 重打脚本：`scripts/apply-community-market-no-lag.mjs`（routes.js）+ `scripts/apply-community-market-media-no-lag.mjs`（media + adapter），均已接入 `package-vendor.ps1`，`verify-patches.ps1` 含 4 项校验（no-lag / media timeouts / media service / adapter icon host）。
+- **验证**：重启后 `/api/community-market/installable` 冷扫约 6s、热路径 <0.3s；`/api/community-market/catalog?q=archify` <20ms；`/api/community-market/assets?ref=…` 不可达图标 ≤8s 内返回（404→占位），可达图标 0.7–1.7s 出图；`verify-patches.ps1` 26 项 ALL PASS。
+- **预防**：升级/重建后跑 `verify-patches.ps1`；若上游长期不可达，属环境网络问题（需恢复可用代理通道），补丁只能兜底"不卡"、不能保证出图。
 

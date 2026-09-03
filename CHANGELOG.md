@@ -6,6 +6,172 @@
 
 ---
 
+## 2026-09-04 全面审计与规范化整理（收尾）
+
+### 背景
+对项目做全面审计（进度/功能/遗漏/安全/代码质量），并落实长维护目标（可靠、可维护、可迭代、可扩展）。本轮为**纯整理 + 入库归档**，无功能行为改动（除 1 处功能属新插件默认 no-op 已含）。
+
+### 清理（均走回收站，可还原）
+- 删除 `CHANGELOG.md.fixed-node`（已验证是 CHANGELOG.md 严格子集，缺 3 个 09-02 条目）。
+- 清理 13 处 `.tmpdir` 原子写残留（docs×4 / model-provider-failover×5 / scripts×2 / tools×1 / ~/.dsh/mcp-configs×1）+ analysis 残留。
+- 清理运行日志残留：`spawn-trace.log`（根目录）、`hy3-gateway/{gateway.err,gateway.out,plugin-spawn}.log`。
+- `.gitignore` 增强：`*.log`、`*.pem`、`*.key`、`.env`、`*.local.env` 通用防御性规则；`plugins/dsh-routing-suite/*` 改负向豁免，仅入库 super-injector tgz。
+
+### 加固（长期可维护）
+- `.gitattributes` 新增：统一 LF 行尾（代码类），消除跨平台 LF/CRLF 抖动告警。
+- `analysis/github-projects-dsh-integration.md` 移入 `docs/research/` 正式入库。
+- **super-injector tgz 解忽略入库**（修复 `file:` 依赖在新克隆仓库装配断链——profile 模板依赖 `plugins/dsh-routing-suite/*.tgz`，此前被整目录忽略导致新克隆无法装配）。
+- `package.json` `repository.url` 修正为实际远端 `luomious/deepseek-harness-desktop`（原为 `anywhere-labs`）。
+
+### 文档对账
+- `plugins/INVENTORY.md`：补 `dsh-model-provider-failover`（未装配 no-op）与 `@openviking/dsh-memory-plugin`（v0.3.0 市场安装）；统计更新（plugins 28 / 根级 3 / 市场 3）。
+- `PROJECT_README.md`：插件/依赖数量同步（28 插件 / 42 deps / 35 bundles）。
+- `AGENTS.md` structure 区经 project-brief 刷新。
+- `docs/HANDOVER-2026-09-04.md` 归档本次审计结论与清理记录。
+- 修复 CHANGELOG 一处 `---#` 标题粘连格式。
+
+### 验证
+- 全部插件/脚本 `node --check` 通过。
+- failover 单测 + fake-ctx 集成测试、tier-router 分类测试、startup-verify 测试直跑 ALL PASS。
+- `git status` / `add -n` 核验 tgz 单文件入库、无 gitlink 污染。
+- 提交：多 commit 分组 + push 到 origin/master，`logger` 时间线登记。
+
+### 遗留（近期建议）
+- vendor injector `src/index.ts` 路由缺 H2 CSRF 校验（lib 已修）——需重建 vendor，属迁移项，暂缓。
+- 无单测的约 15 个插件可按需补纯逻辑测试。
+- `remote_bash` 无命令白名单（设计使然，已做 target 校验），可在可控前提下加危险命令告警。
+- 5+ 插件仍各自重写 `log`/`resolveConfig`/`readJson`/spawn 包装，而 `dsh-host-services` 已提供单一事实来源——建议后续收敛复用。
+
+---
+
+## 2026-09-02 设置「模型 + 模型管理」合并为单页
+
+- 背景：设置栏「模型」（核心 `dsh-client-ui-settings-models` 目录管理）与「模型管理」
+  （`dsh-model-whitelist` 白名单）功能互补但分占两页，配置厂商→勾选白名单需跨页来回。
+- 改动：以 `dsh-client-ui-settings-general` 的子槽位范式合并——核心 models bundle 声明
+  子槽 `settings.models.whitelist` 并在页面底部 `renderSlot`；白名单插件改注册到子槽，
+  移除独立侧边栏项。两套功能全部保留。
+- 体验优化：白名单面板订阅目录变更事件（settings/credentials/adapters），上方增删厂商后
+  **自动刷新**，无需翻页。
+- 涉及：`patches/bundles/dsh-client-ui-settings-models-client.js`（canon，port 脚本同步）、
+  `plugins/dsh-model-whitelist/lib/client.js`、`scripts/port-user-patches.mjs`（markers 追加）。
+- 备份：`_backups/models-whitelist-merge-20260902163629/`；回退手册：
+  `docs/MODEL-WHITELIST-MERGE-2026-09-02.md`。
+- 验证：node --check 通过；port 脚本幂等同步；浏览器刷新生效（无需重启）。
+
+---
+
+## 2026-09-02 设置「插件市场」并入「插件」页
+
+- 背景：官方内置社区市场（dsh-community-market）同时注册了「插件」页内 `settings.plugins.tab`
+  标签和本地 DSH-OVERLAY 补丁追加的顶级 `settings.section`「插件市场」栏——同一产品两处入口，纯重复。
+- 改动：移除补丁脚本 `apply-community-market-settings-section.mjs` 中「加顶级 settings.section」
+  一段（Patch 1），保留 launcher 移除（Patch 2）；打包 client.js 一次性移除顶级块；
+  `verify-patches.ps1` 删对应校验项。重建后无顶级栏 = 上游默认，无需再维护该补丁。
+- 功能保留：「插件」页内「插件市场」标签 + 全部市场功能（发现/安装/卸载/禁用）；host 端未动。
+- 备份：`_backups/community-market-merge-20260902165331/`；回退手册：
+  `docs/COMMUNITY-MARKET-MERGE-2026-09-02.md`。
+- 验证：node --check 通过；重跑 apply 不再注册顶级栏；verify-patches 全量 PASS；刷新生效（无需重启）。
+
+---
+
+## 2026-09-02 插件市场（community-market）加载慢/图标卡顿修复
+
+### 背景
+用户反馈：设置→插件市场「发现」搜索没反应、「可安装」一直加载、列表图标转圈。
+实测确认**后端目录接口正常**（archify 可搜到），慢/卡在两层：
+1. 目录内存缓存默认 5 分钟太短 + 「可安装」/未过滤「发现」扫描失败不回退 → 上游
+   `deepseek1024.com` 又慢又抖时整页转圈/空白；
+2. 插件图标走 Node 原生 https 直连 `github.com`/`avatars.githubusercontent.com`，
+   本机外网直连不稳，默认 30s 超时 + 并发 2 + 失败不缓存 → 单个图标卡 30s、
+   整页网格串行阻塞，且每次打开都重试。
+
+### 改动（全部完成+验证，补丁体系登记防重建丢失）
+1. `lib/host/routes.js`（market-no-lag）：目录扫描缓存 TTL 5min→4h；「可安装」与
+   未过滤「发现」扫描失败回退 24h 磁盘缓存（stale 标记）→ 不再转圈。
+2. `lib/media/restricted-image.js`（market-media-no-lag）：图标超时 30s→
+   连接 3s / 首字节 5s / 总 8s → 失败快速出占位。
+3. `lib/media/service.js`（market-media-no-lag）：图标解析并发 2→8；
+   失败 10 分钟 negative-cache（同一图标不再每次打开都重试）。
+4. `lib/adapters/dsh-1024store.js`（market-media-no-lag）：fallback 图标域名
+   `github.com/{owner}.png` → `avatars.githubusercontent.com/{owner}?size=96`
+   （实测 github.com 主站在本机 TCP 超时不可达、avatars 域 200 可达；同一 GitHub 头像资源）。
+5. 新增持久化补丁脚本 `scripts/apply-community-market-no-lag.mjs`、
+   `scripts/apply-community-market-media-no-lag.mjs`（幂等，可对重建后干净文件重放）；
+   `verify-patches.ps1` +4 校验项（27 项 ALL PASS）；`package-vendor.ps1` 自动重打接线。
+6. 原始文件备份：`_backups/market-patches/*.orig`（routes/service/restricted-image/adapter）。
+
+### 验证
+重启后实测：`installable` 冷扫 ~6s、热路径 <0.3s；`catalog?q=archify` <20ms；
+不可达图标 ≤8s 内 404（→占位），可达图标 0.7–1.7s 出图。
+
+### 备注
+上游 github.com 主站不可达、avatars 域可达（本机网络）；补丁把图标 fallback 迁到
+可达域并快速失败兜底"不卡"。若日后 github 恢复，图标自动正常。后续再遇同类问题
+见 `docs/troubleshooting-handbook.md §18`。
+
+---
+
+## 2026-09-04 harness 装配修复：Firecrawl MCP + 两技能落地生效
+
+### 背景
+上一阶段创建了 Firecrawl MCP 配置与 diagram-design / firecrawl-usage 两个技能，
+审计发现 4 处会导致功能"不生效"的问题，本次修复使其真正可用。
+
+### 审计发现的问题（证据核实）
+1. **Firecrawl MCP 配置 UTF-16 编码**（字节头 FF FE）→ DSH 当二进制读不了。
+2. **两技能放了错目录** tools/dsh-skills-hub/skills/（市场源快照，非发现根）
+   → DSH 技能发现根是 ~/.agents/skills/，技能从未被加载。
+3. **MCP 未持久化装配**：桌面启动不带 --patch，mcp-configs 文件不会被加载，
+   官方要求合并进 profile patch。
+4. **技能缺 invocation**（默认 manual，模型不会主动触发）。
+
+### 改动（全部完成+验证）
+1. ~/.dsh/mcp-configs/firecrawl.cordis.yml：UTF-16→UTF-8 无 BOM（字节头 23 20），
+   内容不变，yaml 库验证可解析（insert/mcp-firecrawl/firecrawl/stdio）。
+2. ~/.dsh/profiles/desktop/cordis.patch.yml：末尾 append MCP insert 块
+   （@deepseek-ai/dsh-mcp-client stdio，官方模式），65→79 行，yaml 库验证合法，
+   备份 .bak-mcp-20260902-175805。
+3. 拷贝 diagram-design、Firecrawl-usage 到 ~/.agents/skills/（发现根），
+   源快照保留不动。拷贝后 skill catalog 立即识别，技能可用。
+4. 两 SKILL.md 补 frontmatter invocation（trigger:auto / modelInvocable / userInvocable），
+   原子写 + 备份 .bak-pre-invocation，DSH yaml 库验证解析正确。
+5. 清理 6 个 .tmpdir 原子写残留目录（diagram-design 5 + firecrawl-usage 1），
+   走回收站删除，可再生临时文件。
+
+### 验证
+- MCP 配置 / profile patch 用 DSH yaml 库完整解析通过。
+- 技能 frontmatter 用 hub 契约 validateSkillFile ok:true + DSH yaml 库解析 invocation 正确。
+- ~/.agents/skills 技能 27→29，skill catalog 已出现 diagram-design / firecrawl-usage。
+- tmpdir 残留 0；频谱备份齐全。
+
+### 重启验证与包名修复（2026-09-04）
+- 重启后 mcp-firecrawl 插件 active（fiber 建立），但连接失败：McpError Connection closed。
+- 根因：npm 包名 firecrawl-mcp-server 不存在（registry 404）→ 子进程立即退出。
+- 修复：两处 args 改为官方包名 firecrawl-mcp（npm 实测存在 v3.24.0，官方 firecrawl/firecrawl-mcp-server 仓库）。
+- 端到端验证（DSH 同款 MCP SDK StdioClientTransport）：握手成功、发现 27 个 firecrawl_* 工具、
+  调用 firecrawl_scrape 返回 Unauthorized: Invalid token（链路通，仅需真实 API key）。
+- 备份：cordis.patch.yml.bak-pkgname-20260902-194444 / firecrawl.cordis.yml.bak-pkgname-*。
+
+
+- 2026-09-04 API key 配置：用户提供真实 key（fc-088d...9d39），替换两处占位符
+  （cordis.patch.yml / firecrawl.cordis.yml，UTF-8 原子写，备份 .bak-apikey-20260902-203039）。
+- key 端到端验证：独立进程带真 key 调用 firecrawl_scrape 成功抓取 example.com 返回 Markdown（CONNECT_OK + 27 工具）。
+  运行中 DSH 的 MCP 进程仍用旧占位 key，需重启生效。
+- 2026-09-04 计费安全机制：firecrawl-usage 技能新增「⚠️ 强制计费纪律」章节（最高优先级），
+  规定每次调用 Firecrawl 前必须先经用户明确确认、单次只做要求操作、优先用免费替代
+  （canvas-design / dsh-web-fetch-local / diagram-design），从机制上杜绝 Firecrawl 超额扣费风险。
+  技能热更新即时生效（无需重启），备份 .bak-cost-rule-20260902-221017。
+### 待办
+- Firecrawl API key 仍为占位符 'your-api-key-here'，需用户提供真实 key 才能调通 MCP。
+- MCP 装配与技能如需重启才完全热载，等待用户指示重启验证。
+
+### 风险收益
+- 收益：之前的投入真正生效——可生成 52 种图表、抓取网页/PDF 数据，会话内自动可用。
+- 风险：仅改 ~/.dsh 用户配置 + 拷贝技能，均低-中、可回滚（备份齐全）、不碰内核/构建/前端。
+
+---
+
 ## 2026-09-03 清理：确认无影响的游离调试日志
 
 ### 改动

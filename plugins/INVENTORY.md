@@ -39,8 +39,9 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `dsh-hy3-gateway` | bundle | experimental | ✅ | HY3 OpenAI 兼容网关自动启动（CloudBase 免费混元） |
 | `dsh-host-services` | bundle | core | ⚠️ | 本地 HTTP API 样板收敛（trusted/readBody/registerLocalApi 单一事实源） |
 | `dsh-model-picker-group` | bundle | core | ⚠️ | 模型选择器分组（供应商模型 + modlens 双胞胎排序） |
+| `dsh-model-provider-failover` | bundle | experimental | ✅ | Provider 级请求故障转移（只读观测 `agent/request-error` 冷却失败 provider，`agent/request` 决策路由到备用；默认 no-op，未持久化装配——见 docs/ROUTING-GATEWAY-PROPOSAL.md P1-1；2026-09-04 入库，含单测+fake-ctx 集成测试） |
 | `dsh-model-tier-router` | bundle | core | ⚠️ | 同源模型自动分级路由（简单任务走 low，复杂走 high） |
-| `dsh-model-whitelist` | bundle | core | ⚠️ | 模型管理器（Settings → 模型管理，白名单控制可见模型） |
+| `dsh-model-whitelist` | bundle | core | ⚠️ | 模型白名单（并入 Settings → 模型 单页下段：白名单控制可见模型 + 测试连接；2026-09-02 与「模型」页整合，详见 docs/MODEL-WHITELIST-MERGE-2026-09-02.md） |
 | `dsh-modlens-autoread` | bundle | core | ❌ | 纯文本模型图片自动识别（粘贴/发照片时自动调 modlens 读图） |
 | `dsh-modlens-guard` | bundle | core | ❌ | ModLens 配置守卫（防 visionProvider 被关、60s 巡查） |
 | `dsh-project-brief` | patch-insert | core | ⚠️ | AGENTS.md 自动生成（跨 agent 平台的项目说明） |
@@ -72,11 +73,13 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 |------|------|--------|------|
 | `dsh-context` | external | ⚠️ 建议重启（market receipt 激活） | 上下文可视化：Context 页签 + /context 命令 + 上下文组成/演进/压缩/剪枝与 token 统计（v0.33.1，2026-08-26 经 community-market 安装，npm `dsh-context`，receipt `0cf24e00-e7aa-4d9b-a23d-b5bfe0370fee`；模板已同步 `profile/desktop/package.json`） |
 | `@huanlin/dsh-plugin-better-sidebar-plugin-office` | external | ⚠️ 建议重启（bundle 类） | better-sidebar 的 Office 预览插件：.docx/.xlsx/.pptx 真实渲染（docx-preview / Univer / xlsx / pptx-renderer）。better-sidebar v0.15.2 起 Office 预览移出主包，须装此插件（v0.1.2，2026-08-28 经 `dsh plugin --profile desktop add` 安装；官方推荐，GitHub `HuanLinOTO/dsh-plugin-better-sidebar-plugin-office`；模板已同步 `profile/desktop/package.json`） |
+| `@openviking/dsh-memory-plugin` | external | ⚠️ 建议重启（bundle 类） | 记忆中台插件（openviking 记忆持久化/检索，dsh 会话绑定）。v0.3.0，2026-09-02 装配登记进运行态 + 模板（deps + bundles 均已同步）；用途与读写路径待用户按需启用验证。（2026-09-04 对账补登） |
 
 ## 统计
 
-- 总计: 30（plugins/ 27 + 根级 3）| core: 27 | experimental: 2 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 2（dsh-context + dsh-better-sidebar-plugin-office）
-- 装配方式（plugins/）：bundle 19 | patch-insert 8（根级守护另列）①
+- 总计: 31（plugins/ 28 + 根级 3）| core: 27 | experimental: 3 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
+- 装配方式（plugins/）：bundle 20 | patch-insert 8（根级守护另列）①
 - 必须重启: 2 (modlens 类：dsh-modlens-autoread / dsh-modlens-guard)。其余热重载/建议重启以右侧表格逐行标注为准，不在此汇总（避免与表格口径打架）。
+- 未持久化装配（仓库内默认 no-op，可随时重新注入）：dsh-model-provider-failover（P1-1）
 
 > ① 根级守护插件（dsh-context-lifecycle / dsh-stuck-loop-guard）经 bundle 数组装配；vision-rotator deprecated，不在运行态。

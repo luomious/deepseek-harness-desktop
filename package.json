@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anywhere-labs/deepseek-harness-desktop.git",
+    "url": "git+https://github.com/luomious/deepseek-harness-desktop.git",
     "directory": "dsh-plugin-desktop"
   },
   "type": "module",
