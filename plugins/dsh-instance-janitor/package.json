@@ -1,0 +1,24 @@
+{
+  "name": "@dsh-external/dsh-instance-janitor",
+  "version": "0.1.0",
+  "description": "后台旧实例清道夫：自动清理旧代 crashpad 僵尸与旧代 hy3 网关，其余旧进程只告警不动手（零依赖 host 模式）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

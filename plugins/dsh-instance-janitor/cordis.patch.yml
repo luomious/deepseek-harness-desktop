@@ -1,0 +1,8 @@
+# dsh-instance-janitor bundle patch: stale-instance janitor (crashpad zombies + old-generation hy3 gateway).
+# Must compose BEFORE @dsh-external/dsh-hy3-gateway so the startup sweep clears the stale
+# gateway before the fresh child binds (belt: server.js takeover is the suspenders).
+- insert:
+    - id: dsh-instance-janitor
+      name: '@dsh-external/dsh-instance-janitor'
+      config:
+        enabled: true
