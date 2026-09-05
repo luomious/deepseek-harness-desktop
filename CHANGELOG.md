@@ -6,6 +6,208 @@
 
 ---
 
+## 2026-09-05 dsh-diagram-renderer v5：自适应免缩放卡（卡片即相框）
+
+- **用户反馈**：「大小不固定、不需要缩放，自适应大小」→ DiagramViewer 整体重写（v5，snippet 拼接替换 + 原子换入）：移除全部缩放/平移控件（适应视图 / 铺满宽度 / ± / 百分比 / 拖拽），改为 **fit-width 渲染 + 高度随图宽高比 hug**（下限 260px / 上限 min(78vh, 720px)）；仅超高图在卡内垂直滚动；ResizeObserver 随容器任何尺寸变化重排，用户零操作。全屏保留（矢量细读），工具栏精简为 全屏 + ⋮（下载 .svg / 保存 PNG / 复制 / 查看代码），卡片右上角标「自适应」。
+- **设计思路固化**：SKILL.md 新增「自适应出图原则」（画布高 ≤ 宽×0.85、宽 1000–1320px、节点字 ≥15px、一行 ≤3 节点——塞不下拆图不靠缩放救）+ 展示策略改版为「自适应交互卡为主」；运行时副本已同步。
+- **验证**：`node --check` OK；管线回归 15/15 PASS；活体实测（加载更早全量历史）——3 张卡 svgW=852=容器 876−24、高度严格按宽高比（1180:690→498 / 760:320→359 / 1320:860→555）、旧缩放按钮 0、「自适应」标记 ×8、卡内白底 rgb(255,255,255)、pageErrors 0。新增 `pw-probe-v5.py` / `pw-probe-v5b.py` 回归探针。
+- **整理与入库（同日）**：插件目录清理——回归测试固化 `tests/`（管线 15 断言 + fiber/自适应活体探针），一次性补丁脚本与中间探针/截图归档 `_backups/diagram-debug-20260906/`（41 项，零删除）；README 重写能力/结构/阶段记录、INVENTORY 行对账、`.gitignore` 增 `diagrams/`（生成产物不入库）；GitHub 分组提交入库。
+
+---
+
+## 2026-09-05 dsh-diagram-renderer v4：幻影空卡 + 小图塌缩根因修复 · WorkBuddy 纸面卡重设计
+
+### 根因（真实页面 Playwright fiber 探针实锤：15 张卡中 14 张为幻影）
+
+- turnTail 事件匹配器对**每一条** tool/result 做裸 `<svg` 提取——`read`/`skill` 工具结果里 SKILL.md 教学文本的字面 `<svg ...>...</svg>` 占位符（8×18 字符、5×~7.3K 字符文档片段、1×14 字符）全部被当成图表 → 无标题幻影卡（棋盘格空视口），用户看到「6 个空的背景图」。
+- 唯一真图 svg 塌缩为 217×127：`width="100%"` 在 `fit-content` 包裹层内百分比无解 → 落到默认替换尺寸。
+- 棋盘格（`repeating-conic-gradient` 透明检查器）作 viewport 背景，暗色主题下观感差。
+
+### 修复（lib/client.js 27 处替换，临时副本编辑 + 原子换入）
+
+- `parseEnvelope(text, strict)`：严格模式必须命中 `<!--dsh-diagram:begin-->` 信封；turnTail `update()` 改用严格模式 + `looksLikeRealSvg`（≥200 字符且含 viewBox/width）+ mermaid code ≥8 字符 → 幻影卡绝迹（工具节点 keyed 卡保持非严格，兼容旧信封）。
+- `forceExplicitSize()`：svg 根强制像素宽高，pan-zoom 包裹层按 viewBox 显式定尺寸 → 不再塌缩。
+- WorkBuddy 纸面卡重设计（P 调色板）：卡身 #F7F6F2 + 发丝描边 rgba(136,135,128,.38) + 12px 圆角，画布恒定纯白（移除棋盘格），墨色标题 #2C2C2A、按钮/菜单/代码浮层同套纸面语言；**不随应用暗色主题变化**；DiagramViewer 与 MermaidWidget 统一。
+
+### 验证
+
+- `node --check` OK；管线回归 15/15 PASS（`pw-run-pipeline.py`）；服务 bundle 实测含 v4 标记（looksLikeRealSvg / #F7F6F2 / forceExplicitSize），棋盘格已移除。
+- 活体 fiber 巡检（「加载更早」载入全量历史）：DiagramTurnTail 每图一张（matchedLen=1）、DiagramViewer 6 张真图（标题齐全、svgLen 7943~11367）、MermaidWidget×2、幻影卡 0、pageErrors 0。
+- 端到端：会话内新调 render_diagram → MiniCard 摘要即时出现；turnTail 卡随回复收尾挂载。
+- 新增回归探针：`pw-probe-fiber.py`（fiber 树巡检 DiagramTurnTail/Viewer/幻影计数）、`pw-probe-live*.py`（DOM/滚动容器巡检）。
+
+---
+
+## 2026-09-05 dsh-diagram-renderer 渲染管线根因修复（信封 JSON 转义）+ mermaid 引擎本地化
+
+### 根因（Playwright fiber 探针实锤，解释了交互卡空白 + 视口只见 `\n` 字面量）
+
+- DSH 更新后工具结果 block 不再保证 `{type:'text'}`，client `resultText()` 落入 `JSON.stringify` 兜底分支 → 整个信封被 JSON 转义（实测 DiagramViewer `props.svg`：`\"`×1106、`\n`×143、真实换行×0、meta.title 解析失败为空）→ DOMParser/innerHTML 全毁，只剩 `\n` 文本节点。
+- 修复：`resultText` 重写为形状自适应（string / {text} / {output} / {content} 递归，JSON dump 仅最后兜底）；`parseEnvelope` v2 检测转义并反转义（任一段命中即两段 force，避免 mermaid 正文少转义对漏网）。
+- mermaid 引擎本地化（真·WorkBuddy 同款离线）：vendored `assets/mermaid.min.js`（v11.4.1 UMD）+ host 新路由 `GET /diagram-vendor/mermaid.min.js`，客户端本地优先、CDN 兜底。**host 路由需重启一次生效**。
+- 验证：管线单元测试 15/15 PASS（`pipeline-test2.html` + `pw-run-pipeline.py`）；活体验证历史坏卡刷新自动恢复（escQ 1106→0、真实换行 0→141、渲染 785×616、console 零错误）。
+- 备份：`_backups/diagram-renderer-backup-20260905-014946/`；task-scheduler 锁已 release。
+- 2026-09-05 续（WorkBuddy 级观感）：mermaid 主题改 `base` + 深/浅色自适应彩色调色板（`detectDarkMode` 探测 DSW 背景亮度，深色深蓝底亮蓝边、浅色浅蓝底蓝边琥珀/绿点缀）；节点圆角 12px、多边形描边 1.5；均衡间距（nodeSpacing 55 / rankSpacing 60 / curve basis，不挤不散）；字体随系统。SKILL 新增「Mermaid 排版规范」（classDef 分类上色 · 双行标签 · subgraph 分组 · 间距交给引擎，禁用空节点撑距离）。client 改动刷新即生效；调试残留 106 项已清（回收站）。
+
+## 2026-09-04 dsh-diagram-renderer 客户端装配根因修复（inject 协议）+ 消毒器加固
+
+### 根因（Playwright 实锤，解释了此前所有「看不到图/没变化」）
+
+- 症状：`render_diagram` 工具块渲染的是 DSH **默认通用卡**（Tool Call/Ok/details），MermaidWidget/turnTail/设置分区全部未注册。
+- 根因：client 模块缺 **两层 inject 协议**（对照官方 `@deepseek-ai/dsh-client-ui-deliverables` 与 `dsh-better-sidebar`）：
+  1. `package.json dsh.client.inject: []` 为空 → boot manifest 该模块 `inject:[]` → 加载器**不等待** `client-runtime`（提供 slots）/`client-ui-conversation`（提供 conversationEvents）就先 materialize；
+  2. client.js 未导出 `exports.inject` → 加载器不知道要把哪些服务绑到 ctx → `ctx.get('slots')` 拿到 undefined → `apply()` 静默早退。
+- 验证链：服务端 serve 的 client.js 41281B 含全部特性 + junction 指向正确 + mermaid CDN 页面内 import 成功（无 CSP 拦截）+ 全新页面零 console 错误，但 DOM 内 keyed 卡/工具栏按钮为 0（此前「按钮存在」为会话文本造成的假阳性，已用 `<button>` 精确匹配排除）。
+
+### 修复
+
+- `plugins/dsh-diagram-renderer/package.json`：`dsh.client.inject` 补 `[@deepseek-ai/dsh-client-runtime, @deepseek-ai/dsh-client-ui-slots, @deepseek-ai/dsh-client-ui-conversation]`；
+- `plugins/dsh-diagram-renderer/lib/client.js`：补 `exports.inject = ['slots', 'conversationEvents']`；`apply()` 改 `ctx.slots || ctx.get('slots')`、turnTail 回调改 `ctx.conversationEvents || ctx.get(...)`（防御性 fallback 兼容旧 loader）；
+- host `lib/index.js` 消毒器加固（后台逻辑测试 58 项暴露）：href 正则第三分支排除引号（`(?!#)[^\s>"']+`，修复内部锚点 `href="#x"` 被误删）+ 补 iframe/object/foreignObject 自闭合变体（`<iframe src/>` 此前漏删）。测试 58/58 PASS。
+
+### 生效条件
+
+- client.js 改动刷新即生效；**package.json 的 dsh.client.inject 由服务端启动时缓存进 boot manifest → 需重启一次 dsh**（重启 + 刷新后，历史 render_diagram 卡全部以 MermaidWidget 重放渲染）。
+
+### 复现/验证工具
+
+- `plugins/dsh-diagram-renderer/pw-final.py`（Playwright 无假阳性探针：统计精确 `<button>` 文本「全屏预览/保存为图片」+ `svg[id^=mmd]`；重启后应 >0）、`pw-repro*.py`（诊断中间产物，可删）。
+
+### 追加修复（重启后终验发现，2026-09-04 晚）：keyed 派发真名问题
+
+- **根因**：DSH wire 协议里所有 agent 工具统一以 `call.name='tool_call'` 传输，真实工具名在 `call.argsRaw` JSON 的 `.name` 字段——`tool.call.toolview` keyed 槽位按 `entryKey=toolName` 派发（ui-tool 源码 + Playwright 插桩实测 `dispatch entryKey=tool_call`），故 `key='render_diagram'` 永不命中；此前一直看到的卡其实是 dsh-tool-renderers 的 `tool_call` 摘要卡，并非 DSH 原生卡。
+- **修复**：dsh-diagram-renderer 改注册 `key='tool_call'`，DiagramCard 内部按 `resolveRealName()`（call.name → argsRaw.name）分流：`render_diagram` → MermaidWidget/DiagramViewer；其他工具 → GenericSummaryRow（复刻摘要卡，显示真实名+状态+摘要+details，避免劫持降级）；同步从 dsh-tool-renderers `TOOL_KEYS` 移除 `'tool_call'`（keyed 同 key 仅允许一个条目）。
+- **端到端实证**（最小测试页 + 真实 bundle + 真实信封文本 + 真实 Chrome）：inject 协议 ✅ → keyed 注册 ✅ → conversationEvents ✅ → MermaidWidget 5 按钮 ✅ → mermaid 引擎出图 1248×213 ✅；真实会话页内 write/read/edit 工具行已按真实名渲染 ✅；设置页「图表」分区可见可点 ✅。
+- 已知残留：少量 `argsRaw` 解析失败的行回退 'Tool Call' 标题（安全降级）；`render_diagram` 工具的 harness 调用通道本回合出现间歇性 `missing required property "name"` 故障（其他工具正常，与插件无关，观察项）。
+
+---
+
+## 2026-09-04 退出残留 dsh 根治（网关退出回收 + 退出守卫放行）
+
+### 背景
+- 用户反馈：点击「退出」后任务管理器里还有一个 DSH 进程在运行（无窗口）。
+- 实测定位（进程树 + 命令行 + 端口 + 日志）：
+  - 主进程 40264 退出时若无人回收，`hy3-gateway` 的 detached 子进程（显示为 DSH Desktop.exe，electron-as-node 跑 server.js，监听 8787）会变孤儿继续驻留 → 「退出后还有一个 dsh」；
+  - 退出守卫 `if (shouldAllowQuit() && activeAgentCount() === 0)` 在用户已点「立即退出」后仍会因会话计数>0 二次弹窗，Esc/✕/回车（默认=取消退出）静默吞退 → 应用压根没退。
+
+### 修复
+- **A（插件）`plugins/dsh-hy3-gateway/lib/index.js`**：注册一次性 `process.on('exit')` 钩子——
+  最终退出时 `child.kill()`（TerminateProcess，走子进程句柄无 PID 复用误杀风险）；应用重启时（读 B2 注入的 `globalThis.__dsh_relaunch_in_progress__`）跳过杀进程，由既有 takeover/janitor 无缝续活；`child.on('exit')` 清空引用防误杀；暴露 `globalThis.__dsh_hy3_gateway_pid__` 供诊断。
+- **B（dist 补丁）`scripts/apply-exit-cleanup.mjs`**（幂等，重建后重跑，仿 apply-profile-guard 模式：字节锚点 + 原子写 + `_backups/dist-exit-cleanup-*` 备份）：
+  - B1 守卫放行显式强退：`forceQuitRequested === true` 时不再二次弹窗，直接走 shutdown → `app.exit(0)`；
+  - B2 重启标志位：`native.exit` 前注入 `globalThis.__dsh_relaunch_in_progress__ = relaunchRequested && code === 0;`。
+- `scripts/verify-patches.ps1` 新增 2 项校验（guard bypass / relaunch flag），重建后自动兜底提醒。
+
+### 验证
+- `node --check` 插件与补丁脚本通过；补丁脚本首次 PATCHED、重跑 SKIP（幂等）；回读 main.js marker ×2 与注入语句字节核对；
+- `scripts/verify-patches.ps1` → **ALL PASS (32 checks)**（含 2 项新增 + dist 完整性）；`node scripts/startup-verify.mjs` → 10/10 PASS（V9 插件语法 71 文件）；
+- 行为变化说明：应用「重启」时网关随主进程重启（takeover 续活，旧网关 120ms 优雅退场）；「最终退出」零残留。
+- 用户侧终验（重启后实机通过，2026-09-04）：退出 → 任务管理器 0 个 DSH Desktop + `netstat -ano | findstr 8787` 无监听 + `hy3-gateway/plugin-spawn.log` 实锤 `exit cleanup: killed gateway pid=11148` → `child exited code=null sig=SIGTERM`；重启后新网关 36236 正常接管 8787、零残留、启动日志无未干净退出告警。完整时间线与证据见 `docs/EXIT-PROCESS-CLEANUP.md`。
+
+### 风险收益
+- 收益：根治「退出后还有 dsh」+ 消灭退出守卫双弹窗吞退；不触碰启动/profile/会话，重启后仍是同一应用。
+- 风险：低-中——仅动退出路径（插件钩子 + dist 补丁），已备份、原子写、补丁体系登记、可回滚；崩溃/强杀场景仍由 janitor+takeover 兜底。
+- 记录与防复发：`docs/EXIT-PROCESS-CLEANUP.md`（根因/修复/验证/排查速查/回滚）；firecrawl MCP 的 cmd→node 链为 MCP 工具子进程，属观察项不在此范围。
+
+---
+
+## 2026-09-04 dsh-diagram-renderer 双通道渲染补全（对话内嵌图 + ⋮ 菜单交互卡）
+
+### 新增
+- `plugins/dsh-diagram-renderer`：
+  - **通道 A（立即可见）**：host 新增 `GET /diagram-files/<file>.svg` 静态路由（内存注册表防目录穿越）；`render_diagram` 返回文本首行附带 markdown 图片行，agent 照抄进回复即由 MarkdownText 原生内嵌渲染（只认绝对 http(s)，此路由满足）；
+  - **通道 B（交互卡）**：client keyed toolview 升级——显示框放大（min(560px, 72vh)）、首次渲染自动铺满容器宽度（fit-to-width）、工具栏右上角 **⋮ 菜单**（下载 .svg / 保存为图片 PNG（canvas 2x）/ 复制代码 / 查看代码）、缩放/平移/双击复位、操作反馈、深色主题随 DSW 变量；
+  - skill 补「必须粘贴图片行」+ 大字号规范（标题 ≥22 / 节点 ≥15 / 注释 ≥12.5，画布 900–1400px；运行时副本在 ~/.agents/skills/diagram，仓库副本为准，沙箱受限同步待手工）。
+### 生效方式
+- host 改动须重启桌面应用（打包壳无 loader.internal）；client 改动刷新页面即生效（no-cache）。
+### 验证
+- `node --check` 全部通过；重启后端到端：工具返回含图片行 + `/diagram-files` 200 `image/svg+xml`；startup-verify 10/10 PASS（V9 含本插件 71 文件）、scan-dangling --strict 0 悬空。
+
+## 2026-09-04 文档对账与清理（INVENTORY 补登 2 插件 + handbook 新增 §19/§20 + 误建目录清理）
+
+### 文档更新
+- `plugins/INVENTORY.md`：
+  - 补登 `dsh-diagram-renderer`（bundle/core，交互式 SVG 图表卡片）与 `dsh-instance-janitor`（bundle/core，后台旧实例清道夫，2026-09-03 上线）两行；
+  - 标题「plugins/ 目录 27 个」→ 30 个（与实际目录数一致）；统计同步：总计 31→33、core 27→29、bundle 20→22；
+  - `dsh-hy3-gateway` 用途补「代际接管」机制说明。
+- `docs/troubleshooting-handbook.md`：
+  - 快速索引新增 §19（settings.yaml 被写坏 / invalid settings document）、§20（后台旧实例滞留 / 8787 被旧网关占用 / crashpad 僵尸）两行；
+  - 新增 §19、§20 详细条目（症状/根因/修复/排查命令/预防/参考 CHANGELOG）；
+  - 附「修复脚本速查」补 `apply-settings-resilience.mjs`（settings.yaml 反腐化重打）。
+- `AGENTS.md` brief 自动区刷新（structure 区 `~/` 条目随误建目录删除而消失）。
+
+### 清理（均走回收站 / 可再生临时内容）
+- **误建目录 `D:\Deepseek-Harness\~\.dsh\mcp-configs\`**：`~` 未展开被当相对路径创建，内含**旧版占位符配置**（`your-api-key-here` + 旧包名 `firecrawl-mcp-server`），真实生效配置在 `C:\Users\机械革命\.dsh\mcp-configs\`（新版 + 真 key）。整目录删除（5 个文件）。
+- 20 处 `.tmpdir` 原子写残留（docs×2 / plugins/dsh-diagram-renderer×6 / scripts×2 / _backups×8 / 误建目录内×1 / 根目录×1），每处仅含可再生成的 `.tmp` 文件。
+- `hy3-gateway/test-b.log` + `test-b.err.log`（takeover 双实例测试残留）。
+- 根目录 `spawn-trace.log`（modlens 游离调试日志，未被 git 跟踪）。
+- 保留：`_backups/` 下历史 `.orig`/`logs`/归档（回滚保险，AGENTS 明文保留）；`hy3-gateway/plugin-spawn.log`（插件诊断日志）。
+
+### 验证
+- 误建目录删除后 `Test-Path 'D:\Deepseek-Harness\~'` = False；`.tmpdir` 残留 0；`test-*` 残留 0；
+- 全工作区扫描无其他类似误建目录（`~`/`$`/盘符字面）或游离 `.log`/`.tmp`/`.orig`（剩余均在 `_backups/` 保险区）；
+- INVENTORY 插件数 30 与实际 `plugins/` 目录数一致；handbook §19/§20 已落位；
+- AGENTS brief 指纹更新（structure 无 `~/`）；GUI 200 / 8787 200 / settings.yaml 0 错误（清理后复查）。
+
+### 风险收益
+- 收益：文档与实物对账一致（INVENTORY 首次与实际 30 插件目录同步）、故障手册覆盖本次两起事故、清除误建目录消除 AGENTS 污染与"旧配置误导"隐患。
+- 风险：低——删除项均为可再生/残留（回收站可还原）；未触运行路径/profile/dist/node_modules，无需重启。
+
+---
+
+## 2026-09-03 后台旧实例自动清理机制（hy3 网关代际接管 + 实例清道夫插件）
+
+### 背景
+- 现象：应用多次重启后，旧代的 detached 子进程滞留后台且用户不可见——旧代 hy3 网关（显示为 DSH Desktop 进程名，实为 electron-as-node 跑 server.js）长期占用 8787，导致后续每次重启新网关子进程都 EADDRINUSE 秒退；另有旧代 crashpad-handler 僵尸残留。
+- 本次清理处置：杀 crashpad 僵尸 46884 + 旧网关 53324，重新拉起网关 47656（旧代码）。
+
+### 机制（两层）
+- **层1 · 网关代际接管**（`hy3-gateway/server.js`，2026-09-03 takeover）：
+  - 新增 loopback-only `POST /__hy3/takeover-shutdown` 端点，token=sha256('hy3-gateway-takeover:v1:'+accessKey) 校验防误触；旧实例收到后 120ms 内优雅退出。
+  - EADDRINUSE 时不再直接退出：向占端口实例发 takeover 请求 → 700ms 后重试绑定，最多 5 次 → 新实例永远接管，旧实例自动退场。
+  - 实弹验证：双实例模拟，B 一次接管成功（A 日志 'newer instance requested takeover; exiting gracefully'，B 绑定成功，8787 HTTP 200）。
+- **层2 · 实例清道夫插件**（新 `plugins/dsh-instance-janitor`，零依赖 host 模式，仿 self-maintenance）：
+  - apply 时立即扫一轮 + 每小时一轮；状态路由 `/instance-janitor/status`（GET 查看 / POST 手动触发）。
+  - 白名单清理（须早于当前主进程启动）：`--type=crashpad-handler` → 杀；cmdline 含 `hy3-gateway\server.js` → 杀并自动补拉新网关（复用 hy3-gateway 插件同款 electron-as-node spawn）。
+  - 其余旧代 DSH Desktop 进程只记录 + 桌面通知（24h 去重），绝不自动杀；绝不碰当前进程树/本进程/系统进程。
+  - 动作日志 `~/.dsh/instance-janitor.log`（>256KB 截断）。
+- 装配顺序：profile bundles 将 janitor 置于 hy3-gateway 之前（启动先清旧网关再拉新网关）；模板 `profile/desktop/package.json` 已同步（deps + bundles）。
+
+### 验证
+- server.js / janitor 均 `node --check` 通过；层1 双实例接管实弹通过；
+- janitor 热装（dev_install_package，免重启）后 `/instance-janitor/status` HTTP 200，首轮清扫 killed/reported 全空（当前代无残留，符合预期）；
+- 8787、43120 GUI 全程 HTTP 200；`startup-verify.mjs` V1/V3-V10 PASS。
+- 备份：`_backups/server.js.bak-20260903-takeover`、profile package.json `*.bak-20260903-janitor`。
+
+### 已知漂移（已处理）
+- `startup-verify` V2（模板==运行时）的 1 项既有漂移：`@dsh-external/dsh-diagram-renderer` 原在运行时 bundles 但不在模板 `profile/desktop/package.json`——已于 2026-09-04 同步进模板（deps + bundles 尾部，与运行时一致），`startup-verify` V2 全绿（10/10 PASS）。备份：`_backups/profile-desktop-template.package.json.bak-20260904-diagramrenderer`。
+
+---
+
+## 2026-09-03 settings.yaml 反腐化双保险（市场目录缓存不再破坏启动）
+
+### 背景
+- 现象：反复出现 `dsh-plugin-desktop: invalid settings document at ...\settings.yaml`（"Nested mappings are not allowed in compact mappings"，102 个解析错误），重启失败；关闭弹窗自检（profile-guard）只查 profile 悬空引用，不查 settings.yaml 的 YAML 语法，故绿灯≠能启动。
+- 根因：社区市场（dsh-community-market）把 1024-store 目录快照（139 条，含 U+FFFD 乱码与内嵌 `description:`/`categories:` 字样的混合编码文本）持久化进共享 `settings.yaml`（`persistCatalogResponse → scope.update({catalogCache})`），坏数据序列化出非法 YAML，下一次启动 `readDesktopStartupSettings` 硬抛异常阻断 profile 装配。证据：`~/.dsh/settings.yaml.bak-20260903-1733`（72KB 坏版）逐字节复现成功。
+- 自愈机制：运行中实例按"最后好文档"策略重写 settings.yaml（丢失 catalogCache），坏↔好循环反复。
+
+### 修复（两层防御）
+- **A 启动容错**：`dsh-plugin-desktop` `readDesktopStartupSettings`（`src/profile.ts` + 编译产物）对解析失败的 settings.yaml 不再抛死——记 stderr 告警并回退默认 compatibility 模式/端口。settings.yaml 再坏也不会阻断启动。
+- **B 根源隔离**：市场 `persistCatalogResponse`（`src/host/routes.ts` + 编译产物）不再把原始目录快照写入 settings.yaml；目录仍在内存加载、过期按需重拉（`cachedCatalogResponse` 对空缓存返回 undefined 走重取，属既有支持路径）。
+- 补丁体系登记：新 `scripts/apply-settings-resilience.mjs`（幂等、marker 门控：`DSH-2026-09-03 settings-resilience guard` / `DSH-2026-09-03 root-guard`；profile chunk 内容哈希名按内容定位）；`verify-patches.ps1` 新增 4 校验项（源码×2 + dist 静态×1 + dist 哈希 chunk 动态×1）。
+
+### 验证
+- 改动文件 `node --check` 全通过；apply 脚本连跑幂等（ok/ok, exit 0）；regex 对未打补丁备份验证命中、round-trip 产出含 marker。
+- `verify-patches.ps1` 全量 ALL PASS（29 项）。
+- 重启实测：应用正常拉起；settings.yaml 0 解析错误、无 catalogCache 残留；Web GUI HTTP 200。
+- 备份：`_backups/profile-CKnTElCd.js(.packaged).bak-20260903-settingsguard`、`_backups/profile.ts.bak-20260903-settingsguard`；坏样本存证 `~/.dsh/settings.yaml.bak-20260903-1733`（暂留）。
+
+### 已知代价与后续迭代
+- 市场目录不再跨重启缓存：重启后首次打开市场会重新拉取（可接受）。
+- 可选迭代：在持久化前净化目录文本（清洗乱码+强制引号）后恢复 catalogCache 缓存（中风险，暂缓）。
+
+---
+
 ## 2026-09-04 全面审计与规范化整理（收尾）
 
 ### 背景

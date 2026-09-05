@@ -26,17 +26,19 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 
 ## 插件清单
 
-### plugins/ 目录（27 个）
+### plugins/ 目录（30 个）
 
 | 插件 | 装配 | 状态 | 热重载 | 用途 |
 |------|------|------|--------|------|
 | `dsh-file-explorer` | patch-insert | core | ⚠️ | 右侧文件浏览器（details 面板）：文件树 + 代码高亮 + 文档预览（docx/xlsx/pptx/pdf 零依赖文本提取、图片预览、大文本分段预览（UTF-8 边界窗口翻页）、旧版二进制「用系统程序打开」兜底；2026-08-28 增强） |
+| `dsh-diagram-renderer` | bundle | core | ⚠️ | 交互式 SVG 图表卡片：`render_diagram` 工具（host）+ **v5 自适应免缩放交互卡**（fit-width 高度随图、严格信封防幻影、WorkBuddy 纸面风、mermaid 本地引擎）+ diagram 技能；回归测试 tests/（2026-09-04 补登；v4/v5 2026-09-05，模板已同步） |
 | `dsh-force-reasoning-effort` | patch-insert | experimental | ✅ | 强制 reasoning-effort 能力（无 reasoning 元数据的模型也显示思考强度控件） |
 | `dsh-frontend-reload` | patch-insert | core | ✅ | 前端刷新按钮 + Ctrl+R（桌面壳 Windows 无应用菜单时的兜底） |
 | `dsh-command-guard` | bundle | core | ✅ | 命令风险检测：监听 tool/call 的 shell/exec 类命令做风险评分（共享 risk-rules 模块），高风险命令告警 JSONL + 状态路由 |
 | `dsh-prompt-enhance` | bundle | core | ✅ | 提示词增强：一键将用户输入改写为更精确的提示词 |
 | `dsh-tool-renderers` | bundle | core | ✅ | Tool renderer keyed cards：为 DSH 专属工具（goal/jobs/subagent）注册 tool.call.toolview keyed 渲染器（null-safe 摘要） |
-| `dsh-hy3-gateway` | bundle | experimental | ✅ | HY3 OpenAI 兼容网关自动启动（CloudBase 免费混元） |
+| `dsh-hy3-gateway` | bundle | experimental | ✅ | HY3 OpenAI 兼容网关自动启动（CloudBase 免费混元）；2026-09-03 新增「代际接管」：EADDRINUSE 时向旧实例发 `/__hy3/takeover-shutdown`（token 校验）→ 优雅退出 → 700ms 重试绑定（≤5 次），新实例永远接管旧实例自动退场 |
+| `dsh-instance-janitor` | bundle | core | ⚠️ | 后台旧实例清道夫：启动即扫 + 每小时，白名单清理旧代 crashpad-handler / 旧代 hy3 网关（杀后自动补拉新网关），其余旧进程仅记录+通知（24h 去重）；护栏：绝不碰当前进程树/本进程/系统进程；`/instance-janitor/status` 可观测（GET 查看 / POST 手动触发）；动作日志 `~/.dsh/instance-janitor.log`（2026-09-03 上线） |
 | `dsh-host-services` | bundle | core | ⚠️ | 本地 HTTP API 样板收敛（trusted/readBody/registerLocalApi 单一事实源） |
 | `dsh-model-picker-group` | bundle | core | ⚠️ | 模型选择器分组（供应商模型 + modlens 双胞胎排序） |
 | `dsh-model-provider-failover` | bundle | experimental | ✅ | Provider 级请求故障转移（只读观测 `agent/request-error` 冷却失败 provider，`agent/request` 决策路由到备用；默认 no-op，未持久化装配——见 docs/ROUTING-GATEWAY-PROPOSAL.md P1-1；2026-09-04 入库，含单测+fake-ctx 集成测试） |
@@ -77,8 +79,8 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 
 ## 统计
 
-- 总计: 31（plugins/ 28 + 根级 3）| core: 27 | experimental: 3 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
-- 装配方式（plugins/）：bundle 20 | patch-insert 8（根级守护另列）①
+- 总计: 33（plugins/ 30 + 根级 3）| core: 29 | experimental: 3 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
+- 装配方式（plugins/）：bundle 22 | patch-insert 8（根级守护另列）①
 - 必须重启: 2 (modlens 类：dsh-modlens-autoread / dsh-modlens-guard)。其余热重载/建议重启以右侧表格逐行标注为准，不在此汇总（避免与表格口径打架）。
 - 未持久化装配（仓库内默认 no-op，可随时重新注入）：dsh-model-provider-failover（P1-1）
 

@@ -98,6 +98,18 @@ if (Test-Path $scanDangling) {
   Write-Host '  SKIP  scan-dangling.mjs not found' -ForegroundColor Yellow
 }
 
+# ---- Step 1.7: update-watch.mjs (upstream radar snapshot refresh) ----
+# Read-only radar: npm dist-tags + GitHub releases; writes _backups/update-watch-latest.json
+# (state consumed by dsh-self-maintenance radar watch). Exits 0 by design - never blocks.
+Write-Host ''
+Write-Host '=== Step 1.7: update-watch.mjs (upstream radar) ===' -ForegroundColor Cyan
+$updateWatch = Join-Path $PSScriptRoot 'update-watch.mjs'
+if (Test-Path $updateWatch) {
+  & node $updateWatch
+} else {
+  Write-Host '  SKIP  update-watch.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan

@@ -12,6 +12,7 @@
 |---|---|---|---|
 | **desktop** | `~/.dsh/profiles/desktop/` | **唯一活跃运行 profile** | 桌面应用启动加载；模板在 `profile/desktop/`（`scripts/staged-profile-assemble.ps1` 装配）；`startup-verify` 默认 DSH_PROFILE=desktop |
 | **web** | `~/.dsh/profiles/web/` | **遗留非活跃，不可删除** | 无启动路径引用；但它是 desktop 装配脚本的 `dsh-mcp-lens-0.1.0-rc.9.tgz` 来源，且 `cordis.patch.yml` 注释保留「super-injector 默认指向 web node_modules，desktop 必须覆盖」兜底 |
+| **recover-web** | `~/.dsh/profiles/recover-web/` | 备用兜底（未激活，2026-09-03 新增） | 官方 web 模板纯净 Profile（仅 `dsh-base`+`dsh-web-app`，零自研插件/零补丁，无需 pnpm install）；desktop 启动失败时在恢复助手中选它兜底启动；幂等重建 `node scripts/ensure-recovery-profile.mjs recover-web --yes`；详见 `docs/RECOVERY-PROFILE.md` |
 
 关键文件（每 profile）：
 - `package.json` → `dependencies`（`link:`/`file:` 插件行）+ `dsh.profile.bundles`（加载清单；嵌套 `dsh:{profile:{bundles}}` 或历史点号键 `dsh.profile` 两种形态都兼容）。

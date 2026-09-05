@@ -23,6 +23,8 @@
 | 桌面版粘贴图片变路径 | §10 |
 | 插件市场（dshmarket）桌面端消失 | §11 |
 | 插件市场（community-market）加载慢/可安装一直转圈/图标卡住 | §18 |
+| 启动报 `invalid settings document` / settings.yaml 被写坏 | §19 |
+| 后台旧实例滞留（8787 被旧网关占用 / crashpad 僵尸） | §20 |
 | 安全类问题（误删/任意文件读/命令注入） | §12 |
 | 重打包 exe 后功能再次消失（补丁丢失） | §13 |
 | 皮肤（maid-atelier）不生效 | §14 |
@@ -173,6 +175,7 @@
 | `scripts/fix-security.mjs` | 安全漏洞 H1-H4/M1-M4 | ✅ |
 | `scripts/guard-destructive.ps1` | 危险命令守卫（删除前预检） | — |
 | `scripts/verify-features.ps1` | 功能终核 26 项 | — |
+| `scripts/apply-settings-resilience.mjs` | settings.yaml 反腐化补丁重打（startup 容错 + market catalogCache 隔离） | ✅ |
 | `scripts/verify-core.mjs` | remote-workspace 核心逻辑 15 项 | — |
 
 > 所有脚本纯 Node/PowerShell，路径硬编码 `D:\Deepseek-Harness`（本机）；跨机需改 `scripts/*.mjs` 顶部的根路径常量。
@@ -209,4 +212,43 @@
   - 重打脚本：`scripts/apply-community-market-no-lag.mjs`（routes.js）+ `scripts/apply-community-market-media-no-lag.mjs`（media + adapter），均已接入 `package-vendor.ps1`，`verify-patches.ps1` 含 4 项校验（no-lag / media timeouts / media service / adapter icon host）。
 - **验证**：重启后 `/api/community-market/installable` 冷扫约 6s、热路径 <0.3s；`/api/community-market/catalog?q=archify` <20ms；`/api/community-market/assets?ref=…` 不可达图标 ≤8s 内返回（404→占位），可达图标 0.7–1.7s 出图；`verify-patches.ps1` 26 项 ALL PASS。
 - **预防**：升级/重建后跑 `verify-patches.ps1`；若上游长期不可达，属环境网络问题（需恢复可用代理通道），补丁只能兜底"不卡"、不能保证出图。
+
+## 19. settings.yaml 被写坏（启动报 `invalid settings document` / `Nested mappings are not allowed in compact mappings`）
+
+- **症状**：启动/重启报 `dsh-plugin-desktop: invalid settings document at ...\settings.yaml: Nested mappings are not allowed in compact mappings at line N...`（可上百个解析错误）；重启失败。关闭弹窗「配置自检」（profile-guard）通过 ≠ 能启动——它只查 profile 悬空引用，不查 settings.yaml 的 YAML 语法（2026-09-03 事故实证）。
+- **根因**（2026-09-03 逐字节复现定位）：社区市场（`dsh-community-market`）把 1024-store 插件目录快照（139 条，含 U+FFFD 乱码与内嵌 `description:`/`categories:` 字样的混合编码文本）持久化进共享 `settings.yaml`（`persistCatalogResponse → scope.update({catalogCache})`），坏数据序列化出非法 YAML → 下次启动 `readDesktopStartupSettings` 硬抛异常阻断 profile 装配。运行中实例按"最后好文档"策略会重写 settings.yaml（丢 catalogCache），形成坏↔好循环。
+- **修复**（两层防御，2026-09-03，已登记补丁体系）：
+  1. 启动容错（`profile.ts`/编译产物）：解析失败不再抛死——记 stderr 告警并回退默认 compatibility 模式/端口；settings.yaml 再坏也**不会阻断启动**。
+  2. 根源隔离（market routes）：不再把原始目录快照写入 settings.yaml（目录仍在内存加载、过期按需重拉）。
+  3. 重打/校验：`node scripts/apply-settings-resilience.mjs`（幂等）+ `verify-patches.ps1`（settings resilience 相关 4 项）。
+- **排查/恢复命令**：
+  ```powershell
+  node -e "const {parseDocument}=require('D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/yaml');const fs=require('fs');const d=parseDocument(fs.readFileSync(process.env.USERPROFILE+'/.dsh/settings.yaml','utf8'),{prettyErrors:true});console.log('errors:',d.errors.length)"
+  # 若 errors>0：确认当前 settings.yaml 是否为"最后好文档"（应用自愈重写后应 0 错误、无 catalogCache 段）
+  ```
+- **预防**：市场目录不再跨重启持久化（本次修复设计使然，代价=重启后首次打开市场重新拉取）；升级/重建后跑 `verify-patches.ps1`。
+- **参考**：CHANGELOG 2026-09-03 settings.yaml 反腐化双保险。
+
+## 20. 后台旧实例滞留（8787 被旧网关占用 / crashpad 僵尸）
+
+- **症状**：应用多次重启后，旧代的 detached 子进程滞留在后台且用户不可见——表现为 `Get-Process 'DSH Desktop'` 里出现启动时间早于当前代的进程；hy3-free（hy3-gateway）8787 端口被「老一代」网关占用，新代网关子进程启动后 `EADDRINUSE` 秒退（`hy3-gateway/plugin-spawn.log` 里 `child exited code=0`）；另有 `--type=crashpad-handler` 僵尸（0 CPU/0 连接/无窗口）。旧代进程的进程名显示为 DSH Desktop，实为 electron-as-node 跑 `hy3-gateway/server.js` 的网关。
+- **根因**：hy3-gateway 插件以 `detached` 方式 spawn 网关，Windows 上 detached 子进程随主进程退出后仍存活；旧网关一直占着 8787，导致每次重启新网关都绑不上端口（直到人工清理）。
+- **修复**（两层机制，2026-09-03）：
+  1. **代际接管**（`hy3-gateway/server.js`）：新增 loopback-only `POST /__hy3/takeover-shutdown`（token=sha256(key)，防误触）；`EADDRINUSE` 时不再直接退出——向占端口实例发 takeover 请求 → 旧实例 120ms 优雅退出 → 700ms 重试绑定（≤5 次）→ **新网关永远接管，旧实例自动退场**。
+  2. **实例清道夫**（`plugins/dsh-instance-janitor`，零依赖 host）：启动即扫 + 每小时清扫，白名单自动清理「早于当前主进程启动」的旧代 crashpad-handler / 旧代 hy3 网关（杀后自动补拉新网关），其余旧进程仅记录+通知；护栏：绝不碰当前进程树/本进程/系统进程。
+- **排查/恢复命令**：
+  ```powershell
+  # 查看实例
+  Get-Process -Name 'DSH Desktop' | Select-Object Id,StartTime | Sort-Object StartTime
+  Get-NetTCPConnection -LocalPort 8787,43120 -State Listen | Select-Object LocalPort,OwningProcess
+  # 查网关持有者身份（应含 hy3-gateway\server.js）
+  Get-CimInstance Win32_Process -Filter "ProcessId=<pid>" | Select-Object CommandLine
+  # 清道夫状态 / 手动触发一轮清扫
+  Invoke-RestMethod http://127.0.0.1:43120/instance-janitor/status   # GET 查看
+  Invoke-WebRequest http://127.0.0.1:43120/instance-janitor/status -Method POST  # 手动清扫
+  # 动作日志
+  Get-Content "$env:USERPROFILE\.dsh\instance-janitor.log"
+  ```
+- **预防**：机制常驻自动处理；若重启后网关无 `child exited` 记录（plugin-spawn.log）即接管成功；旧实例残留=0 属预期。
+- **参考**：CHANGELOG 2026-09-03 后台旧实例自动清理机制。
 

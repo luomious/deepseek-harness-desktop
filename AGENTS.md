@@ -1,6 +1,6 @@
 <!-- brief:meta
-generated: 2026-09-02T03:52:26.096Z
-fingerprint: 6bd6629e5e6e
+generated: 2026-09-03T16:37:56.826Z
+fingerprint: 59e9c4707892
 workspace: D:\Deepseek-Harness
 generator: @dsh-external/dsh-project-brief
 -->
@@ -94,6 +94,7 @@ generator: @dsh-external/dsh-project-brief
 - `_backups/`
 - `agent-presets/`
 - `assets/`
+- `diagrams/`
 - `docs/`
 - `dsh-context-lifecycle/`
 - `dsh-stuck-loop-guard/`
@@ -113,15 +114,16 @@ generator: @dsh-external/dsh-project-brief
 - `PROJECT_README.md`
 - `README.md`
 - `package.json`
-- `spawn-trace.log`
 
 **插件 (plugins/)**:
 - `dsh-command-guard`
+- `dsh-diagram-renderer`
 - `dsh-file-explorer`
 - `dsh-force-reasoning-effort`
 - `dsh-frontend-reload`
 - `dsh-host-services`
 - `dsh-hy3-gateway`
+- `dsh-instance-janitor`
 - `dsh-model-picker-group`
 - `dsh-model-provider-failover`
 - `dsh-model-tier-router`
@@ -210,12 +212,12 @@ generator: @dsh-external/dsh-project-brief
 ## changelog
 
 <!-- brief:auto:changelog:start -->
-- 2026-09-02 审计修正：#16 LaTeX 实为已内置（初版误判），Mermaid 评估暂缓
-- 2026-09-03 收尾清理：临时残留清理 + 未提交成果归档提交
-- 2026-09-03 autoread 读图限流自愈（model 级 429 自动切换）
-- 2026-09-03 免费视觉模型配置修订（图片面板勾选模型甄别 + 失效 id 修正）
-- 2026-09-02 免费视觉模型调研与配置（OpenRouter :free 通道，替代本地 Ollama 提速）
-- 2026-09-02 工具渲染器 keyed 卡·增量扩展（WorkBuddy #11 / 阶段 1 延续）
+- 2026-09-03 后台旧实例自动清理机制（hy3 网关代际接管 + 实例清道夫插件）
+- 2026-09-03 settings.yaml 反腐化双保险（市场目录缓存不再破坏启动）
+- 2026-09-04 全面审计与规范化整理（收尾）
+- 2026-09-02 设置「模型 + 模型管理」合并为单页
+- 2026-09-02 设置「插件市场」并入「插件」页
+- 2026-09-02 插件市场（community-market）加载慢/图标卡顿修复
 <!-- brief:auto:changelog:end -->
 
 ## 安全守则（防止误删/破坏性操作，2026-08-23 新增）
