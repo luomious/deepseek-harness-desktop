@@ -92,10 +92,12 @@ const DEFAULTS = {
   minComplexLength: 140,
   observeFailures: true,         // 只读观测 agent/request-error（失败率/重试率），不接管恢复权
   routes: [
-    // 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731，
-    // 默认模型 qwen3.8-max），旧路由 id 不匹配导致自动切换从未触发——按实际模型修正
+    // 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731），
+    // 旧路由 id 不匹配导致自动切换从未触发——按实际模型修正。
+    // 2026-09-04：qwen3.8-max 已声明原生多模态（settings.yaml input:[text,image]），
+    // modlens 不再为其生成 (modlens vision) 双胞胎 → 原 modlens-tokenrhythm01 上的
+    // qwen3.8-max 路由删除（高规格文本任务由 deepseek-v4-pro-0813 路由承接）。
     { provider: 'modlens-tokenrhythm01', high: 'deepseek-v4-pro-0813', low: 'deepseek-v4-flash-0731' },
-    { provider: 'modlens-tokenrhythm01', high: 'qwen3.8-max', low: 'deepseek-v4-flash-0731' },
     { provider: 'modlens-xiaomi-token-plan-cn', high: 'mimo-v2.5-pro', low: 'deepseek-v4-flash' },
   ],
 }
@@ -138,11 +140,27 @@ export function extractText(data) {
   return content.map((c) => (typeof c === 'string' ? c : c && c.text ? c.text : '')).join(' ')
 }
 
+// readSessionEvents(session)：会话事件统一读取入口（0.1.2 前瞻双兼容，2026-09-04）。
+// - DSH 0.1.2+：优先 snapshotEvents() 按需 API（存在且返回数组时采用）；
+// - DSH 0.1.1-rc.2：回落同步数组 session.events；
+// - 缺失/异常一律返回 []（fail-open），绝不抛错影响路由主流程。
+// 注意：升级 0.1.2 后需核对 snapshotEvents() 返回类型；若为异步 API 需回到此处适配。
+function readSessionEvents(session) {
+  if (!session) return []
+  try {
+    if (typeof session.snapshotEvents === 'function') {
+      const snap = session.snapshotEvents()
+      if (Array.isArray(snap)) return snap
+    }
+  } catch {}
+  return Array.isArray(session.events) ? session.events : []
+}
+
 // 最近一条真实用户消息（source.kind === 'user'），从会话事件尾部向前扫描。
 // 不设上限：长任务（单轮可达数万事件）里用户消息可能在很靠前的位置，靠
 // classifyTurn 的 per-turn 缓存保证"整轮只扫一次"（后续 step 命中缓存）。
 export function latestUserText(agent) {
-  const events = agent && agent.session && Array.isArray(agent.session.events) ? agent.session.events : []
+  const events = agent && agent.session ? readSessionEvents(agent.session) : []
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]
     if (!e || e.type !== 'user/message') continue
@@ -331,7 +349,7 @@ export function apply(ctx, config) {
       const cls = classifyTurn(agent, payload && payload.turn)
       if (traceLeft > 0) {
         traceLeft -= 1
-        const evs = agent && agent.session && Array.isArray(agent.session.events) ? agent.session.events : null
+        const evs = agent && agent.session ? readSessionEvents(agent.session) : null
         const tailTypes = evs ? evs.slice(-6).map((e) => e && e.type).join(',') : 'NO-EVENTS'
         log(`TRACE session=${String(agent && agent.id).slice(0, 8)} turn=${payload && payload.turn} provider=${resolved.provider} model=${resolved.model} cls=${cls} evs=${evs ? evs.length : 'n/a'} tail=[${tailTypes}] text=${JSON.stringify(latestUserText(agent).slice(0, 60))}`)
       }

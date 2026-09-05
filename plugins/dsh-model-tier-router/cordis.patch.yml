@@ -16,14 +16,14 @@
         # 任务文本长度 >= 该值时判定为复杂任务
         minComplexLength: 140
         # 同源高/低模型映射（provider 必须与模型选择器里显示的一致）
-        # 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731，
-        # 默认模型 qwen3.8-max），旧路由 id 不匹配导致自动切换从未触发——已按实际模型修正
+        # 2026-08-23 修复：模型 id 已变更（deepseek-v4-flash → deepseek-v4-flash-0731），
+        # 旧路由 id 不匹配导致自动切换从未触发——已按实际模型修正。
+        # 2026-09-04：qwen3.8-max 已声明原生多模态（settings.yaml input:[text,image]），
+        # modlens 不再为其生成 (modlens vision) 双胞胎 → 移除该包装路由；
+        # 高规格文本任务由 deepseek-v4-pro-0813 路由承接。
         routes:
           - provider: modlens-tokenrhythm01
             high: deepseek-v4-pro-0813
-            low: deepseek-v4-flash-0731
-          - provider: modlens-tokenrhythm01
-            high: qwen3.8-max
             low: deepseek-v4-flash-0731
           - provider: modlens-xiaomi-token-plan-cn
             high: mimo-v2.5-pro

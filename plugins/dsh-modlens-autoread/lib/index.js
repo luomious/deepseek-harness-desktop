@@ -17,10 +17,11 @@
 //  3. 幂等与健壮：同一附件/路径只读一次（promise 级缓存，失败不缓存）；任何
 //     异常降级为原 decision，绝不让 agent 步骤失败。
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
+import { isImageModelId } from './model-modality.js'
 
 export const name = '@dsh-external/dsh-modlens-autoread'
 export const inject = ['agents', 'llm', 'attachments']
@@ -61,6 +62,26 @@ const CLI = findCli()
 
 function log(...parts) {
   try { console.log(`[modlens-autoread] ${parts.join(' ')}`) } catch { /* ignore */ }
+}
+
+// ── 通道审计（规范化记录，2026-09-04）─────────────────────────────────────
+// 每次图片通道决策落一条 JSONL 到 ~/.dsh/super-injector/vision-channel.ndjson，
+// 超 512KB 滚动（旧文件改名为 .rot-<ts> 保留一条）。字段：
+//   ts/provider/model/channel(native|vision-bridge)/reason/ok
+// 用途：事后追溯"这张图走了哪个通道、为什么"，配合 settings.yaml 的
+// input 声明与 model-modality 覆盖文件形成完整记录链。
+const VISION_CHANNEL_AUDIT = join(homedir(), '.dsh', 'super-injector', 'vision-channel.ndjson')
+const AUDIT_CAP_BYTES = 512 * 1024
+function audit(entry) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n'
+    try {
+      if (statSync(VISION_CHANNEL_AUDIT).size > AUDIT_CAP_BYTES) {
+        renameSync(VISION_CHANNEL_AUDIT, `${VISION_CHANNEL_AUDIT}.rot-${Date.now()}`)
+      }
+    } catch { /* 文件不存在 → 直接追加 */ }
+    appendFileSync(VISION_CHANNEL_AUDIT, line)
+  } catch { /* 审计失败绝不影响读图 */ }
 }
 
 // 用量上报（可选依赖 dsh-vision-engine）：自动读图成功/失败时记一笔，供
@@ -166,9 +187,58 @@ async function readWithRateLimitSelfHeal(target, signal) {
   return last // 全部备用模型失败：返回最后一次错误（含原错误在 stderr 首错中）
 }
 
+// ── 转述内容生成（规范化 2026-09-04）──────────────────────────────────────
+// 文本模型走视觉桥时，"看图的替身"质量 = 引擎模型 + 转述完整度。原来只取
+// summary+OCR；现默认再把 layout/semantics/visual 等结构化字段拼入（受
+// EVIDENCE_DETAIL_CAP 预算约束），让纯文本模型拿到版式/语义/视觉信息，
+// 图表与截图场景理解显著提升。config.evidenceDetail: false 可关回精简模式。
+const EVIDENCE_DETAIL_CAP = 3000 // 增强字段总预算（字符）
+let evidenceDetailEnabled = true // 在 apply(ctx, config) 里按配置设置
+
+function clip(text, n) {
+  const t = String(text ?? '').trim()
+  return t.length > n ? `${t.slice(0, n)}…` : t
+}
+
 function evidenceText(value) {
   const lines = ['[图片已由 modlens 自动读取转写]']
   if (value && typeof value.summary === 'string' && value.summary) lines.push(value.summary)
+  let budget = EVIDENCE_DETAIL_CAP
+  if (evidenceDetailEnabled && value && typeof value === 'object') {
+    const regions = Array.isArray(value.layout?.regions)
+      ? value.layout.regions.filter((r) => r && typeof r.text === 'string' && r.text)
+      : []
+    if (regions.length > 0) {
+      const items = []
+      for (const r of regions.slice(0, 12)) {
+        items.push(`${r.type ?? 'region'}${typeof r.reading_order === 'number' ? ` #${r.reading_order}` : ''}: ${clip(r.text, 120)}`)
+      }
+      const part = items.join('\n')
+      if (part.length <= budget) { lines.push('', 'Layout:'); lines.push(part); budget -= part.length }
+    }
+    const sem = value.semantics
+    if (sem && typeof sem === 'object') {
+      const bits = []
+      if (typeof sem.scene === 'string' && sem.scene) bits.push(`场景: ${clip(sem.scene, 180)}`)
+      if (typeof sem.intent === 'string' && sem.intent) bits.push(`意图: ${clip(sem.intent, 120)}`)
+      const rels = Array.isArray(sem.relations) ? sem.relations.filter((r) => r && r.subject && r.object).slice(0, 6) : []
+      for (const r of rels) bits.push(`${clip(r.subject, 60)} —${clip(r.predicate ?? '关联', 40)}→ ${clip(r.object, 60)}`)
+      const ents = Array.isArray(sem.entities) ? sem.entities.filter((e) => e && e.name).slice(0, 8) : []
+      for (const e of ents) bits.push(`实体[${e.type ?? '?'}]: ${clip(e.name, 60)}`)
+      const part = bits.join('\n')
+      if (part.length <= budget) { lines.push('', '语义:'); lines.push(part); budget -= part.length }
+    }
+    const vis = value.visual
+    if (vis && typeof vis === 'object') {
+      const bits = []
+      if (typeof vis.style === 'string' && vis.style) bits.push(`风格: ${clip(vis.style, 80)}`)
+      if (Array.isArray(vis.dominant_colors) && vis.dominant_colors.length) bits.push(`主色: ${vis.dominant_colors.slice(0, 4).join(', ')}`)
+      const notes = Array.isArray(vis.notes) ? vis.notes.filter((n) => typeof n === 'string' && n).slice(0, 3) : []
+      for (const n of notes) bits.push(`细节: ${clip(n, 100)}`)
+      const part = bits.join('\n')
+      if (part.length <= budget) { lines.push('', '视觉:'); lines.push(part); budget -= part.length }
+    }
+  }
   const text = value?.ocr?.full_text?.trim()
   if (text) lines.push('', 'Transcription:', text.length > 4000 ? `${text.slice(0, 4000)}…` : text)
   const u = Array.isArray(value?.uncertainty) ? value.uncertainty : []
@@ -373,10 +443,7 @@ async function convertMessage(ctx, message, signal) {
 }
 
 /**
- * 判断 provider 是否为 modlens 包装器渠道。
- * modlens 包装器虽然声明 image 输入，但实际视觉处理依赖配置的视觉引擎
- * （如 OpenRouter 免费模型），可能因限流/配额耗尽而失败。
- * 对 modlens 包装模型强制走 CLI（带限流自愈），保证可靠性。
+ * 判断 provider 是否为 modlens 包装器渠道（文本模型双胞胎）。
  */
 function isModlensProvider(provider) {
   return typeof provider === 'string' && (
@@ -385,9 +452,13 @@ function isModlensProvider(provider) {
 }
 
 /**
- * 判断是否应跳过自动读图（让模型原生处理图片）。
- * 仅对「原生多模态模型」（非 modlens 包装）返回 true。
- * modlens 包装模型返回 false → 走 CLI 处理（带限流自愈，更可靠）。
+ * 是否应跳过自动读图（让模型原生处理图片）——统一走规范化判定（2026-09-04）：
+ *   - modlens 包装 provider：正常走 CLI（后台视觉引擎）——包装就是为纯文本
+ *     存在；若上游 catalog 已声明 image（残留双胞胎的过渡态）→ 放行，交
+ *     给 modlens 请求期转换兜底，并让解析器给出明确的"请换原生条目"提示。
+ *   - 原生 provider：目录声明的 inputModalities 是权威；未声明（unknown）时
+ *     回落统一分类表（model-modality.js：覆盖文件 > 权威模式表）再判。
+ * 每次决策都落一条审计记录（vision-channel.ndjson），可追溯。
  */
 async function shouldSkipAutoRead(ctx, payload) {
   try {
@@ -407,23 +478,44 @@ async function shouldSkipAutoRead(ctx, payload) {
       provider = typeof opts.provider === 'string' ? opts.provider : ''
       model = typeof opts.model === 'string' ? opts.model : ''
     }
-    if (!provider || !model) return false
-    // modlens 包装模型：不跳过，走 CLI 处理（限流自愈更可靠）
-    if (isModlensProvider(provider)) {
-      log(`modlens provider detected (${provider}), using CLI for reliability`)
+    if (!provider || !model) {
+      audit({ kind: 'skip', reason: 'no-model', provider, model })
       return false
     }
-    // 原生多模态模型：跳过，让模型自己处理图片
+    if (isModlensProvider(provider)) {
+      const upstream = provider === 'deepseek-modlens' ? 'deepseek-official' : provider.replace(/^modlens-/, '')
+      try {
+        const up = await ctx.llm.resolveModelInfo(upstream, model, undefined)
+        if (Array.isArray(up?.inputModalities) && up.inputModalities.includes('image')) {
+          log(`upstream ${upstream}/${model} declares native image; stale wrapper — surfacing modlens guidance`)
+          audit({ provider, model, channel: 'native', reason: 'upstream-declares-image' })
+          return true
+        }
+      } catch { /* 上游未知 → 维持默认（纯文本包装走 CLI） */ }
+      audit({ provider, model, channel: 'vision-bridge', reason: 'modlens-wrapper' })
+      return false
+    }
     const info = await ctx.llm.resolveModelInfo(provider, model, undefined)
-    const native = Array.isArray(info?.inputModalities) && info.inputModalities.includes('image')
-    if (native) log(`native multimodal model detected (${provider}/${model}), skipping autoread`)
-    return native
-  } catch {
+    if (Array.isArray(info?.inputModalities)) {
+      const native = info.inputModalities.includes('image')
+      audit({ provider, model, channel: native ? 'native' : 'vision-bridge', reason: native ? 'catalog-declares-image' : 'catalog-text-only', modalities: info.inputModalities })
+      if (native) log(`native multimodal model detected (${provider}/${model}), skipping autoread`)
+      return native
+    }
+    // catalog 未声明模态 → 统一分类表兜底
+    const tableNative = isImageModelId(model)
+    audit({ provider, model, channel: tableNative ? 'native' : 'vision-bridge', reason: tableNative ? 'table-image' : 'table-text-or-unknown' })
+    if (tableNative) log(`table-based multimodal model detected (${provider}/${model}), skipping autoread`)
+    return tableNative
+  } catch (error) {
+    audit({ provider: payload?.agent?.options?.provider ?? '?', model: payload?.agent?.options?.model ?? '?', channel: 'vision-bridge', reason: 'error-fallback' })
     return false // 未知 → 按纯文本处理（自动转换），保守但不破坏
   }
 }
 
-export function apply(ctx) {
+export function apply(ctx, config = {}) {
+  // 规范化：转述细节开关（config.evidenceDetail, 默认全量增强）
+  evidenceDetailEnabled = config.evidenceDetail !== false
   if (!CLI) {
     log(`modlens CLI not found; auto-read disabled (set MODLENS_CLI or install @liustack/modlens). candidates under ~/.dsh/profiles`)
   }

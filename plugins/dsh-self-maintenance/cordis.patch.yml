@@ -1,6 +1,10 @@
-# dsh-self-maintenance bundle patch: hourly self-check daemon (disk free + session volume).
+# dsh-self-maintenance bundle patch: hourly self-check daemon
+# (disk free + session volume + conn watch + upstream radar watch).
+# radarStateFile enables the in-daemon upstream radar check (phase1.4):
+# points at the state file written by scripts/update-watch.mjs.
 - insert:
     - id: dsh-self-maintenance
       name: '@dsh-external/dsh-self-maintenance'
       config:
         enabled: true
+        radarStateFile: 'D:/Deepseek-Harness/_backups/update-watch-latest.json'
