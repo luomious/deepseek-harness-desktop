@@ -38,7 +38,13 @@ $checks = @(
   @{ n = 'safe-delete-shim injected in main';  f = Join-Path $unpacked 'lib\main.js'; p = 'safe-delete-shim.cjs' },
   @{ n = 'pwsh recycle-bin guard defined';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = 'RECYCLE_GUARD_PREAMBLE' },
   @{ n = 'pwsh argv uses recycle-bin guard';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-pwsh-local\lib\index.js'; p = '${RECYCLE_GUARD_PREAMBLE}${spec.command}' },
-  @{ n = 'profile-guard quit guard (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dshCheckProfileIntegrity' }
+  @{ n = 'profile-guard quit guard (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dshCheckProfileIntegrity' },
+  @{ n = 'settings resilience source (profile.ts)'; f = Join-Path $src 'profile.ts'; p = 'DSH-2026-09-03 settings-resilience guard' },
+  @{ n = 'market catalogCache persist skipped (routes.js)'; f = Join-Path $unpacked 'node_modules\dsh-community-market\lib\host\routes.js'; p = 'DSH-2026-09-03 root-guard' },
+  @{ n = 'market catalogCache persist skipped (source)'; f = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-community-market\src\host\routes.ts'; p = 'DSH-2026-09-03 root-guard' },
+  @{ n = 'exit-cleanup guard bypass (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh patch exit-cleanup v1' },
+  @{ n = 'exit-cleanup relaunch flag (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = '__dsh_relaunch_in_progress__' },
+  @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' }
 )
 
 $fail = 0
@@ -70,6 +76,20 @@ if ($rtChunks.Count -ne 1) {
   $pgHit = Select-String -Path $rt -Pattern 'dshCheckProfileIntegrity' -SimpleMatch -Quiet
   if ($pgHit) { Write-Host 'PASS  profile-guard close dialog (electron-runtime)' -ForegroundColor Green }
   else { Write-Host 'FAIL  profile-guard close dialog (pattern missing)' -ForegroundColor Red; $fail++ }
+}
+
+# The settings-resilience guard lives in the content-hashed profile chunk
+# (file name changes on every rebuild), so verify it dynamically.
+$profileChunks = Get-ChildItem (Join-Path $unpacked 'lib') -Filter 'profile-*.js' -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -notlike '*.map' } |
+  Where-Object { Select-String -Path $_.FullName -Pattern 'invalid settings document at' -SimpleMatch -Quiet }
+if ($profileChunks.Count -ne 1) {
+  Write-Host ('FAIL  settings-resilience chunk lookup (found ' + $profileChunks.Count + ')') -ForegroundColor Red
+  $fail++
+} else {
+  $srHit = Select-String -Path $profileChunks[0].FullName -Pattern 'DSH-2026-09-03 settings-resilience guard' -SimpleMatch -Quiet
+  if ($srHit) { Write-Host 'PASS  settings resilience guard (profile chunk)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  settings resilience guard (pattern missing)' -ForegroundColor Red; $fail++ }
 }
 
 # unpack-everything contract + module-graph integrity. Dist patches target
