@@ -38,14 +38,14 @@
     "@huanlin/dsh-plugin-better-sidebar-plugin-office": "^0.1.2",
     "@dsh-external/dsh-frontend-reload": "link:D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload",
     "@dsh-external/dsh-hy3-gateway": "link:D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
-    "@dsh-external/dsh-instance-janitor": "link:D:\\\\Deepseek-Harness\\\\plugins\\\\dsh-instance-janitor",
+    "@dsh-external/dsh-instance-janitor": "link:D:\\Deepseek-Harness\\plugins\\dsh-instance-janitor",
     "@dsh-external/dsh-host-services": "link:D:\\Deepseek-Harness\\plugins\\dsh-host-services",
     "@dsh-external/dsh-ui-performance": "link:D:\\Deepseek-Harness\\plugins\\dsh-ui-performance",
     "@dsh-external/dsh-command-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-command-guard",
     "@dsh-external/dsh-prompt-enhance": "link:D:\\Deepseek-Harness\\plugins\\dsh-prompt-enhance",
     "@dsh-external/dsh-tool-renderers": "link:D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers",
     "@openviking/dsh-memory-plugin": "0.3.0",
-    "@dsh-external/dsh-diagram-renderer": "link:D:\\\\Deepseek-Harness\\\\plugins\\\\dsh-diagram-renderer"
+    "@dsh-external/dsh-diagram-renderer": "link:D:\\Deepseek-Harness\\plugins\\dsh-diagram-renderer"
   },
   "dsh": {
     "profile": {
