@@ -79,7 +79,7 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - 阶段 1 ✅：最小闭环——工具 + 渲染卡 + skill + 设置分区。
 - 阶段 2 ✅：富交互——⋮ 菜单（下载 .svg / PNG / 复制 / 源码）、PNG 2x 导出、操作反馈。
 - 阶段 3 ✅（2026-09-05）：长期健康——管线回归固化 `tests/`、Playwright 活体探针、严格信封防幻影（v4）、mermaid 本地引擎、自适应免缩放卡（v5）、CHANGELOG 登记。
-- 阶段 4（待办）：节点 hover/click 详情与关联高亮（SVG `<g data-name>` 事件委托）、纳入 check-all 巡检。
+- 阶段 4 ✅（2026-09-06）：节点 hover 高亮 + 点击详情弹层（事件委托，兼容 `<g data-name>` / mermaid `g.node`）；管线回归纳入 check-all.ps1 Step 2.5。
 
 ## 记录
 

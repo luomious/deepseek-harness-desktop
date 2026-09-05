@@ -345,6 +345,8 @@ window.__ModuleLoader__.load({
       var [codeOpen, setCodeOpen] = useState(false)
       var [actionMsg, setActionMsg] = useState('')
       var [isFull, setIsFull] = useState(false)
+      var [picked, setPicked] = useState(null)
+      var hoverRef = useRef(null)
 
       var safeSvg = useMemo(function () { return sanitizeSvgDom(svg) }, [svg])
       var box = useMemo(function () { return svgBox(safeSvg) }, [safeSvg])
@@ -552,6 +554,68 @@ window.__ModuleLoader__.load({
           }, sizedSvg))
         : null
 
+      // Stage 4 interaction: hover highlight + click detail (event delegation).
+      // Works with hand-authored <g data-name="..."> and mermaid g.node alike.
+      function findNodeGroup(target) {
+        try {
+          if (!target || !target.closest) return null
+          return target.closest('g[data-name], g.node, g[id]')
+        } catch (e) { return null }
+      }
+      var onNodeOver = useCallback(function (e) {
+        var g = findNodeGroup(e && e.target)
+        if (!g || g === hoverRef.current) return
+        try { if (hoverRef.current) hoverRef.current.style.filter = '' } catch (e0) { /* noop */ }
+        hoverRef.current = g
+        try { g.style.filter = 'brightness(0.93) drop-shadow(0 1px 2px rgba(83,74,183,0.35))' } catch (e1) { /* noop */ }
+      }, [])
+      var onNodeOut = useCallback(function (e) {
+        var g = findNodeGroup(e && e.target)
+        if (g && g === hoverRef.current) {
+          try { g.style.filter = '' } catch (e0) { /* noop */ }
+          hoverRef.current = null
+        }
+      }, [])
+      var onNodeClick = useCallback(function (e) {
+        var g = findNodeGroup(e && e.target)
+        if (!g) { setPicked(null); return }
+        var label = ''
+        try { label = g.getAttribute('data-name') || '' } catch (e0) { /* noop */ }
+        try {
+          if (!label) {
+            var texts = g.querySelectorAll('text, title')
+            for (var i = 0; i < texts.length; i++) {
+              var t = String(texts[i].textContent || '').replace(/\s+/g, ' ').trim()
+              if (t) { label = t; break }
+            }
+          }
+        } catch (e1) { /* noop */ }
+        if (!label) { setPicked(null); return }
+        if (label.length > 120) label = label.slice(0, 120) + '…'
+        var gid = ''
+        try { gid = g.getAttribute('id') || '' } catch (e2) { /* noop */ }
+        var bodyRect = bodyRef.current ? bodyRef.current.getBoundingClientRect() : { left: 0, top: 0, width: availW }
+        var gr = g.getBoundingClientRect()
+        var px = Math.max(8, Math.min(gr.left - bodyRect.left, (bodyRect.width || availW) - 210))
+        var py = Math.max(8, gr.top - bodyRect.top + Math.min(gr.height, 40))
+        setPicked({ x: px, y: py, label: label, id: gid })
+      }, [availW, shownH])
+
+      // Detail popover: paper surface, pointer-transparent (never blocks hover).
+      var popover = picked
+        ? React.createElement('div', {
+            style: {
+              position: 'absolute', left: picked.x + 'px', top: picked.y + 'px', zIndex: 25,
+              background: P.canvas, border: '1px solid ' + P.line, borderRadius: '8px',
+              boxShadow: '0 6px 18px rgba(44,44,42,0.18)', padding: '8px 10px',
+              maxWidth: '260px', pointerEvents: 'none'
+            }
+          },
+            React.createElement('div', { style: { fontSize: '12px', fontWeight: 600, color: P.ink, wordBreak: 'break-word' } }, picked.label),
+            picked.id ? React.createElement('div', { style: { fontSize: '10.5px', color: P.ink3, marginTop: '2px', fontFamily: 'var(--ds-font-family-code, monospace)', wordBreak: 'break-all' } }, picked.id) : null,
+            React.createElement('div', { style: { fontSize: '10.5px', color: P.ink3, marginTop: '4px' } }, '点击空白处关闭'))
+        : null
+
       // Adaptive body: height hugs the diagram (capped); tall diagrams scroll.
       var body = React.createElement('div', {
         ref: bodyRef,
@@ -567,8 +631,12 @@ window.__ModuleLoader__.load({
       },
         React.createElement('div', {
           style: { width: drawW + 'px', height: drawH + 'px', margin: '12px auto' },
+          onMouseOver: onNodeOver,
+          onMouseOut: onNodeOut,
+          onClick: onNodeClick,
           dangerouslySetInnerHTML: { __html: sizedSvg }
-        }))
+        }),
+        popover)
 
       var bar = React.createElement('div', {
         style: {
