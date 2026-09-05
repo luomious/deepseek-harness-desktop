@@ -170,11 +170,15 @@ window.__ModuleLoader__.load({
       'job_output', 'job_list', 'job_kill',
       'subagent', 'subagent_fork',
       'read_image',
-      'tool_search', 'tool_describe', 'tool_call',
+      'tool_search', 'tool_describe',
       'dev_plugin_status',
       'workflow', 'ralph',
       'mcp_call', 'mcp_search'
     ]
+    // NOTE: 'tool_call' removed — the wire tool 'tool_call' wraps ALL agent
+    // tools (real name rides in call.argsRaw.name), and the keyed slot allows
+    // only one entry per key. dsh-diagram-renderer now owns the 'tool_call'
+    // key and dispatches per real tool name internally.
 
     function apply(ctx) {
       var slots = ctx.get('slots')

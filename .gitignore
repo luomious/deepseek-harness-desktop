@@ -103,3 +103,6 @@ scripts/test-siliconflow-vision.mjs
 .env
 *.local.env
 
+
+# Generated diagram artifacts (workspace-local outputs of render_diagram)
+diagrams/

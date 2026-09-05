@@ -1,0 +1,38 @@
+﻿<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>pipeline-test</title></head>
+<body>
+<pre id="out">running...</pre>
+<script>
+window.__ModuleLoader__ = { load: function (def) { window.__diagramMod = def.factory(function (name) { return {} }) } }
+</script>
+<script src="./lib/client.js"></script>
+<script>
+var T = window.__diagramMod.__test
+var out = { pass: 0, fail: 0, cases: [] }
+window.__testOut = out
+function check(name, cond, detail) { out.cases.push({ name: name, pass: !!cond, detail: detail || '' }); if (cond) out.pass++; else out.fail++ }
+var env1 = 'OK generated\n<!--dsh-diagram:begin {"v":1,"title":"T1","path":"diagrams/a.svg","bytes":10}-->\n<svg viewBox="0 0 100 50" width="100" height="50">\n  <rect x="0" y="0" width="100" height="50" fill="#fff"/>\n</svg>\n<!--dsh-diagram:end-->'
+var p1 = T.parseEnvelope(env1)
+check('normal: svg', !!(p1 && p1.svg && p1.svg.indexOf('<svg') === 0))
+check('normal: meta.title', !!(p1 && p1.meta && p1.meta.title === 'T1'))
+var esc = JSON.stringify(env1).slice(1, -1)
+check('looksEscaped(escaped)=true', T.looksEscaped(esc) === true)
+check('looksEscaped(normal)=false', T.looksEscaped(env1) === false)
+var p2 = T.parseEnvelope(esc)
+check('escaped: svg', !!(p2 && p2.svg && p2.svg.indexOf('<svg') === 0))
+check('escaped: real newline restored', !!(p2 && p2.svg && p2.svg.indexOf('\n  <rect') !== -1))
+check('escaped: no literal backslash-n', !!(p2 && p2.svg && p2.svg.indexOf('\\n') === -1))
+check('escaped: meta.title', !!(p2 && p2.meta && p2.meta.title === 'T1'))
+check('resultText: string item', T.resultText({ content: ['plain'] }) === 'plain')
+check('resultText: text block', T.resultText({ content: [{ type: 'text', text: 'hello' }] }) === 'hello')
+check('resultText: non-text block WITH text (the bug)', T.resultText({ content: [{ type: 'mystery', text: 'world' }] }) === 'world')
+check('resultText: output field', T.resultText({ content: [{ type: 'x', output: 'via-output' }] }) === 'via-output')
+var menv = 'ok\n<!--dsh-diagram:begin {"v":1,"type":"mermaid","title":"M1","path":"diagrams/m.mmd","bytes":30}-->\nflowchart TB\n  A[start] --> B[end]\n<!--dsh-diagram:end-->'
+var pm = T.parseEnvelope(JSON.stringify(menv).slice(1, -1))
+check('mermaid escaped: type', !!(pm && pm.type === 'mermaid'))
+check('mermaid escaped: real newlines', !!(pm && pm.code && pm.code.indexOf('\n') !== -1 && pm.code.indexOf('\\n') === -1))
+check('mermaid escaped: meta.title', !!(pm && pm.meta && pm.meta.title === 'M1'))
+out.done = true
+document.getElementById('out').textContent = JSON.stringify(out, null, 1)
+</script>
+</body></html>

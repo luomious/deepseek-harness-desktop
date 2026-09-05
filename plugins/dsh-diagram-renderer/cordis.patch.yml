@@ -1,0 +1,4 @@
+# Bundle layer: mount the dsh-diagram-renderer plugin (host tool + client bundle).
+- insert:
+    - id: dsh-diagram-renderer
+      name: '@dsh-external/dsh-diagram-renderer'

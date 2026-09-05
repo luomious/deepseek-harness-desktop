@@ -1,0 +1,85 @@
+<svg viewBox="0 0 680 575" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>改进YOLO11n-seg分割网络结构图</title>
+<desc>以MobileNetV4替换骨干、在Neck引入DWR空洞率1/3/5三分支多尺度模块、采用LSCD共享卷积检测头，参数量与计算量较基线下降18.3%与20.6%。</desc>
+<defs>
+<marker id="aw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<rect x="50" y="40" width="280" height="40" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+<text x="190" y="60" text-anchor="middle" dominant-baseline="central" style="fill:#2C2C2A;font-size:14px;font-weight:500;font-family:system-ui,sans-serif">RGB 图像 640 × 640</text>
+
+<rect x="50" y="105" width="280" height="60" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="190" y="126" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:14px;font-weight:500;font-family:system-ui,sans-serif">Backbone　MobileNetV4</text>
+<text x="190" y="145" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">通用倒置瓶颈（UIB）逐级下采样</text>
+
+<rect x="50" y="190" width="280" height="76" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="190" y="210" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:14px;font-weight:500;font-family:system-ui,sans-serif">Neck　PAN + DWR 多尺度模块</text>
+<text x="190" y="228" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">空洞卷积三分支并行</text>
+<rect x="73" y="238" width="70" height="22" rx="5" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="108" y="249" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:11px;font-family:system-ui,sans-serif">空洞率 1</text>
+<rect x="155" y="238" width="70" height="22" rx="5" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="190" y="249" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:11px;font-family:system-ui,sans-serif">空洞率 3</text>
+<rect x="237" y="238" width="70" height="22" rx="5" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="272" y="249" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:11px;font-family:system-ui,sans-serif">空洞率 5</text>
+
+<rect x="50" y="291" width="280" height="60" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="190" y="312" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:14px;font-weight:500;font-family:system-ui,sans-serif">Head　LSCD 共享卷积检测头</text>
+<text x="190" y="331" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">组归一化替代批归一化</text>
+
+<rect x="50" y="376" width="280" height="44" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+<text x="190" y="393" text-anchor="middle" dominant-baseline="central" style="fill:#2C2C2A;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">实例掩码 + 检测框</text>
+<text x="190" y="409" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">经高动态类别筛选后输出</text>
+
+<rect x="365" y="105" width="270" height="60" rx="8" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="500" y="126" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">改进①　骨干替换</text>
+<text x="500" y="145" text-anchor="middle" dominant-baseline="central" style="fill:#3C3489;font-size:12px;font-family:system-ui,sans-serif">参数量 2.84 M → 2.40 M</text>
+
+<rect x="365" y="190" width="270" height="76" rx="8" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="500" y="210" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">改进②　多尺度增强</text>
+<text x="500" y="229" text-anchor="middle" dominant-baseline="central" style="fill:#3C3489;font-size:12px;font-family:system-ui,sans-serif">增强远距离小目标表征</text>
+<text x="500" y="247" text-anchor="middle" dominant-baseline="central" style="fill:#3C3489;font-size:12px;font-family:system-ui,sans-serif">精度由 0.427 回升至 0.448</text>
+
+<rect x="365" y="291" width="270" height="60" rx="8" fill="#CECBF6" stroke="#534AB7" stroke-width="0.5"/>
+<text x="500" y="312" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">改进③　检测头压缩</text>
+<text x="500" y="331" text-anchor="middle" dominant-baseline="central" style="fill:#3C3489;font-size:12px;font-family:system-ui,sans-serif">共享卷积 + 组归一化</text>
+
+<path d="M336 135 L361 135" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M336 228 L361 228" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M336 321 L361 321" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M190 82 L190 101" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M190 167 L190 186" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M190 268 L190 287" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+<path d="M190 353 L190 372" fill="none" stroke="#888780" stroke-width="1.5" marker-end="url(#aw)"/>
+
+<text x="45" y="447" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">消融实验（逐项叠加，COCO val2017）</text>
+
+<rect x="45" y="455" width="138" height="100" rx="8" fill="#F1EFE8" stroke="#888780" stroke-width="0.5"/>
+<text x="114" y="475" text-anchor="middle" dominant-baseline="central" style="fill:#2C2C2A;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">YOLO11n-seg</text>
+<text x="114" y="496" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">2.84 M</text>
+<text x="114" y="513" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">10.2 GFLOPs</text>
+<text x="114" y="530" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">mAP@50 0.435</text>
+<text x="114" y="547" text-anchor="middle" dominant-baseline="central" style="fill:#5F5E5A;font-size:12px;font-family:system-ui,sans-serif">38 FPS</text>
+
+<rect x="195" y="455" width="138" height="100" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="264" y="475" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">+ MobileNetV4</text>
+<text x="264" y="496" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">2.40 M</text>
+<text x="264" y="513" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">9.1 GFLOPs</text>
+<text x="264" y="530" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">mAP@50 0.427</text>
+<text x="264" y="547" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">42 FPS</text>
+
+<rect x="345" y="455" width="138" height="100" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+<text x="414" y="475" text-anchor="middle" dominant-baseline="central" style="fill:#26215C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">+ DWR</text>
+<text x="414" y="496" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">2.51 M</text>
+<text x="414" y="513" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">9.6 GFLOPs</text>
+<text x="414" y="530" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">mAP@50 0.448</text>
+<text x="414" y="547" text-anchor="middle" dominant-baseline="central" style="fill:#534AB7;font-size:12px;font-family:system-ui,sans-serif">40 FPS</text>
+
+<rect x="495" y="455" width="138" height="100" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="564" y="475" text-anchor="middle" dominant-baseline="central" style="fill:#04342C;font-size:13px;font-weight:500;font-family:system-ui,sans-serif">+ LSCD（本文）</text>
+<text x="564" y="496" text-anchor="middle" dominant-baseline="central" style="fill:#0F6E56;font-size:12px;font-family:system-ui,sans-serif">2.32 M</text>
+<text x="564" y="513" text-anchor="middle" dominant-baseline="central" style="fill:#0F6E56;font-size:12px;font-family:system-ui,sans-serif">8.1 GFLOPs</text>
+<text x="564" y="530" text-anchor="middle" dominant-baseline="central" style="fill:#0F6E56;font-size:12px;font-family:system-ui,sans-serif">mAP@50 0.442</text>
+<text x="564" y="547" text-anchor="middle" dominant-baseline="central" style="fill:#0F6E56;font-size:12px;font-family:system-ui,sans-serif">46 FPS</text>
+</svg>
