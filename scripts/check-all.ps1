@@ -125,6 +125,27 @@ if (Test-Path $verifyScript) {
   Write-Host '  SKIP  verify-patches.ps1 not found' -ForegroundColor Yellow
 }
 
+# ---- Step 2.5: diagram-renderer pipeline regression (15 assertions) ----
+# Playwright + local Chrome required; skips gracefully when unavailable.
+Write-Host ''
+Write-Host '=== Step 2.5: diagram pipeline regression (15 assertions) ===' -ForegroundColor Cyan
+$pwScript = Join-Path $root 'plugins\dsh-diagram-renderer\tests\pw-run-pipeline.py'
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+if (-not (Test-Path $pwScript)) {
+  Write-Host '  SKIP  pw-run-pipeline.py not found' -ForegroundColor Yellow
+} elseif (-not $pyCmd) {
+  Write-Host '  SKIP  python not available' -ForegroundColor Yellow
+} else {
+  $pwOut = & python $pwScript 2>&1 | Out-String
+  $pwCode = $LASTEXITCODE
+  if ($pwCode -ne 0 -or $pwOut -notmatch '"fail":\s*0') {
+    Write-Host '  FAIL  diagram pipeline regression (see JSON above)' -ForegroundColor Red
+    $totalFail++
+  } else {
+    Write-Host '  PASS  diagram pipeline 15/15 assertions' -ForegroundColor Green
+  }
+}
+
 # ---- Step 3: unit tests (optional; EPERM in DSH sandbox) ----
 if (-not $SkipTests) {
   Write-Host ''

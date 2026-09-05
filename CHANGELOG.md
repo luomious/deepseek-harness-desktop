@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer 阶段 4：节点交互 + check-all 纳入回归
+
+- **节点 hover 高亮 + 点击详情弹层**（DiagramViewer，纯事件委托）：hover 时节点 brightness 高亮 + 淡靛 drop-shadow；点击弹出纸面详情（`data-name` → 节点文本 → `id` 三级回退，120 字符截断），弹层 pointer-transparent 不挡后续交互，点空白关闭。兼容手绘 `<g data-name>` 与 mermaid `g.node`。
+- **check-all.ps1 新增 Step 2.5**：diagram 管线回归（15 断言）纳入统一巡检链；python/playwright 缺失时优雅 SKIP 不阻塞。
+- **测试迁入 tests/ 修正**：pipeline-test2.html / pw-run-pipeline.py 相对路径更新（`../lib/client.js`）——新路径首跑曾失败（相对路径断一层），已修，印证「移动文件必须全链路重跑」；新增活体探针 tests/pw-probe-stage4.py。
+- **验证**：node --check OK；管线 15/15 PASS（tests/ 新路径）；活体点击「Electron 桌面窗口」节点 → 弹层出现（label+id），pageErrors 0。
+
+---
+
 ## 2026-09-05 dsh-diagram-renderer v5：自适应免缩放卡（卡片即相框）
 
 - **用户反馈**：「大小不固定、不需要缩放，自适应大小」→ DiagramViewer 整体重写（v5，snippet 拼接替换 + 原子换入）：移除全部缩放/平移控件（适应视图 / 铺满宽度 / ± / 百分比 / 拖拽），改为 **fit-width 渲染 + 高度随图宽高比 hug**（下限 260px / 上限 min(78vh, 720px)）；仅超高图在卡内垂直滚动；ResizeObserver 随容器任何尺寸变化重排，用户零操作。全屏保留（矢量细读），工具栏精简为 全屏 + ⋮（下载 .svg / 保存 PNG / 复制 / 查看代码），卡片右上角标「自适应」。
