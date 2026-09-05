@@ -73,6 +73,9 @@ test('deregister-plugin 预检（只读）列出引用且不修改文件', () =>
 test('deregister-plugin --yes 清理 deps/bundles/junction 并验证通过', () => {
   const fx = makeFixture();
   try {
+    // 真实 _backups 快照（测试前）：断言只对比【增量】——真实 deregister 操作的合法备份不算泄漏
+    const realBk = path.join(os.homedir(), '.dsh', '_backups');
+    const realBkBefore = fs.existsSync(realBk) ? fs.readdirSync(realBk).filter((n) => n.includes('package-dereg')) : [];
     const r = run(['--plugin', 'dsh-fake-plugin', '--yes', '--no-verify'], fx.profilesRoot, fx.backupsDir);
     assert.equal(r.status, 0, `stdout: ${r.stdout}\nstderr: ${r.stderr}`);
     assert.match(r.stdout, /已备份/);
@@ -87,8 +90,8 @@ test('deregister-plugin --yes 清理 deps/bundles/junction 并验证通过', () 
     // 备份应落在 DSH_BACKUPS_DIR（测试隔离），而非真实 ~/.dsh/_backups
     const bkFiles = fs.readdirSync(fx.backupsDir).filter((n) => n.includes('package-dereg'));
     assert.ok(bkFiles.length >= 1, `备份应写入隔离目录: ${fx.backupsDir}`);
-    const realBk = path.join(os.homedir(), '.dsh', '_backups');
-    const leaked = fs.existsSync(realBk) ? fs.readdirSync(realBk).filter((n) => n.includes('package-dereg')) : [];
+    const realBkAfter = fs.existsSync(realBk) ? fs.readdirSync(realBk).filter((n) => n.includes('package-dereg')) : [];
+    const leaked = realBkAfter.filter((n) => !realBkBefore.includes(n));
     assert.equal(leaked.length, 0, `真实 _backups 不应新增测试备份: ${JSON.stringify(leaked)}`);
   } finally {
     fx.cleanup();
