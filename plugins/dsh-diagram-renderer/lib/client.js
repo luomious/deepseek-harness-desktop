@@ -652,7 +652,7 @@ function StageViewer(props) {
       }, [])
 
       var vh = (typeof window !== 'undefined' && window.innerHeight) || 800
-      var MAX_H = isFull ? vh : Math.min(Math.round(vh * 0.78), 720)
+      var MAX_H = isFull ? vh : Math.max(900, Math.min(Math.round(vh * 0.78), 720))
       var MIN_H = 260
       var availW = Math.max(120, bodyW - 24)
       var drawW = availW
@@ -1573,7 +1573,7 @@ function StageViewer(props) {
           // Create diagram container
           var container = document.createElement('div')
           container.className = 'dsh-diagram-rendered'
-          container.style.cssText = 'margin:8px 0;border-radius:12px;overflow:hidden;background:#fff;'
+          container.style.cssText = 'margin:8px 0;border-radius:12px;background:#fff;max-width:100%;'
 
           var props = parsed.type === 'mermaid'
             ? { code: parsed.code, title: (parsed.meta && parsed.meta.title) || '' }
