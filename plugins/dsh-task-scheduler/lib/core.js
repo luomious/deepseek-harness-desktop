@@ -286,6 +286,23 @@ export function status(opts = {}) {
   const changes = resourceFilter
     ? readChanges(500).filter((c) => (c.resources || (c.resource ? [c.resource] : [])).some((r) => { try { return resourceFilter.has(normalizeResource(r)) } catch { return false } })).slice(-(opts.limit || 200))
     : readChanges(opts.limit || 200)
+  // 2026-09-06 审计修复：懒回收——status 检查时顺带清理过期锁（pid 死亡 + 心跳超时），
+  // 避免死锁长期堆积阻塞同资源的 acquire。与 tryAcquire 的回收逻辑对齐。
+  // 只做轻量扫描（readLock + isReclaimable），不影响正在使用的活锁。
+  // rename 到 .stale 而非 unlink，保留审计痕迹。
+  try {
+    const staleFiles = readdirSync(locksDir()).filter((f) => f.endsWith('.json'))
+    for (const f of staleFiles) {
+      const p = join(locksDir(), f)
+      const lock = readLock(p)
+      if (lock && isReclaimable(lock)) {
+        try {
+          renameSync(p, `${p}.stale-${now()}`)
+          appendChange({ action: 'auto-reclaimed', resource: (lock.resources || ['unknown'])[0], resources: lock.resources || [], holderId: lock.id, reason: 'status-lazy-reclaim (pid dead + heartbeat expired)' })
+        } catch { /* rename 失败（如 Windows 文件句柄占用）不影响 status 返回 */ }
+      }
+    }
+  } catch { /* 懒回收失败不影响 status 返回 */ }
   return { ok: true, ts: now(), store: storeDir(), locks, changes }
 }
 
