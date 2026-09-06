@@ -6,6 +6,34 @@
 
 ---
 
+## 2026-09-06 全面审计与修复（4 批次 + 死锁自动回收，20 文件，4 个 atomic commit）
+
+### 背景
+对项目做全面安全/质量/旧版本指向审计：30 插件 + 50 脚本 + 补丁体系 + Profile + 锁 + Skill。对照既有基线（`PRODUCTION-READINESS-REVIEW.md`、`HANDOVER-2026-09-04.md`）区分已修/未修/新增，发现 11 项 P1 + 17 项 P2 + 10 项 P3。
+
+### 已修复（4 个 atomic commit，已 push origin/master）
+
+| Commit | 内容 |
+|---|---|
+| `0988be0` fix(scripts) | 启动预检 V6 动态解析 + 6 处硬编码路径动态化 + modlens spawn-trace 清理脚本 |
+| `0123e73` fix(plugins) | 恢复桌面通知(createRequire) + stream error 防崩溃 + waitMs UI 防冻 + inject 修复 + 路径动态化 |
+| `45a557f` chore(patches) | verify-patches 补 7 项 bundle 校验(39 ALL PASS) + MANIFEST 补登 + 3 处静默失败修复 |
+| `c612286` fix(task-scheduler) | status 懒回收过期锁——死锁自动清理机制 |
+
+### 验证
+- startup-verify V1-V8+V10 PASS，V9 73 文件全过（重启后）
+- verify-patches 39 checks ALL PASS
+- 重启后零 ERROR/Unhandled/ReferenceError 回归
+- task-scheduler locks 0 json（无死锁）
+
+### 后续计划（已登记）
+- **P2**：重复代码收敛第一批（退避注册/去重通知/loopback → host-services 共享导出）
+- **P3**：重复代码收敛第二批（log/原子写 helper）
+- **P3**：SSRF HTTP 客户端收敛（需单独规划，安全敏感+装配变更）
+- **P3**：15 个无单测插件补测试
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer v6.3：WorkBuddy 式布局（图下说明面板 + 统计卡 + 分步图按显示尺寸作画）
 
 - **用户反馈**：「图太小」「ORB 特征提取显示框会挡住对话框在对话框的上面，效果很垃圾」，并附 WorkBuddy 同款演示页截图（图下描述面板 + 3 张统计卡 + 阶段胶囊条）→ v6.3。
@@ -2959,3 +2987,55 @@ seed-2.1-turbo/pro）；sennsenova 5 个全部；合计 33 个 modlens vision �
   改回、开关关闭透传）；
 - 运行中服务实时拉取 llm.models 确认 modlens 分组与模型数量；
 - 守卫日志记录恢复/热重建全链路。
+## 2026-09-06 桌面窗口「打字卡住/未响应」根因修复（dsh-better-sidebar 折叠时空转循环）
+
+### 现象
+- 桌面窗口（renderer）交互时 CPU 飙至 85%+ 单核，输入事件排队，「打字卡住 / 未响应」。
+- 内核 / Web 服务（43120）正常（main 仅 5%），问题只在桌面窗口渲染层。
+
+### 排查过程（A/B 实证）
+1. 排除法：system-notify / diagram-renderer / skills-manager 定时器均低频或条件触发，非主因。
+2. A/B：将 better-sidebar 的 loadExternalDisable 强制返回 true（整插件卸载）→ 刷新后
+   renderer 空闲 CPU 从 85-90% 归零（30s 窗口 0%）。实锤折叠时插件仍在跑重活。
+3. 会话规模：当前会话 31,736 行事件（33 轮 / 350 步 / 18,392 reasoning-chunks / 最长单行
+   111KB），conversation 无 DOM 虚拟化 → 交互时全量 diff 成本是次生放大因素。
+
+### 修复（dsh-better-sidebar v0.15.2 客户端补丁）
+- 定位器门控：侧栏与底部面板**同时折叠时**跳过 locate() 全 DOM 扫描、#root 子树
+  MutationObserver、<html style> 观察器、1.5s interval（原无条件常驻）；展开时自动恢复。
+  位置：lib/client.js 底部面板定位 effect（[measureCenter, state?.bottomOpen] 依赖
+  数组补 state.panelOpen）。
+- 设置导航图标观察器门控：无 [role=dialog] 挂载时直接返回，不再每次 DOM 变化全扫
+  [role=dialog] nav button。
+- 备份：lib/client.js.bak-20260906（同目录，可回滚）。
+- 服务器按请求读盘 + no-cache，刷新桌面窗口（Ctrl+R / 右下角按钮）即生效，无需重启。
+
+### 待观察
+- 交互时（打字/滚动）巨型会话全量渲染仍可能明显耗时——conversation 无虚拟化是内核行为，
+  后续可评估：会话归档 / 压缩（scripts/archive-big-sessions.ps1）、或上游虚拟化。
+
+### 2026-09-06 回归事故：better-sidebar 门控直接读 state 未判空导致右栏报错（已修复）
+
+- 事故：给 better-sidebar 加「折叠时跳过 locate/观察器」门控时写 !(state.panelOpen || state.bottomOpen)，
+  state 在无会话/首帧时为 undefined → TypeError → Sidebar 崩溃 → RenderBoundary 右栏红色错误条。
+- 教训：**React 闭包里读外部状态必须判空**（state && ... / 可选链 state?.x）；依赖数组同
+  样要 state?.panelOpen，不能裸读。改第三方 bundle 后除 
+ode --check 外，还应做
+  「首帧/无会话」路径的静态检查。
+- 修复：lib/client.js 两处改为 state && (state.panelOpen || state.bottomOpen) 与
+  state?.panelOpen；服务器按请求读盘，刷新即生效；备份仍为 client.js.bak-20260906。
+
+### 2026-09-06 打字卡顿第二修复：vision-engine 每次击键全扫 DOM（已修复）
+
+- 现象：better-sidebar 空闲循环修复后，打字时仍卡（交互时 renderer CPU 飙升）。
+- 根因：plugins/dsh-vision-engine/lib/client.js 的 ender()——页面全局捕获 input 事件
+  （document.addEventListener('input', onInput, true)），每次击键 → rAF → render()；
+  输入框无图片路径时执行 document.querySelectorAll('textarea,input') **全 DOM 扫描**
+  （巨型会话 31K 事件 DOM 上成本高）；3s 定时器同样无条件全扫。
+- 修复：render 参数化 ender(allowFullScan)——输入/focusin 路径 ender(false) 只查
+  当前聚焦输入框（快）；3s 兜底定时器 ender(true) 保留全扫（低频，功能不丢：
+  丢失焦点/重渲染场景仍能在 3s 内恢复路径图片 chip）。
+- 备份：lib/client.js.bak-20260906（同目录，可回滚）；刷新页面即生效（按请求读盘）。
+- 待观察：dsh-model-picker-group 800ms aria 补丁定时器在巨型 DOM 上仍有小成本，
+  如仍卡再评估；conversation 无虚拟化是内核行为，会话过大可归档。
+- 验收补充：better-sidebar 备份曾因 A/B 恢复被清理，已重建 client.js.bak-20260906（正式修复版快照）。
