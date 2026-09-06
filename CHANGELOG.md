@@ -34,6 +34,16 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer v6.5：纠正 v6.4 方向——turnTail 恢复为主通道 + 历史信封扫描补挂
+
+- **复盘（诚实记录 v6.4 失误）**：v6.4 假设「keyed 工具卡是通用渲染通道、turnTail 可退役」，但**实机探针证实 harness 会话的消息流里根本没有工具节点 DOM**（无 render_diagram 文本、无 generating/摘要行）——keyed 槽在该环境永远空转；用户此前截图中的「阶段 1/4」卡正是 turnTail 实时通道挂载的。v6.4 关闭 turnTail = 关掉了唯一可见通道，用户重启后「什么都看不到」。
+- **恢复**：`conversation.chat.turnTail` 重新注册（diagramEventDef + DiagramTurnTail）；DiagramCard（keyed）回滚为摘要行（标准 agent 会话兜底）。
+- **新增历史补挂**：`select()` 在事件态无图时**扫描该 turn 消息文本中的严格信封**（`t.messages` 候选路径容错），刷新/重进后历史卡恢复；实时路径不变。
+- **验证**：node --check OK；管线 21/21 PASS。
+- **教训（记录）**：改动渲染通道前必须先做「通道可达性」实证（harness 会话无工具块、标准会话有）；「单通道化」是架构决策不是口头假设——v6.4 因假设错误让用户多等一轮。
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer v6.4：单通道化——keyed 工具节点完整渲染，历史卡刷新后自动恢复
 
 - **🐛 根因诊断（用户连续反馈「刷新后什么都看不到」，最终实锤）**：插件一直采用「单卡策略」——工具调用节点只渲染一行摘要（"图表已生成…交互视图见本条回复下方"），完整交互卡只在 turnTail（回复下方）由**实时事件流**挂载；而 **turnTail 依赖 turn/start + tool/result 事件，历史会话重放不产生这些事件** → 刷新/重进会话后完整卡消失，只剩摘要行 → 用户"看不到图"（首次生成时临时挂载的卡截图正常，印证了重放缺失）。
@@ -3063,3 +3073,21 @@ ode scripts/apply-ui-perf-patches.mjs 一键恢复。
 - 教训：固化脚本的 anchor 必须以「原始包源码」（src/ 或 npm 缓存）为准，并以修复
   特征做幂等判定而非 marker 注释（手动修复态无 marker，会导致重复注入——本次
   曾因此把 better-sidebar 门控注入两次，已用备份恢复并重写脚本）。
+
+### 2026-09-06 长期护栏：self-maintenance 增加 renderer 空闲 CPU 探针（phase1.5）
+
+- 目的：任何插件再引入「折叠空转 / 击键全扫」类循环 → 24h 内自动告警，不等用户卡到投诉。
+- 新增 scripts/probe-renderer-cpu.ps1：采样桌面窗口 renderer 进程（--type=renderer）
+  两次 CPU 读数（间隔 3s），输出单核 %；无 renderer 输出 NO_RENDERER。
+- plugins/dsh-self-maintenance/lib/index.js（marker DSH-2026-09-06 renderer-cpu-probe）：
+  - 每小时 cycle 新增 step 2.7：调探针，连续 endererCpuStreak(2) 轮 > endererCpuWarnPct(25)
+    -> warning 通知 + 提示查插件/跑 apply-ui-perf-patches.mjs；恢复自动清零。
+  - 状态路由新增 endererWatch 字段（阈值/连续数/当前值/lastPct）。
+  - fail-open：探针失败/超时（8s）返回 null，不影响 cycle。
+- scripts/apply-sm-renderer-probe.mjs：幂等重打脚本（7 edits，按 marker 判定）。
+- scripts/verify-patches.ps1 新增检查项（42 checks ALL PASS）。
+- 生效：host 改动需重启 DSH Desktop（按重启守则，等用户指示；非 modlens 可热重载但当前
+  loader.internal 不可用，重启最稳）。
+- 教训（重要）：PowerShell here-string 会对 ${...} 插值，禁止用它写含模板字符串的 JS；
+  写代码补丁一律用 node 脚本（readFileSync + 精确字符串替换 + marker 幂等），且插入位置
+  用「锚点行」而非索引（多次索引插入易错位，本次曾两次插错位置，均靠 git checkout 恢复）。

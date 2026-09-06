@@ -1316,27 +1316,10 @@ function StageViewer(props) {
       var output = resultText(block)
       var parsed = null
       try { parsed = parseEnvelope(output) } catch (e) { parsed = null }
-      // v6.4 single-channel: the keyed tool node renders the FULL interactive
-      // view (stages / stat cards / desc panel included). Keyed slots
-      // re-render on session replay (verified v4), so historical cards
-      // recover after a refresh — the old summary-only policy hid diagrams
-      // from history (user: 刷新后“什么都没看到”).
-      if (parsed && parsed.type === 'mermaid' && parsed.code && parsed.code.length >= 8) {
-        return React.createElement(MermaidWidget, {
-          code: parsed.code,
-          title: (parsed.meta && parsed.meta.title) || ''
-        })
-      }
-      if (parsed && parsed.svg) {
-        var meta = parsed.meta || {}
-        return React.createElement(DiagramViewer, {
-          svg: parsed.svg,
-          title: meta.title || '',
-          fileBase: basename(meta.path),
-          stages: meta.stages
-        })
-      }
-      // Fallback summary row: old payloads / unparseable results.
+      // v6.5: keyed tool cards stay SUMMARY-ONLY. The FULL interactive view
+      // lives on the turnTail channel — harness sessions have NO tool-node
+      // DOM at all, so the keyed slot can never render there (v6.4
+      // single-channel was reverted for exactly this reason).
       var cardTitle = (parsed && parsed.meta && parsed.meta.title) || ''
       var cardFile = (parsed && parsed.meta && parsed.meta.path) || ''
       return React.createElement(MiniCard, {
@@ -1464,10 +1447,60 @@ function StageViewer(props) {
           label: function () { return '\u56fe\u8868' }
         }, DiagramSettingsSection)
       })
-      // v6.4 single-channel: keyed tool cards now render the FULL interactive
-      // view and recover on history replay. The turn-tail placement is
-      // retired — two copies of the same diagram polluted the message flow.
-      slots.inject('conversation.chat.turnTail', function () { return null })
+      // v6.5: turnTail is THE primary channel for the full interactive view.
+// harness sessions have no tool-node DOM, so keyed cards can never show
+// there; history replay is handled by select()'s envelope scan below.
+      slots.inject('conversation.chat.turnTail', function () {
+        var events = null
+        try { events = ctx.conversationEvents || (typeof ctx.get === 'function' ? ctx.get('conversationEvents') : null) } catch (e) { events = null }
+        if (!events || typeof events.register !== 'function') return null
+        if (!events.__diagramDefRegistered) {
+          events.__diagramDefRegistered = true
+          events.register(diagramEventDef)
+        }
+        return slots.register({
+          name: 'conversation.chat.turnTail',
+          select: function (owner) {
+            // 1) live path: diagrams collected from the turn event stream
+            try {
+              var data = owner && owner.turn && owner.turn.data ? owner.turn.data.get('diagram') : null
+              if (data && data.diagrams && data.diagrams.length > 0) return data.diagrams
+            } catch (e) { /* fall through to scan */ }
+            // 2) history path: scan this turn's messages for strict
+            // envelopes so cards REPLAY after a refresh / re-entry.
+            try {
+              var t = owner && owner.turn
+              if (!t) return null
+              var msgs = null
+              if (Array.isArray(t.messages)) msgs = t.messages
+              else if (t.data && typeof t.data.get === 'function' && Array.isArray(t.data.get('messages'))) msgs = t.data.get('messages')
+              else if (t.data && Array.isArray(t.data.messages)) msgs = t.data.messages
+              if (!msgs || !msgs.length) return null
+              var out = []
+              var seen = {}
+              for (var i = 0; i < msgs.length; i++) {
+                var m = msgs[i]
+                var text = ''
+                try { text = resultText(m) } catch (e) { text = '' }
+                if (!text || typeof text !== 'string' || text.indexOf('dsh-diagram:begin') === -1) continue
+                var pr = null
+                try { pr = parseEnvelope(text, true) } catch (e) { pr = null }
+                if (!pr) continue
+                var key = (pr.meta && (pr.meta.path || pr.meta.title)) || i
+                if (seen[key]) continue
+                seen[key] = true
+                if (pr.type === 'mermaid') {
+                  out.push({ type: 'mermaid', code: pr.code, title: (pr.meta && pr.meta.title) || '', path: (pr.meta && pr.meta.path) || '' })
+                } else {
+                  out.push({ svg: pr.svg, title: (pr.meta && pr.meta.title) || '', path: (pr.meta && pr.meta.path) || '', stages: (pr.meta && pr.meta.stages) || undefined })
+                }
+              }
+              return out.length ? out : null
+            } catch (e) { return null }
+          },
+          inject: function () { return {} }
+        }, DiagramTurnTail)
+      })
     }
 
     exports.apply = apply
