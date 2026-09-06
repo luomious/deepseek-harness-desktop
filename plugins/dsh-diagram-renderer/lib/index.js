@@ -274,7 +274,8 @@ export function apply(ctx) {
 
         const meta = { v: 1, title, path: `diagrams/${fileName}`, bytes, ...(stages ? { stages } : {}) }
         const imageUrl = `${webBase(ctx)}/diagram-files/${encodeURIComponent(fileName)}`
-        const human = `图已生成并保存：diagrams/${fileName}（${(bytes / 1024).toFixed(1)} KB）。交互卡将自动出现在回复下方（缩放/下载/全屏），默认无需粘贴图片行；仅在需要静态内嵌时使用下面这行：\n![${title}](${imageUrl})\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${svg}\n<!--dsh-diagram:end-->`
+        const controls = stages ? '分步播放/缩放/下载/全屏' : '缩放/下载/全屏'
+        const human = `图已生成并保存：diagrams/${fileName}（${(bytes / 1024).toFixed(1)} KB）。交互卡将自动出现在回复下方（${controls}），默认无需粘贴图片行；仅在需要静态内嵌时使用下面这行：\n![${title}](${imageUrl})\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${svg}\n<!--dsh-diagram:end-->`
         return human
       } catch (e) {
         return `错误：render_diagram 执行失败：${(e && e.message) || String(e)}`

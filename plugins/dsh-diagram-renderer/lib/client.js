@@ -392,13 +392,10 @@ function StageViewer(props) {
   var bodyRef = useRef(null)
   var [idx, setIdx] = useState(0)
   var [playing, setPlaying] = useState(false)
-  var [interacted, setInteracted] = useState(false)
   var [menuOpen, setMenuOpen] = useState(false)
   var [codeOpen, setCodeOpen] = useState(false)
   var [actionMsg, setActionMsg] = useState('')
   var [isFull, setIsFull] = useState(false)
-  var [picked, setPicked] = useState(null)
-  var hoverRef = useRef(null)
   var timerRef = useRef(null)
   var active = stages[Math.min(idx, total - 1)] || stages[0]
 
@@ -417,15 +414,15 @@ function StageViewer(props) {
   }
   function go(newIdx) {
     setIdx(Math.max(0, Math.min(total - 1, newIdx)))
-    setInteracted(true)
+    setPlaying(false) // manual navigation pauses auto-play; play can resume anytime
   }
   function prev() { go(idx - 1) }
   function next() { go(idx + 1) }
-  function toggle() { if (!interacted) setInteracted(true); setPlaying(function (v) { return !v }) }
+  function toggle() { setPlaying(function (v) { return !v }) }
 
-  // Auto-play timer: advance every 2s; stops on manual nav or reaching end.
+  // Auto-play timer: advance every 2s; stops on pause or reaching the end.
   useEffect(function () {
-    if (!playing || interacted) { setPlaying(false); return }
+    if (!playing) return
     timerRef.current = setInterval(function () {
       setIdx(function (prev) {
         if (prev >= total - 1) { setPlaying(false); return prev }
@@ -433,7 +430,7 @@ function StageViewer(props) {
       })
     }, 2000)
     return function () { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [playing, interacted, total])
+  }, [playing, total])
 
   useEffect(function () {
     var onFsChange = function () { setIsFull(!!document.fullscreenElement) }
@@ -441,17 +438,19 @@ function StageViewer(props) {
     return function () { document.removeEventListener('fullscreenchange', onFsChange) }
   }, [])
 
-  // Keyboard: ← → space
+  // Keyboard: ← → space. Interactive controls keep browser default behavior —
+// button focus + space would otherwise double-fire click AND this handler.
   useEffect(function () {
     function onKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      var t = e.target
+      if (t && (t.tagName === 'BUTTON' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
       if (e.key === 'ArrowLeft') { e.preventDefault(); prev() }
       else if (e.key === 'ArrowRight') { e.preventDefault(); next() }
       else if (e.key === ' ') { e.preventDefault(); toggle() }
     }
     document.addEventListener('keydown', onKey)
     return function () { document.removeEventListener('keydown', onKey) }
-  }, [idx, playing, interacted, total])
+  }, [idx, playing, total])
 
   function copyText(text) {
     return new Promise(function (resolve) {
@@ -552,7 +551,7 @@ function StageViewer(props) {
     borderRadius: '12px 12px 0 0', position: 'relative'
   }},
     // Autoplay progress bar: fills the 2s per-stage interval
-    playing && !interacted
+    playing
       ? React.createElement('div', { key: idx, style: {
           position: 'absolute', left: '0', bottom: '-1px', height: '2px', width: '0%',
           background: P.accent, borderRadius: '0 0 0 2px',

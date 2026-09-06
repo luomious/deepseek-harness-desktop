@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer v6.2：审查修复（自动播放永久锁死 / 空格双触发 / 死代码清理）
+
+- **🐛 修复：手动导航后自动播放永久失效**——`StageViewer` 用 `interacted` 状态永久记录「用户手动操作过」，播放 effect 里 `if (!playing || interacted) { setPlaying(false); return }`：用户点过任一导航（上一步/下一步/阶段点）后 `interacted` 永久成立，之后点 ▶ 播放会被 effect 立刻关掉。**本意「手动导航即停播」实现成了「永久禁播」**。修复：删除 `interacted` 状态，`go()` 里 `setPlaying(false)`（手动导航停播、播放随时可恢复），effect 只判断 `playing`；进度条条件同步改 `playing`。
+- **🎯 修复：空格键双触发**——document 级 keydown 只排除 INPUT/TEXTAREA，焦点在按钮上按空格会同时触发按钮 click（如「上一步」）与本 handler 的 `toggle()`（翻转播放）。修复：keydown 排除 BUTTON/INPUT/TEXTAREA/SELECT/contentEditable，可交互控件保留浏览器默认行为。
+- **🧹 死代码清理**：StageViewer 中从未使用的 `picked/setPicked/hoverRef`（从 DiagramViewer 抄来的阶段4残留）删除，StageViewer 体零死代码（分区核验：Phase4 交互在 DiagramViewer 完整保留）。
+- **📄 文档同步**：SKILL/README 分步章节动画数字 250ms → 320ms 上浮渐入 + 400ms 高光；host 返回文本有 stages 时提示「分步播放/缩放/下载/全屏」。
+- **验证**：node --check（host+client）OK；管线回归 **21/21 PASS**；`interacted/setInteracted` 全文件零残留。
+- **教训（记录）**：布尔「永久状态」做「一次性行为」的典型陷阱——「手动导航停播」应写成行为（导航时停），而非身份（操作过就永远禁播）；写 condition 前先读语义，别让状态含义漂移。
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer v6.1：动态效果（阶段过渡 / 播放进度条 / 点脉冲 + 作者侧动效规范）
 
 - **渲染器级动效**（client.js，StageViewer）：① 阶段切换改为 **320ms 上浮渐入 + 400ms 亮度高光**（注入全局 keyframes：`dsh-stage-rise`/`dsh-stage-glow`，幂等 `<style id="dsh-diagram-stage-styles">`，含 `prefers-reduced-motion` 降级，动画容器挂 `.dsh-anim`）；② 自动播放时控制条底部 **2s 阶段进度条**（`dsh-stage-progress`，随阶段重置）；③ 播放中当前阶段点 **靛蓝脉冲**（`dsh-dot-pulse`）。
