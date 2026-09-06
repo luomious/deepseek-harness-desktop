@@ -610,7 +610,7 @@ function StageViewer(props) {
 
   return React.createElement('div', { style: {
     position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
-    margin: '6px -64px 6px -64px', width: 'calc(100% + 128px)',
+    margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
     background: P.card, overflow: 'hidden',
     boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
   }}, bar, body, descPanel)
@@ -959,7 +959,7 @@ function StageViewer(props) {
       return React.createElement('div', {
         style: {
           position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
-          margin: '6px -64px 6px -64px', width: 'calc(100% + 128px)',
+          margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
           background: P.card, overflow: 'hidden',
           boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
         }
@@ -1193,7 +1193,7 @@ function StageViewer(props) {
         ref: rootRef,
         style: {
           position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
-          margin: '6px -64px 6px -64px', width: 'calc(100% + 128px)',
+          margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
           background: P.card, overflow: 'hidden'
         }
       }, bar, body, codeView)
