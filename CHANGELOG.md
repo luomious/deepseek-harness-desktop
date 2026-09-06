@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer v6：分步交互图（stages —— 上一步/下一步/播放）
+
+- **用户反馈**：「WorkBuddy 示意图下面有上一步/下一步/播放按钮，不够智能和自适应」→ 新增 stages 协议 + StageViewer。
+- **协议**：`render_diagram` 新增可选 `stages` 参数（`[{id, title, description?, layers?}]`，host `normalizeStages` 上限 16 步、字段截断），编码进信封 meta（`stages` 字段）；mermaid 模式暂不支持。缺省 = 普通单视图卡，向后兼容零回归。
+- **StageViewer**（client，与 DiagramViewer 并列，`props.stages` 存在时自动启用）：工具栏 = ◀ ▶ 播放（2s/步，手动导航即停）· 阶段点（可点跳转）· 标题 · 阶段 n/N · 全屏 · ⋮（下载 .svg/PNG/复制/源码）；图内左下角阶段标题/说明浮层（纸面毛玻璃）；按 `active.layers` 切换 `<g data-stage>` 显隐（`data-stage="all"` 常显，省略 layers 显示全图），DOMParser 序列化实现，250ms fade+slide 过渡；键盘 ← → 切换、空格播放；超高/全屏沿用 v5 体系。
+- **SKILL**：新增「分步交互图」章节（何时用/何时不用、SVG 分层式结构约定、2–6 步最佳、每阶段只画新增内容），已同步用户技能目录 `~/.agents/skills/diagram/`。
+- **验证**：node --check lib/index.js + client.js OK（snippet `new Function` 语法过、glyph 转义字节级核对）；管线回归扩至 **18/18 PASS**（新增 stages 正常/转义信封 3 断言）；端到端实调 `render_diagram` 生成「动态特征三级别剔除交互演示」（1000×540，4 阶段：ORB 提取 → 语义先验 → 光流 → 对极精筛），落盘 `diagrams/`。
+- **生效方式**：client 改动**刷新页面即生效**；host（lib/index.js stages 编码）打包壳无 loader.internal，**需重启一次**（重启后重画/再调 render_diagram 才带 stages）。
+- 工程资产：`stage-viewer.snippet.js`（StageViewer 主源）+ `scripts/apply-stage-viewer.mjs`（锚点断言可重放拼接，备份 `_backups/client.js.bak-20260906-stageviewer`）。
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer 阶段 4：节点交互 + check-all 纳入回归
 
 - **节点 hover 高亮 + 点击详情弹层**（DiagramViewer，纯事件委托）：hover 时节点 brightness 高亮 + 淡靛 drop-shadow；点击弹出纸面详情（`data-name` → 节点文本 → `id` 三级回退，120 字符截断），弹层 pointer-transparent 不挡后续交互，点空白关闭。兼容手绘 `<g data-name>` 与 mermaid `g.node`。

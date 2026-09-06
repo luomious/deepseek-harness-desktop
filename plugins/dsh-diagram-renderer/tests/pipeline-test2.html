@@ -32,6 +32,12 @@ var pm = T.parseEnvelope(JSON.stringify(menv).slice(1, -1))
 check('mermaid escaped: type', !!(pm && pm.type === 'mermaid'))
 check('mermaid escaped: real newlines', !!(pm && pm.code && pm.code.indexOf('\n') !== -1 && pm.code.indexOf('\\n') === -1))
 check('mermaid escaped: meta.title', !!(pm && pm.meta && pm.meta.title === 'M1'))
+var senv = 'ok\n<!--dsh-diagram:begin {"v":1,"title":"S1","path":"diagrams/s.svg","bytes":10,"stages":[{"id":"a","title":"阶段A","description":"第一段","layers":["a"]},{"id":"b","title":"阶段B","layers":["b"]}]}-->\n<svg viewBox="0 0 100 50" width="100" height="50"><g data-stage="all"><rect x="0" y="0" width="100" height="50" fill="#fff"/></g></svg>\n<!--dsh-diagram:end-->'
+var ps = T.parseEnvelope(senv)
+check('stages: meta carries array', !!(ps && ps.meta && Array.isArray(ps.meta.stages) && ps.meta.stages.length === 2))
+check('stages: fields preserved', !!(ps && ps.meta && ps.meta.stages[0].title === '阶段A' && ps.meta.stages[0].layers[0] === 'a' && ps.meta.stages[1].id === 'b'))
+var pse = T.parseEnvelope(JSON.stringify(senv).slice(1, -1))
+check('stages escaped: still parsed', !!(pse && pse.meta && Array.isArray(pse.meta.stages) && pse.meta.stages.length === 2))
 out.done = true
 document.getElementById('out').textContent = JSON.stringify(out, null, 1)
 </script>

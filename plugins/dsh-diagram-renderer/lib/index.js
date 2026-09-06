@@ -43,6 +43,29 @@ function safeFileStem(name) {
 }
 
 /**
+ * Normalize optional `stages` metadata for the envelope (svg diagrams only).
+ * Each stage: { id?, title, description?, layers? } — layers reference
+ * `<g data-stage="...">` groups in the SVG; the client StageViewer toggles
+ * them per stage (data-stage="all" stays visible on every stage).
+ */
+function normalizeStages(stages) {
+  if (!Array.isArray(stages)) return undefined
+  const out = []
+  for (const st of stages.slice(0, 16)) {
+    if (!st || typeof st !== 'object') continue
+    const id = String(st.id || '').slice(0, 60)
+    const titleStr = String(st.title || '').slice(0, 80)
+    const desc = String(st.description || '').slice(0, 240)
+    let layers
+    if (Array.isArray(st.layers)) {
+      layers = st.layers.slice(0, 32).map((l) => String(l).slice(0, 40))
+    }
+    out.push({ id, title: titleStr, ...(desc ? { description: desc } : {}), ...(layers && layers.length ? { layers } : {}) })
+  }
+  return out.length ? out : undefined
+}
+
+/**
  * Server-side SVG sanitizer (regex-based, conservative):
  * - drop <script>/<foreignObject>/<iframe> elements (loop for nested pairs)
  * - drop on* event handler attributes
@@ -193,6 +216,7 @@ export function apply(ctx) {
       title: { type: 'string', description: '图表标题，显示在卡片工具栏（必填）' },
       mermaid: { type: 'string', description: '可选：Mermaid 图代码（flowchart TB/LR、sequenceDiagram、classDiagram 等）。提供时走自动布局引擎，自适应容器大小、字号恒定清晰，优先于 svg' },
       svg: { type: 'string', description: '可选：完整 SVG 源码（手绘精确布局时用），必须包含 <svg ...>...</svg> 根元素。禁止 <script>/外部引用（会被清洗）' },
+      stages: { type: 'array', description: '可选（仅配 svg 使用）：分步交互图阶段列表（WorkBuddy 上一步/下一步/播放体验）。每项：{ id?, title, description?, layers? }。layers 引用 SVG 中 <g data-stage="..."> 分组名（data-stage="all" 常显）；缺省 layers 时该阶段显示全图' },
       fileName: { type: 'string', description: '可选保存文件名词干，缺省从 title 生成' }
     },
     output: {
@@ -205,6 +229,7 @@ export function apply(ctx) {
         const cwd = (exec && exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.cwd) || process.cwd()
         const mermaidCode = String((args && args.mermaid) || '').trim()
         const svgRaw = String((args && args.svg) || '')
+        const stages = normalizeStages(args && args.stages)
         if (mermaidCode) {
           if (/<script/i.test(mermaidCode)) return '错误：mermaid 代码不允许包含 script'
           if (Buffer.byteLength(mermaidCode, 'utf8') > 200 * 1024) return '错误：mermaid 代码过长（上限 200 KB）'
@@ -247,7 +272,7 @@ export function apply(ctx) {
         await rename(tmpPath, finalPath)
         savedSvgs.set(fileName, { abs: finalPath, mime: 'image/svg+xml' })
 
-        const meta = { v: 1, title, path: `diagrams/${fileName}`, bytes }
+        const meta = { v: 1, title, path: `diagrams/${fileName}`, bytes, ...(stages ? { stages } : {}) }
         const imageUrl = `${webBase(ctx)}/diagram-files/${encodeURIComponent(fileName)}`
         const human = `图已生成并保存：diagrams/${fileName}（${(bytes / 1024).toFixed(1)} KB）。交互卡将自动出现在回复下方（缩放/下载/全屏），默认无需粘贴图片行；仅在需要静态内嵌时使用下面这行：\n![${title}](${imageUrl})\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${svg}\n<!--dsh-diagram:end-->`
         return human

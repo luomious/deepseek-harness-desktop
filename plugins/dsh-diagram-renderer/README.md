@@ -1,6 +1,6 @@
 # dsh-diagram-renderer
 
-在 DeepSeek Harness 会话流中渲染**可交互的 SVG 图表卡片**（架构图 / 流程图 / 时序图 / 状态图 / ER 图 / 示意图等），开箱支持：**自适应免缩放展示**（宽度铺满、高度随图、右上角「自适应」标记）、复制源码、下载 `.svg` / 导出 PNG、全屏矢量细读；mermaid 引擎本地离线可用；并在设置页提供「图表」管理分区。
+在 DeepSeek Harness 会话流中渲染**可交互的 SVG 图表卡片**（架构图 / 流程图 / 时序图 / 状态图 / ER 图 / 示意图等），开箱支持：**自适应免缩放展示**（宽度铺满、高度随图、右上角「自适应」标记）、**分步交互（stages：上一步/下一步/自动播放/阶段点，WorkBuddy 同款）**、节点 hover 高亮 + 点击详情、复制源码、下载 `.svg` / 导出 PNG、全屏矢量细读；mermaid 引擎本地离线可用；并在设置页提供「图表」管理分区。
 
 ## 能力一览
 
@@ -25,6 +25,7 @@
 - `title`：卡片工具栏标题
 - `path`：相对当前会话 cwd 的保存路径（工作区 `diagrams/` 目录）
 - `bytes`：清洗后 SVG 字节数
+- `stages`（可选，v6）：分步交互阶段数组 `[{ id, title, description?, layers? }]`——`layers` 引用 SVG 中 `<g data-stage="...">` 分组（`"all"` 常显）；client 收到后渲染「上一步/下一步/播放/阶段点」控制条 + 阶段标题/说明浮层，并按阶段切换层显隐（250ms 渐入）。缺省 = 普通单视图卡，完全向后兼容。
 
 client 渲染器两条通道分层解析：**turnTail 事件流走严格信封匹配**（信封缺失一律忽略——防止 read/skill 结果里的文档文本被误判成图，v4 幻影卡根治）；工具节点 keyed 卡（仅 `render_diagram` 结果）保留裸 `<svg>` 回退以兼容旧格式。
 
@@ -46,7 +47,8 @@ plugins/dsh-diagram-renderer/
   package.json       # dsh.bundle.patch + dsh.client(web)；peerDeps 范围声明
   cordis.patch.yml   # insert 装配入口（id: dsh-diagram-renderer）
   lib/index.js       # host：render_diagram 工具（defineTool + ctx.effect）
-  lib/client.js      # 手写 lazy-CJS bundle：自适应 viewer + MermaidWidget + settings 分区
+  lib/client.js      # 手写 lazy-CJS bundle：自适应 viewer + StageViewer + MermaidWidget + settings 分区
+  stage-viewer.snippet.js  # StageViewer 主源（scripts/apply-stage-viewer.mjs 可重放拼接进 client.js）
   assets/mermaid.min.js # vendored mermaid v11.4.1 UMD（本地引擎，host /diagram-vendor 路由伺服）
   skill/SKILL.md     # diagram skill 源文件（安装到 ~/.dsh/skills/diagram/）
   tests/             # 管线回归（pipeline-test2.html + pw-run-pipeline.py，15 项断言）+ 活体探针（fiber 巡检 / 自适应卡度量）
@@ -80,6 +82,7 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - 阶段 2 ✅：富交互——⋮ 菜单（下载 .svg / PNG / 复制 / 源码）、PNG 2x 导出、操作反馈。
 - 阶段 3 ✅（2026-09-05）：长期健康——管线回归固化 `tests/`、Playwright 活体探针、严格信封防幻影（v4）、mermaid 本地引擎、自适应免缩放卡（v5）、CHANGELOG 登记。
 - 阶段 4 ✅（2026-09-06）：节点 hover 高亮 + 点击详情弹层（事件委托，兼容 `<g data-name>` / mermaid `g.node`）；管线回归纳入 check-all.ps1 Step 2.5。
+- 阶段 5 ✅（2026-09-06）：**分步交互图 v6（stages）**——host `stages` 参数编码进信封 meta；client 新增 `StageViewer`（◀ ▶ 播放 · 阶段点 · 阶段标题/说明浮层 · 250ms 渐入 · 键盘 ←→/空格 · 全屏 · ⋮ 菜单），按 `<g data-stage>` 层显隐；管线回归扩至 18 断言；SKILL 新增「分步交互图」章节。**host（lib/index.js）改动需重启一次；client 刷新即生效。**
 
 ## 记录
 
@@ -97,3 +100,4 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - 2026-09-05 渲染管线根因修复 + 引擎本地化（WorkBuddy 同款离线）：① Playwright fiber 探针实锤交互卡空白根因——DSH 更新后工具结果 block 不再是 `{type:'text'}`，client `resultText` 落入 JSON.stringify 兜底 → 信封整体被 JSON 转义（实测 props.svg：`"`×1106、`\n`×143、真实换行×0）→ DOM 解析全毁只剩 `\n` 字面量。② `resultText` 重写为形状自适应（string / {text} / {output} / {content} 递归），`parseEnvelope` v2 检测转义并反转义（任一段命中即两段 force，修复 mermaid 少转义对漏网）。③ mermaid 引擎本地化：vendored `assets/mermaid.min.js`（v11.4.1 UMD）+ host 新路由 `GET /diagram-vendor/mermaid.min.js`，客户端本地优先、CDN 兜底（路由需重启生效）。④ 管线单元测试 `pipeline-test2.html` + `pw-run-pipeline.py`：15/15 PASS。⑤ client 改动刷新即生效、历史坏卡自动恢复；host `/diagram-vendor` 路由需重启一次。
 - 2026-09-05 **v4 根因修复**：① turnTail 严格信封 + `looksLikeRealSvg`（≥200 字符含 viewBox/width）——根治 14/15 幻影空卡（read/skill 结果里 SKILL.md 文档文本的字面 `<svg>` 占位符被误提取成图）；② `forceExplicitSize` 显式像素尺寸——根治 `width="100%"` 在 fit-content 容器内塌缩为 217×127 小图；③ WorkBuddy 纸面卡（#F7F6F2 卡身 + 恒定纯白画布，不随暗色主题变黑）。
 - 2026-09-05 **v5 自适应免缩放卡（卡片即相框）**：移除全部缩放/平移控件，fit-width + 高度随图宽高比 hug（下限 260px / 上限 min(78vh,720px)），超高图卡内滚动；ResizeObserver 自动重排；工具栏精简为 全屏 + ⋮。SKILL 新增「**按显示尺寸作画**」规范（画布 960–1050px、节点字 ≥17px，禁大画布缩小——用户实测字体小根因）。整理：回归测试固化 `tests/`，调试产物归档 `_backups/diagram-debug-20260906/`（41 项，零删除）。
+- 2026-09-06 **v6 分步交互图（stages）**：回应「WorkBuddy 示意图有上一步/下一步/播放，不够智能」——host `render_diagram` 新增可选 `stages` 数组参数（`{id,title,description?,layers?}`，normalize 上限 16 步），编码进信封 meta；client 新增 `StageViewer` 组件（与 DiagramViewer 并列，有 stages 时自动启用）：工具栏 = ◀ ▶ 播放（2s/步自动播，手动导航即停）· 阶段点（可点击跳转）· 标题 · 阶段 n/N · 全屏 · ⋮；图内左下角阶段标题/说明浮层（纸面毛玻璃）；按 `active.layers` 切换 `<g data-stage>` 显隐（`all` 常显），250ms fade+slide 过渡；键盘 ← → 切换、空格播放。SVG 层显隐经 DOMParser 序列化实现，**同一张卡完成多阶段叙事**。管线回归新增 stages 断言 3 条（正常/转义信封）→ 18/18 PASS；实调 `render_diagram` 生成「动态特征三级别剔除交互演示」（1000×540，4 阶段）落盘 `diagrams/`。**生效：client 刷新即活；host 需重启一次（loader.internal 不可用）。**
