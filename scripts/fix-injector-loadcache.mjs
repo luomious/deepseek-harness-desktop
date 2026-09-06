@@ -4,14 +4,21 @@
 // listPlugins()（dev_plugin_status/插件管理 UI）未判空访问 .loadCache 会抛
 // "Cannot read properties of undefined (reading 'loadCache')"。改为可选链。幂等，可反复执行。
 import { readFileSync, writeFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 
+// 2026-09-06 审计修复：原硬编码 'C:/Users/机械革命/...' 与 'D:/Deepseek-Harness/...'，
+// 改为 os.homedir() + 脚本位置推导，换机/换路径可用。
+const WORKSPACE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const HOME = process.env.DSH_HOME || homedir()
 const TARGETS = [
   // desktop profile 运行的注入器副本（来自 tgz 0.3.3）
-  'C:/Users/机械革命/.dsh/profiles/desktop/node_modules/@dsh-external/dsh-super-injector/lib/index.js',
+  join(HOME, '.dsh', 'profiles', 'desktop', 'node_modules', '@dsh-external', 'dsh-super-injector', 'lib', 'index.js'),
   // 源码工作区（web profile 经 junction 指向此处）
-  'D:/Deepseek-Harness/plugins/dsh-routing-suite/injector/lib/index.js',
+  join(WORKSPACE_ROOT, 'plugins', 'dsh-routing-suite', 'injector', 'lib', 'index.js'),
   // TypeScript 源（未来重建 lib 时不丢修复）
-  'D:/Deepseek-Harness/plugins/dsh-routing-suite/injector/src/index.ts',
+  join(WORKSPACE_ROOT, 'plugins', 'dsh-routing-suite', 'injector', 'src', 'index.ts'),
 ]
 
 // JS 产物：ctx.loader.internal.loadCache.keys()；TS 源：ctx.loader.internal!.loadCache.keys()

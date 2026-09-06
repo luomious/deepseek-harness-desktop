@@ -15,7 +15,9 @@ import { readdirSync, statSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const VENDOR_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop'
+// 2026-09-06 审计修复：原硬编码 'D:/Deepseek-Harness/vendor/...'，换机/换路径即失效；
+// 改为从本脚本位置向上推导（scripts/ -> 仓库根 -> vendor/...）。
+export const VENDOR_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop')
 const DIST = join(VENDOR_ROOT, 'dist')
 
 function collectExes(dir, out) {

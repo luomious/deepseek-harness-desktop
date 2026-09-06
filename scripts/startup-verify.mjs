@@ -26,10 +26,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-const REPO = process.env.DSH_REPO || 'D:\\Deepseek-Harness'
+// 2026-09-06 审计修复：REPO 兜底原硬编码 'D:\\Deepseek-Harness'，改为从脚本位置推导。
+const REPO = process.env.DSH_REPO || path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROFILES_ROOT = process.env.DSH_PROFILES_ROOT || path.join(os.homedir(), '.dsh', 'profiles')
 const PROFILE = process.env.DSH_PROFILE || 'desktop'
 const runtime = path.join(PROFILES_ROOT, PROFILE)
@@ -167,8 +168,10 @@ try {
 }
 
 // ---------- V6: 关键运行文件存在 ----------
+// 跟随 dist\win-unpacked junction 的 realpath（当前运行构建），换版 promote 后自动跟随，
+// 不再硬编码 win-unpacked-build*（2026-09-06 审计修复：原写死 build202608272104，换版即断裂）。
 try {
-  const unpacked = path.join(VENDOR_DIST, 'win-unpacked-build202608272104', 'win-unpacked', 'resources', 'app.asar.unpacked')
+  const unpacked = path.join(fs.realpathSync(distJunction), 'resources', 'app.asar.unpacked')
   const probes = [
     path.join(unpacked, 'lib', 'main.js'),
     path.join(unpacked, 'lib', 'launcher.js'),

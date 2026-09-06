@@ -1,16 +1,20 @@
 import { readdirSync, copyFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { tmpdir, homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 
 const NODE = process.execPath
-const base = 'D:/Deepseek-Harness'
+// 2026-09-06 审计修复：原硬编码 'D:/Deepseek-Harness' 与 'C:/Users/机械革命/AppData/Local/Temp'，
+// 改为从本脚本位置推导工作区根 + os.tmpdir() 推导临时目录。
+const base = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dirs = []
 for (const d of readdirSync(join(base, 'plugins'))) dirs.push(join(base, 'plugins', d, 'lib'))
 for (const d of ['dsh-context-lifecycle', 'dsh-stuck-loop-guard', 'dsh-vision-rotator']) {
   dirs.push(join(base, d, 'lib'))
 }
 
-const tmp = 'C:/Users/机械革命/AppData/Local/Temp/dsh-syncheck'
+const tmp = join(tmpdir(), 'dsh-syncheck')
 mkdirSync(tmp, { recursive: true })
 
 const bad = []
