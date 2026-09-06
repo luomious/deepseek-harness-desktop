@@ -104,12 +104,14 @@ export function apply(ctx, rawConfig = {}) {
           return json(res, e?.code === 'TOO_LARGE' ? 413 : 400, { ok: false, error: e?.message })
         }
         const merged = { ...parseQuery(req.url), ...body }
+        // HTTP 通道 acquire 等待封顶：sleepSync 同步阻塞主线程，防 100s UI 冻结（2026-09-06 审计修复）
+        const maxHttpWaitMs = 5000;
         const result = (() => {
           switch (last) {
             case 'acquire': return acquire({
               resources: merged.resources || [], who: merged.who || 'http', task: merged.task || '',
               priority: merged.priority || 'normal',
-              ttlMs: Number(merged.ttlMs) || undefined, waitMs: Number(merged.waitMs) || 0,
+              ttlMs: Number(merged.ttlMs) || undefined, waitMs: Math.min(Number(merged.waitMs) || 0, maxHttpWaitMs),
               baseChange: merged.baseChange || undefined,
             })
             case 'release': return release({ resources: merged.resources || [], token: merged.token, who: merged.who || 'http', summary: merged.summary || '' })

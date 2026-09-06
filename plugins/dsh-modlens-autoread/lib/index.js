@@ -113,6 +113,9 @@ function run(command, args, signal) {
     let stderr = ''
     child.stdout.on('data', (c) => { stdout += c })
     child.stderr.on('data', (c) => { stderr += c })
+    // 流 error 必须有监听，否则 EPIPE 等会成为未捕获异常崩掉进程（2026-09-06 审计修复）
+    child.stdout.on('error', () => {})
+    child.stderr.on('error', () => {})
     child.on('error', reject)
     child.on('close', (code) => resolve({ stdout, stderr, code }))
   })

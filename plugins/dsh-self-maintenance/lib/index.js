@@ -33,6 +33,11 @@
 import { statSync, readdirSync, statfsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { createRequire } from 'node:module';
+
+// ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
+// （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，通知降级为 warn）。
+const nodeRequire = createRequire(import.meta.url);
 
 export const name = '@dsh-external/dsh-self-maintenance';
 export const inject = ['timer'];
@@ -152,7 +157,7 @@ export function apply(ctx, rawConfig) {
   const notify = (title, body) => {
     // 优先走 Electron Notification（与 session-hygiene 同款），失败静默
     try {
-      const { Notification } = require('electron');
+      const { Notification } = nodeRequire('electron');
       if (Notification?.isSupported?.()) {
         const n = new Notification({ title, body, urgency: 'normal' });
         n.on('error', () => {});

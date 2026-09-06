@@ -23,6 +23,12 @@ import { join, dirname, sep as pathSep } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+// ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
+// （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，
+//  桌面通知静默失效，仅剩 logger 回退）。
+const nodeRequire = createRequire(import.meta.url);
 
 // ════════════════════════════════════════════════════════════════════════════
 // § 0  Metadata & Constants
@@ -301,7 +307,7 @@ function createScheduler(task, baseIntervalMs, logger) {
 
 function tryElectronNotify(title, body) {
   try {
-    const { Notification } = require('electron');
+    const { Notification } = nodeRequire('electron');
     if (!Notification.isSupported()) return false;
     const n = new Notification({ title, body, urgency: 'normal' });
     n.on('error', () => {});

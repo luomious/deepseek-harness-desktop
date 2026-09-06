@@ -11,8 +11,11 @@ import { join } from 'node:path'
 export const name = '@dsh-external/dsh-model-whitelist'
 export const inject = ['webServer', 'hostServices']
 
-const SETTINGS = join(homedir(), '.dsh', 'settings.yaml')
-const CREDS = join(homedir(), '.dsh', '.credentials.yaml')
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+// 2026-09-06 审计修复：原直接 join(homedir(), '.dsh')，不走 DSH_HOME 环境变量；
+// 与 model-tier-router 等插件保持一致（自定义 DSH_HOME 时配置读取不漂移）。
+const SETTINGS = join(DSH_HOME, 'settings.yaml')
+const CREDS = join(DSH_HOME, '.credentials.yaml')
 const TEST_TIMEOUT_MS = 15000
 
 function log(...parts) { try { console.log(`[model-whitelist] ${parts.join(' ')}`) } catch { /* ignore */ } }

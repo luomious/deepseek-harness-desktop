@@ -17,7 +17,9 @@ import { join } from 'node:path'
 import { appendFileSync, mkdirSync } from 'node:fs'
 
 export const name = '@dsh-external/dsh-model-provider-failover'
-export const inject = []
+// 2026-09-06 审计修复：apply 内 ctx.tools.register 注册两个诊断工具，但 inject 未声明
+// tools → 访问 ctx.tools 抛错被吞，工具永不注册（对比 model-tier-router 同款 inject=['tools']）。
+export const inject = ['tools']
 
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const LOG_PATH = join(DSH_HOME, 'super-injector', 'model-provider-failover.log')

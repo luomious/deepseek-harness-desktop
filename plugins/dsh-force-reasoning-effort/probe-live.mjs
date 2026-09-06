@@ -1,6 +1,6 @@
 // 端到端探针：调用运行中 DSH 的 /api/llm.models，检查模型目录里 reasoning 元数据。
 // 运行：node probe-live.mjs
-const BASE = 'http://127.0.0.1:3080'
+const BASE = 'http://127.0.0.1:43120'
 
 async function main() {
   const res = await fetch(BASE + '/api/llm.models', {

@@ -17,11 +17,16 @@
  */
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const name = '@dsh-external/dsh-hy3-gateway';
 
-const GATEWAY_DIR = 'D:\\Deepseek-Harness\\hy3-gateway';
+// 2026-09-06 审计修复：原硬编码 'D:\\Deepseek-Harness\\hy3-gateway'，换机/换路径即失效；
+// 改为从本文件位置向上推导（plugins/dsh-hy3-gateway/lib/ -> 工作区根 -> hy3-gateway/），
+// 与 dsh-instance-janitor 的动态推导方式一致。
+const WORKSPACE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const GATEWAY_DIR = join(WORKSPACE_ROOT, 'hy3-gateway');
 const KEY_FILE = join(GATEWAY_DIR, 'apikey.local.txt');
 const LOG = join(GATEWAY_DIR, 'plugin-spawn.log');
 

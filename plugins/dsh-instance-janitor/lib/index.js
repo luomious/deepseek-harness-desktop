@@ -25,6 +25,11 @@ import { existsSync, readFileSync, appendFileSync, statSync, truncateSync } from
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { createRequire } from 'node:module';
+
+// ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
+// （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，通知降级为 warn）。
+const nodeRequire = createRequire(import.meta.url);
 
 export const name = '@dsh-external/dsh-instance-janitor';
 export const inject = ['timer'];
@@ -71,7 +76,7 @@ export function apply(ctx, rawConfig) {
 
   const notify = (title, body) => {
     try {
-      const { Notification } = require('electron');
+      const { Notification } = nodeRequire('electron');
       if (Notification?.isSupported?.()) {
         const n = new Notification({ title, body, urgency: 'normal' });
         n.on('error', () => {});
