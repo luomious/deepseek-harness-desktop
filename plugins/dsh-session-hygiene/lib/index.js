@@ -24,6 +24,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，
@@ -516,43 +517,8 @@ export function apply(ctx, rawConfig) {
     () => lastReport ?? buildReport([], config),
     () => ({ plugin: name, ...scheduler.getStats(), pendingAlerts: alertBuffer.size() }),
   );
-  let routeRegistered = false;
-  let routeAttempts = 0;
-  let routeTimer = null;
-  const tryRegisterRoute = () => {
-    if (routeRegistered) return true;
-    let server = null;
-    try {
-      server = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
-    } catch { server = null; }
-    if (!server?.register) return false;
-    try {
-      ctx.effect(
-        () => server.register({ kind: 'prefix', path: ROUTE, handler }),
-        'session-hygiene: report route'
-      );
-      routeRegistered = true;
-      try { ctx.logger?.info?.('[session-hygiene] report route registered at ' + ROUTE); } catch {}
-      return true;
-    } catch (e) {
-      try { ctx.logger?.warn?.(`[session-hygiene] report route register failed: ${String(e)}`); } catch {}
-      return false;
-    }
-  };
-  if (!tryRegisterRoute()) {
-    const scheduleRetry = () => {
-      if (routeRegistered) return;
-      if (tryRegisterRoute()) return;
-      routeAttempts += 1;
-      if (routeAttempts >= 20) {
-        try { ctx.logger?.warn?.('[session-hygiene] report route unavailable after retries; retry stopped'); } catch {}
-        return;
-      }
-      const delay = Math.min(2000 * 2 ** Math.min(routeAttempts, 4), 30000);
-      try { routeTimer = ctx.setTimeout(scheduleRetry, delay); } catch { /* tolerate */ }
-    };
-    try { routeTimer = ctx.setTimeout(scheduleRetry, 2000); } catch { /* tolerate */ }
-  }
+  // 退避注册样板（2026-09-06 收敛到 host-services shared-utils，行为不变）
+  registerRouteWithRetry(ctx, { path: ROUTE, handler, logPrefix: 'session-hygiene', useEffect: true });
 
   // ── 6. Scheduler ──
   scheduler.start();
@@ -561,7 +527,6 @@ export function apply(ctx, rawConfig) {
   ctx.effect(() => () => {
     scheduler.stop();
     if (scanAbort) scanAbort.abort();
-    if (routeTimer) { try { clearTimeout(routeTimer); } catch {} }
     offPreStep();
   }, 'session-hygiene: cleanup');
 

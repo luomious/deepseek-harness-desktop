@@ -34,6 +34,7 @@ import { statSync, readdirSync, statfsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { createDedupNotifier, registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，通知降级为 warn）。
@@ -138,7 +139,6 @@ export function apply(ctx, rawConfig) {
   const SHORT = 'dsh-self-maintenance';
   const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh');
   const sessRoot = join(dshHome, 'sessions');
-  const lastAlert = new Map(); // kind -> ts
   let lastScan = null; // { ts, diskFreeGB, bigCount, totalMB, alerts }
   // 连接卡顿探测状态（模块级，重启归零；phase1.3 2026-09-04）
   let connFailStreak = 0;
@@ -170,12 +170,8 @@ export function apply(ctx, rawConfig) {
     return false;
   };
 
-  const canAlert = (kind) => {
-    const last = lastAlert.get(kind) ?? 0;
-    if (Date.now() - last < config.dedupMs) return false;
-    lastAlert.set(kind, Date.now());
-    return true;
-  };
+  // 24h 去重通知器（2026-09-06 收敛到 host-services shared-utils，行为不变）
+  const { canAlert } = createDedupNotifier(config.dedupMs);
 
   /** Web GUI 探测：任何 HTTP 响应（含 4xx/5xx）= 事件循环活着；网络错误/超时 = 疑似卡顿。 */
   const probeWebGui = async () => {
@@ -306,61 +302,25 @@ export function apply(ctx, rawConfig) {
     })().catch((e) => warn(`cycle error: ${String(e)}`));
   };
 
-  // ── 状态路由（容忍 webServer 启动竞态：惰性解析 + 2s→30s 退避重试，注册成功后即停；失败不影响主体） ──
-  let routeRegistered = false;
-  let routeAttempts = 0;
-  const registerRoute = () => {
-    if (routeRegistered) return true;
-    let webServer = null;
+  // 状态路由（2026-09-06 收敛到 host-services shared-utils，行为不变）
+  const statusHandler = (req, res) => {
     try {
-      webServer = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null;
-    } catch { webServer = null; }
-    if (!webServer?.register) return false;
-    try {
-      webServer.register({
-        kind: 'prefix',
-        path: config.statusRoute,
-        handler: (req, res) => {
-          try {
-            const payload = JSON.stringify({
-              plugin: name,
-              ok: true,
-              sessionsRoot: sessRoot,
-              lastScan: lastScan ?? null,
-              connWatch: { webPort: config.webPort, probeTimeoutMs: config.probeTimeoutMs, failThreshold: config.connFailThreshold, currentStreak: connFailStreak },
-              radarWatch: { enabled: !!config.radarStateFile, stateFile: config.radarStateFile, probeIntervalMs: config.radarProbeIntervalMs, maxAgeDays: config.radarMaxAgeDays, lastProbeAt: lastRadarProbeAt },
-              intervalMs: config.intervalMs,
-            });
-            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-            res.end(payload);
-          } catch {
-            try { res.writeHead(500); res.end('{}'); } catch { /* ignore */ }
-          }
-        },
+      const payload = JSON.stringify({
+        plugin: name,
+        ok: true,
+        sessionsRoot: sessRoot,
+        lastScan: lastScan ?? null,
+        connWatch: { webPort: config.webPort, probeTimeoutMs: config.probeTimeoutMs, failThreshold: config.connFailThreshold, currentStreak: connFailStreak },
+        radarWatch: { enabled: !!config.radarStateFile, stateFile: config.radarStateFile, probeIntervalMs: config.radarProbeIntervalMs, maxAgeDays: config.radarMaxAgeDays, lastProbeAt: lastRadarProbeAt },
+        intervalMs: config.intervalMs,
       });
-      routeRegistered = true;
-      log(`status route registered at ${config.statusRoute}`);
-      return true;
-    } catch (e) {
-      warn(`status route register failed: ${String(e)}`);
-      return false;
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(payload);
+    } catch {
+      try { res.writeHead(500); res.end('{}'); } catch { /* ignore */ }
     }
   };
-  if (!registerRoute()) {
-    // 退避重试：2s 起指数退避至 30s 封顶，共 20 次（约 8.5 分钟窗口）；成功即早退。
-    const retry = () => {
-      if (routeRegistered) return;
-      if (registerRoute()) return;
-      routeAttempts += 1;
-      if (routeAttempts >= 20) {
-        warn('status route unavailable after retries; retry stopped (webServer never came up in window)');
-        return;
-      }
-      const delay = Math.min(2000 * 2 ** Math.min(routeAttempts, 4), 30000);
-      try { ctx.setTimeout(retry, delay); } catch { /* tolerate */ }
-    };
-    try { ctx.setTimeout(retry, 2000); } catch { /* tolerate */ }
-  }
+  registerRouteWithRetry(ctx, { path: config.statusRoute, handler: statusHandler, logPrefix: 'self-maintenance' });
 
   // 启动立即扫一轮，再按 intervalMs 周期性自检
   cycle();

@@ -8,6 +8,9 @@
     ".": {
       "default": "./lib/index.js"
     },
+    "./shared-utils": {
+      "default": "./lib/shared-utils.js"
+    },
     "./package.json": "./package.json"
   },
   "dsh": {

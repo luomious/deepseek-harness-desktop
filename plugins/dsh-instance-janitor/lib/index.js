@@ -26,6 +26,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
+import { createDedupNotifier, registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，通知降级为 warn）。
@@ -59,7 +60,6 @@ export function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   const SHORT = 'dsh-instance-janitor';
   const logFile = join(homedir(), '.dsh', 'instance-janitor.log');
-  const lastAlert = new Map();
   let lastSweep = null; // { ts, anchorMs, killed, reported, respawned }
   const applyTimeMs = Date.now();
 
@@ -87,12 +87,8 @@ export function apply(ctx, rawConfig) {
     warn(`${title}: ${body}`);
     return false;
   };
-  const canAlert = (key) => {
-    const last = lastAlert.get(key) ?? 0;
-    if (Date.now() - last < config.dedupMs) return false;
-    lastAlert.set(key, Date.now());
-    return true;
-  };
+  // 24h 去重通知器（2026-09-06 收敛到 host-services shared-utils，行为不变）
+  const { canAlert } = createDedupNotifier(config.dedupMs);
 
   /** 一轮 PowerShell 查询：主进程启动时间 + 候选进程清单（DSH Desktop.exe + hy3 网关）。 */
   function sweepQuery() {
@@ -220,54 +216,24 @@ export function apply(ctx, rawConfig) {
     }
   }
 
-  // ── 状态路由（容忍 webServer 启动竞态：惰性解析 + 指数退避重试；GET 查看 / POST 手动触发） ──
-  let routeRegistered = false;
-  let routeAttempts = 0;
-  const registerRoute = () => {
-    if (routeRegistered) return true;
-    let webServer = null;
-    try { webServer = (typeof ctx.reflect?.get === 'function' && ctx.reflect.get('webServer')) || null; } catch { webServer = null; }
-    if (!webServer?.register) return false;
-    try {
-      webServer.register({
-        kind: 'prefix',
-        path: config.statusRoute,
-        handler: (req, res) => {
-          const send = (code, obj) => {
-            try {
-              const payload = JSON.stringify({ plugin: name, ok: code < 400, ...obj });
-              res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-              res.end(payload);
-            } catch { /* ignore */ }
-          };
-          try {
-            if (req.method === 'POST') {
-              void sweep().then(() => send(200, { lastSweep }));
-              return;
-            }
-            send(200, { lastSweep: lastSweep ?? null, intervalMs: config.intervalMs, logFile });
-          } catch { try { send(500, {}); } catch { /* ignore */ } }
-        },
-      });
-      routeRegistered = true;
-      info(`status route registered at ${config.statusRoute}`);
-      return true;
-    } catch (e) {
-      warn('status route register failed: ' + String(e));
-      return false;
-    }
-  };
-  if (!registerRoute()) {
-    const retry = () => {
-      if (routeRegistered) return;
-      if (registerRoute()) return;
-      routeAttempts += 1;
-      if (routeAttempts >= 20) { warn('status route unavailable after retries; retry stopped'); return; }
-      const delay = Math.min(2000 * 2 ** Math.min(routeAttempts, 4), 30000);
-      try { ctx.setTimeout(retry, delay); } catch { /* tolerate */ }
+  // 状态路由（2026-09-06 收敛到 host-services shared-utils，行为不变）
+  const statusHandler = (req, res) => {
+    const send = (code, obj) => {
+      try {
+        const payload = JSON.stringify({ plugin: name, ok: code < 400, ...obj });
+        res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(payload);
+      } catch { /* ignore */ }
     };
-    try { ctx.setTimeout(retry, 2000); } catch { /* tolerate */ }
-  }
+    try {
+      if (req.method === 'POST') {
+        void sweep().then(() => send(200, { lastSweep }));
+        return;
+      }
+      send(200, { lastSweep: lastSweep ?? null, intervalMs: config.intervalMs, logFile });
+    } catch { try { send(500, {}); } catch { /* ignore */ } }
+  };
+  registerRouteWithRetry(ctx, { path: config.statusRoute, handler: statusHandler, logPrefix: 'instance-janitor' });
 
   // 启动立即扫一轮，再按 intervalMs 周期性清理
   if (config.sweepOnStart) void sweep();
