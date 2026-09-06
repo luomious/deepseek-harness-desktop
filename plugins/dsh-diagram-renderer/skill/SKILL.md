@@ -143,8 +143,9 @@ render_diagram({
   title: '动态特征三级别剔除',
   svg: '…「分层式」单 SVG：每阶段一组 <g data-stage="s0">…</g>…',
   stages: [
-    { "id": "s0", "title": "ORB 特征提取", "description": "…该阶段讲什么…", "layers": ["s0"] },
-    { "id": "s1", "title": "语义先验剔除", "description": "…", "layers": ["s1"] }
+    { "id": "s0", "title": "ORB 特征提取", "description": "…该阶段讲什么…", "layers": ["s0"],
+      "stats": [{ "label": "可见特征点", "value": "56 / 56" }, { "label": "动态点残留", "value": "15" }, { "label": "静态点保留", "value": "41" }] },
+    { "id": "s1", "title": "语义先验剔除", "description": "…", "layers": ["s1"], "stats": […] }
   ]
 })
 ```
@@ -152,9 +153,12 @@ render_diagram({
 **SVG 结构约定**（分层式，一个 SVG 装全部阶段）：
 - 公共背景/常显元素放 `<g data-stage="all">`（每个阶段都显示）；
 - 每个阶段一组 `<g data-stage="s0">`、`s1`…，仅该阶段显示；
-- stages 数组每项 `{ id, title, description?, layers? }`：`layers` 列出该阶段要显示的层 id（`"all"` 自动常显，不必写）；省略 `layers` 则显示全图；
+- stages 数组每项 `{ id, title, description?, layers?, stats? }`：`layers` 列出该阶段要显示的层 id（`"all"` 自动常显，不必写）；省略 `layers` 则显示全图；
+- `stats`（可选，推荐）：该阶段数字概览 `[{ label ≤30字, value ≤40字 }]` × ≤6，渲染在图下方**统计卡**（WorkBuddy 同款：可见特征点 / 动态点残留 / 静态点保留这类逐步变化的数字最有说服力）；
 - 阶段数量 2–6 最佳；title ≤ 80 字、description ≤ 240 字；每阶段只画"这一步新增/变化"的内容（例：s0 画全部红蓝点 → s1 红点变淡+语义框 → s2 光流圆环 → s3 绿色校验环）；
 - 卡片渲染器按阶段切换层的显隐（display:none），并带 **320ms 上浮渐入 + 400ms 高光**动画——**同一张卡片**完成多阶段叙事，无需多张图；
+- **说明与统计显示在图下方面板**（不遮挡图）；图内每个阶段可用自己的底部小字条（如「① 语义先验：剔除 11 点」）补充画面信息；
+- **分步图画布建议 720–900px 宽**（比单图略窄：对话列窄时 fit 系数更接近 1，配合说明面板整卡更聚焦；大画布 + 窄列会把字缩没——「太小了」教训）。
 
 **何时不用**：静态单主题（架构总览、单流程）不要套 stages——会打断一次性理解；mermaid 模式暂不支持 stages。
 

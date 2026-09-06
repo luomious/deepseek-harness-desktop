@@ -25,7 +25,7 @@
 - `title`：卡片工具栏标题
 - `path`：相对当前会话 cwd 的保存路径（工作区 `diagrams/` 目录）
 - `bytes`：清洗后 SVG 字节数
-- `stages`（可选，v6）：分步交互阶段数组 `[{ id, title, description?, layers? }]`——`layers` 引用 SVG 中 `<g data-stage="...">` 分组（`"all"` 常显）；client 收到后渲染「上一步/下一步/播放/阶段点」控制条 + 阶段标题/说明浮层，并按阶段切换层显隐（250ms 渐入）。缺省 = 普通单视图卡，完全向后兼容。
+- `stages`（可选，v6）：分步交互阶段数组 `[{ id, title, description?, layers?, stats? }]`——`layers` 引用 SVG 中 `<g data-stage="...">` 分组（`"all"` 常显）；`stats`（可选）为该阶段数字概览 `[{label,value}]` ×≤6；client 收到后渲染「上一步/下一步/播放/阶段点/播放进度条」控制条 + **图下说明面板 + 统计卡**（不遮挡图，v6.3），并按阶段切换层显隐（320ms 上浮渐入 + 400ms 高光）。缺省 = 普通单视图卡，完全向后兼容。
 
 client 渲染器两条通道分层解析：**turnTail 事件流走严格信封匹配**（信封缺失一律忽略——防止 read/skill 结果里的文档文本被误判成图，v4 幻影卡根治）；工具节点 keyed 卡（仅 `render_diagram` 结果）保留裸 `<svg>` 回退以兼容旧格式。
 
@@ -84,6 +84,7 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - 阶段 4 ✅（2026-09-06）：节点 hover 高亮 + 点击详情弹层（事件委托，兼容 `<g data-name>` / mermaid `g.node`）；管线回归纳入 check-all.ps1 Step 2.5。
 - 阶段 5 ✅（2026-09-06）：**分步交互图 v6（stages）**——host `stages` 参数编码进信封 meta；client 新增 `StageViewer`（◀ ▶ 播放 · 阶段点 · 阶段标题/说明浮层 · 320ms 上浮渐入+400ms 高光 · 键盘 ←→/空格 · 全屏 · ⋮ 菜单），按 `<g data-stage>` 层显隐；管线回归扩至 18 断言；SKILL 新增「分步交互图」章节。**host（lib/index.js）改动需重启一次；client 刷新即生效。**
 - 阶段 6 ✅（2026-09-06）：**动态效果 v6.1**——阶段切换上浮渐入+高光（全局 keyframes 幂等注入、reduced-motion 降级）、自动播放 2s 阶段进度条、播放中阶段点脉冲；SKILL 动效章节升级为 5 个即用模板并说明分步图层重显重放动画；管线 21 断言；修复 v6 层切换静默失效 bug（SVGElement 无 `.style`，改属性级手术）。**client 改动刷新即生效。**
+- 阶段 7 ✅（2026-09-06）：**WorkBuddy 式布局 v6.3**——移除图上说明浮层（曾遮挡图，用户反馈"挡住对话框/效果垃圾"），改**图下说明面板 + 每阶段统计卡**（`stages[].stats` 协议，host normalize + client 渲染）；分步图按显示尺寸作画（画布 720–900px，窄列 fit 不再把字缩没——"太小了"修复）；v6.2 审查修复（自动播放永久锁死/空格双触发/死代码）。**client 刷新即生效；host stats 支持需重启一次。**
 
 ## 记录
 

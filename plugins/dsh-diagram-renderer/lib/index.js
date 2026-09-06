@@ -60,7 +60,13 @@ function normalizeStages(stages) {
     if (Array.isArray(st.layers)) {
       layers = st.layers.slice(0, 32).map((l) => String(l).slice(0, 40))
     }
-    out.push({ id, title: titleStr, ...(desc ? { description: desc } : {}), ...(layers && layers.length ? { layers } : {}) })
+    let stats
+    if (Array.isArray(st.stats)) {
+      stats = st.stats.slice(0, 6).map((s) => (s && typeof s === 'object')
+        ? { ...(s.label ? { label: String(s.label).slice(0, 30) } : {}), ...(s.value ? { value: String(s.value).slice(0, 40) } : {}) }
+        : null).filter(Boolean)
+    }
+    out.push({ id, title: titleStr, ...(desc ? { description: desc } : {}), ...(layers && layers.length ? { layers } : {}), ...(stats && stats.length ? { stats } : {}) })
   }
   return out.length ? out : undefined
 }

@@ -498,18 +498,32 @@ function StageViewer(props) {
     try { var el = bodyRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen() } catch (e) {}
   }, [])
 
-  // --- Stage animation overlay ---
+  // Stage description + stats render BELOW the figure (WorkBuddy-style panel,
+// never over the drawing — the old floating overlay covered the figure and
+// looked broken in narrow columns; v6.3 moved it out of the body).
   var key = active.id || idx
-  var overlay = React.createElement('div', { style: {
-    position: 'absolute', bottom: '10px', left: '10px', zIndex: 12,
-    background: 'rgba(247,246,242,0.92)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
-    border: '1px solid ' + P.line, borderRadius: '10px', padding: '8px 14px', maxWidth: '320px'
-  }},
-    React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: P.ink, marginBottom: '2px' } }, active.title || '阶段 ' + (idx + 1)),
+  var statsRows = null
+  if (Array.isArray(active.stats) && active.stats.length > 0) {
+    statsRows = React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' } },
+      active.stats.slice(0, 6).map(function (s, si) {
+        return React.createElement('div', { key: si, style: {
+          flex: '1 1 120px', background: P.canvas, border: '1px solid ' + P.line,
+          borderRadius: '8px', padding: '8px 12px'
+        } },
+          React.createElement('div', { style: { fontSize: '11px', color: P.ink3 } }, s.label || ''),
+          React.createElement('div', { style: { fontSize: '19px', fontWeight: 700, color: P.ink, marginTop: '2px' } }, s.value || ''))
+      }))
+  }
+  var descPanel = React.createElement('div', { style: {
+    borderTop: '1px solid ' + P.line, background: P.card,
+    padding: '10px 14px 12px 14px', borderRadius: '0 0 12px 12px'
+  } },
+    React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: P.ink, marginBottom: '3px' } },
+      (active.title || '阶段 ' + (idx + 1)) + '（阶段 ' + (idx + 1) + '/' + total + '）'),
     active.description
-      ? React.createElement('div', { style: { fontSize: '11.5px', color: P.ink2, lineHeight: 1.45 } }, active.description)
-      : null
-  )
+      ? React.createElement('div', { style: { fontSize: '12.5px', color: P.ink2, lineHeight: 1.55 } }, active.description)
+      : null,
+    statsRows)
 
   var fullHint = isFull ? React.createElement('div', { style: {
     position: 'absolute', top: '12px', right: '16px', zIndex: 30,
@@ -536,14 +550,14 @@ function StageViewer(props) {
 
   var body = React.createElement('div', {
     ref: bodyRef,
-    style: { position: 'relative', minHeight: '340px', height: isFull ? '100vh' : undefined, background: P.canvas, borderRadius: isFull ? '0' : '0 0 12px 12px' }
+    style: { position: 'relative', minHeight: '300px', height: isFull ? 'calc(100vh - 82px)' : undefined, background: P.canvas }
   },
     React.createElement('div', { key: key, style: {
       padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
-      minHeight: '300px',
+      minHeight: '280px',
       animation: 'dsh-stage-rise 320ms cubic-bezier(0.2,0.72,0.35,1), dsh-stage-glow 450ms ease-out'
     }, className: 'dsh-anim', dangerouslySetInnerHTML: { __html: stageSvg } }),
-    overlay, menu, codeOverlay, fullHint)
+    menu, codeOverlay, fullHint)
 
   var bar = React.createElement('div', { style: {
     display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
@@ -599,7 +613,7 @@ function StageViewer(props) {
     margin: '6px -64px 6px -64px', width: 'calc(100% + 128px)',
     background: P.card, overflow: 'hidden',
     boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
-  }}, bar, body)
+  }}, bar, body, descPanel)
 }
 
     function DiagramViewer(props) {
