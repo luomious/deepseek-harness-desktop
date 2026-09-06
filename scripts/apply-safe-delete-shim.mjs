@@ -156,7 +156,9 @@ try {
         console.error('[apply-safe-delete-shim] Rolled back asar from backup');
       }
       console.error(`[apply-safe-delete-shim] ERR: asar repack failed: ${e.message}`);
-      // Don't exit — the unpacked injection (steps 1-2) is still valid
+      // 2026-09-06 审计修复：asar repack 失败原静默 exit 0；unpacked 注入仍有效（主要修复），
+      // 但 repack 是持久化保障，失败必须以非零退出码上报，避免重建后丢失无人知。
+      process.exitCode = 1;
     } finally {
       // Clean up temp files
       try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}

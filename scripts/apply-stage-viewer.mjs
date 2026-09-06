@@ -53,4 +53,14 @@ const r5 = "React.createElement(DiagramViewer, { key: key, svg: d.svg, title: d.
 s = mustReplace(s, a5, r5, '5-turnTail stages')
 
 fs.writeFileSync(CLIENT + '.new', s, 'utf8')
+// 2026-09-06 审计修复：原只写 .new 从不 rename，脚本实际不生效。
+// 原子替换：备份 -> 删旧 -> rename（Windows rename 不覆盖已存在文件）。
+if (fs.existsSync(CLIENT)) {
+  fs.mkdirSync(path.join(import.meta.dirname, '..', '_backups'), { recursive: true })
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const bak = path.join(import.meta.dirname, '..', '_backups', `diagram-renderer-client.js.bak-${ts}`)
+  fs.copyFileSync(CLIENT, bak)
+  fs.unlinkSync(CLIENT)
+}
+fs.renameSync(CLIENT + '.new', CLIENT)
 console.log('OK: ' + changed.join(' | ') + ' | bytes ' + Buffer.byteLength(s))

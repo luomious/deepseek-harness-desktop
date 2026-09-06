@@ -44,7 +44,15 @@ $checks = @(
   @{ n = 'market catalogCache persist skipped (source)'; f = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-community-market\src\host\routes.ts'; p = 'DSH-2026-09-03 root-guard' },
   @{ n = 'exit-cleanup guard bypass (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh patch exit-cleanup v1' },
   @{ n = 'exit-cleanup relaunch flag (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = '__dsh_relaunch_in_progress__' },
-  @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' }
+  @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' },
+  # port-user-patches bundle patches (2026-09-06 audit: were zero-covered; rebuild silently lost them)
+  @{ n = 'port: workspace bundle ADD_CHAT';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js'; p = 'const ADD_CHAT' },
+  @{ n = 'port: conversation bundle chatOnly';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'const chatOnly' },
+  @{ n = 'port: settings-models fetch-dialog';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-settings-models\lib\client.js'; p = 'dsh-desktop patch: fetch-dialog search' },
+  @{ n = 'port: frontend-static no-cache';       f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-frontend-static\lib\index.js'; p = 'dsh-desktop patch: no-cache for dev stability' },
+  @{ n = 'port: directory-picker native picker'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-directory-picker-browse\lib\client.js'; p = 'window.__DSH_DESKTOP_PICK_DIRECTORY__' },
+  @{ n = 'port: session-persistence zstd-async'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-async)' },
+  @{ n = 'port: modlens seamless takeover';      f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\@liustack\modlens\dsh\index.js'; p = 'lowered0' }
 )
 
 $fail = 0

@@ -131,7 +131,13 @@ let skipped = 0
 let failed = 0
 for (const p of patches) {
   for (const file of p.targets) {
-    if (!existsSync(file)) continue
+    if (!existsSync(file)) {
+      // 2026-09-06 审计修复：目标缺失原为静默 continue（exit 0），与 gpu-opaque 的 failed++ 行为不一致；
+      // 缺失=构建结构变化，必须显式失败，否则补丁丢失不报。
+      console.log('ERR target missing ' + file + ' (' + p.name + ')')
+      failed++
+      continue
+    }
     let text = ''
     try { text = readFileSync(file, 'utf8') } catch (cause) {
       console.log('ERR read ' + file + ': ' + (cause instanceof Error ? cause.message : String(cause)))
