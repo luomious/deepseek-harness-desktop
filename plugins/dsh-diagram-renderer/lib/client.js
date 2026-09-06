@@ -339,6 +339,50 @@ window.__ModuleLoader__.load({
 // Renders stage controls (← → play · stage indicator · descriptions)
 // and toggles SVG layers per stage with smooth transitions.
 // Receives: boxedSvg (explicit-sized svg), stages array, title, fileBase.
+var STAGE_CSS = '@keyframes dsh-stage-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}@keyframes dsh-stage-glow{0%{filter:brightness(1)}30%{filter:brightness(1.15)}100%{filter:brightness(1)}}@keyframes dsh-stage-progress{from{width:0%}to{width:100%}}@keyframes dsh-dot-pulse{0%{box-shadow:0 0 0 0 rgba(83,74,183,0.45)}70%{box-shadow:0 0 0 7px rgba(83,74,183,0)}100%{box-shadow:0 0 0 0 rgba(83,74,183,0)}}@media (prefers-reduced-motion:reduce){.dsh-anim,.dsh-anim *{animation:none !important;transition:none !important}}'
+
+// Idempotent injection of the shared stage-animation keyframes (once per page).
+function ensureStageStyles() {
+  try {
+    if (document.getElementById('dsh-diagram-stage-styles')) return
+    var st = document.createElement('style')
+    st.id = 'dsh-diagram-stage-styles'
+    st.textContent = STAGE_CSS
+    ;(document.head || document.documentElement).appendChild(st)
+  } catch (e) { /* noop */ }
+}
+
+// Pure layer filter for staged SVGs: keeps data-stage="all" + listed layers,
+// hides everything else (display:none via DOMParser + XMLSerializer).
+// No layers -> passthrough unchanged (single-view fallback).
+function computeStageSvg(svgText, layers) {
+  if (!svgText) return ''
+  if (!Array.isArray(layers) || layers.length === 0) return svgText
+  var visible = new Set(layers)
+  visible.add('all')
+  try {
+    var doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
+    var gs = doc.querySelectorAll('g[data-stage]')
+    // NOTE: Chrome's image/svg+xml DOMParser produces SVGElement nodes that
+    // have NO .style property (HTMLElement-only) — must use setAttribute.
+    // Previously used gs[i].style.display which threw, was swallowed by the
+    // catch, and silently returned the unfiltered svg (stage switching was
+    // a no-op). Fixed with style-attribute surgery that preserves other CSS.
+    for (var i = 0; i < gs.length; i++) {
+      var st = gs[i].getAttribute('data-stage')
+      var show = (st === 'all' || visible.has(st))
+      var cur = gs[i].getAttribute('style') || ''
+      var rest = cur.replace(/display\s*:[^;]+;?/gi, '').trim()
+      if (show) {
+        if (rest) gs[i].setAttribute('style', rest); else gs[i].removeAttribute('style')
+      } else {
+        gs[i].setAttribute('style', (rest ? rest + ';' : '') + 'display: none')
+      }
+    }
+    return new XMLSerializer().serializeToString(doc.documentElement)
+  } catch (e) { return svgText }
+}
+
 function StageViewer(props) {
   var boxedSvg = props.boxedSvg
   var stages = props.stages
@@ -358,23 +402,13 @@ function StageViewer(props) {
   var timerRef = useRef(null)
   var active = stages[Math.min(idx, total - 1)] || stages[0]
 
+  // Mount: inject shared stage-animation keyframes once per page.
+  useEffect(function () { ensureStageStyles() }, [])
+
   // Hide layers not in current stage: data-stage="all" always visible,
   // others shown only when listed in active.layers.
   var stageSvg = useMemo(function () {
-    if (!boxedSvg) return ''
-    // No explicit layers -> show everything (single-view fallback).
-    if (!Array.isArray(active.layers) || active.layers.length === 0) return boxedSvg
-    var visible = new Set(active.layers)
-    visible.add('all')
-    try {
-      var doc = new DOMParser().parseFromString(boxedSvg, 'image/svg+xml')
-      var gs = doc.querySelectorAll('g[data-stage]')
-      for (var i = 0; i < gs.length; i++) {
-        var st = gs[i].getAttribute('data-stage')
-        gs[i].style.display = (st === 'all' || visible.has(st)) ? '' : 'none'
-      }
-      return new XMLSerializer().serializeToString(doc.documentElement)
-    } catch (e) { return boxedSvg }
+    return computeStageSvg(boxedSvg, active.layers)
   }, [boxedSvg, active])
 
   function flash(msg) {
@@ -508,15 +542,23 @@ function StageViewer(props) {
     React.createElement('div', { key: key, style: {
       padding: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center',
       minHeight: '300px',
-      animation: 'stage-fade-in 250ms ease-out, stage-slide-up 250ms ease-out'
-    }, dangerouslySetInnerHTML: { __html: stageSvg } }),
+      animation: 'dsh-stage-rise 320ms cubic-bezier(0.2,0.72,0.35,1), dsh-stage-glow 450ms ease-out'
+    }, className: 'dsh-anim', dangerouslySetInnerHTML: { __html: stageSvg } }),
     overlay, menu, codeOverlay, fullHint)
 
   var bar = React.createElement('div', { style: {
     display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
     padding: '8px 12px', borderBottom: '1px solid ' + P.line, background: P.card,
-    borderRadius: '12px 12px 0 0'
+    borderRadius: '12px 12px 0 0', position: 'relative'
   }},
+    // Autoplay progress bar: fills the 2s per-stage interval
+    playing && !interacted
+      ? React.createElement('div', { key: idx, style: {
+          position: 'absolute', left: '0', bottom: '-1px', height: '2px', width: '0%',
+          background: P.accent, borderRadius: '0 0 0 2px',
+          animation: 'dsh-stage-progress 2000ms linear forwards'
+        } })
+      : null,
     // Prev
     iconButton('\u25c0', '上一步', prev),
     // Play / pause
@@ -533,7 +575,8 @@ function StageViewer(props) {
         return React.createElement('span', { key: i, style: {
           width: i === idx ? '18px' : '7px', height: '7px', borderRadius: '3.5px',
           background: i === idx ? P.accent : (i < idx ? P.ink3 : P.line),
-          transition: 'all 180ms ease', cursor: 'pointer'
+          transition: 'all 180ms ease', cursor: 'pointer',
+          animation: playing && i === idx ? 'dsh-dot-pulse 1.4s ease-out infinite' : 'none'
         }, onClick: function () { go(i) }, title: s.title || ('阶段 ' + (i + 1)) })
       })
     ),
@@ -1427,7 +1470,9 @@ function StageViewer(props) {
       parseEnvelope: parseEnvelope,
       looksEscaped: looksEscaped,
       unescapeStrict: unescapeStrict,
-      extractSvg: extractSvg
+      extractSvg: extractSvg,
+      computeStageSvg: computeStageSvg,
+      STAGE_CSS: STAGE_CSS
     }
     return module.exports
   }

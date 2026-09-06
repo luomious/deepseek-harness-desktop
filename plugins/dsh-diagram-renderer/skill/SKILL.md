@@ -191,13 +191,19 @@ render_diagram({
 8. **结构化（可选但推荐）**：给每个节点 `<g id="node-xxx" data-name="节点名">…</g>`，便于后续交互增强。
 9. **可读性**：节点加 `rx` 圆角、文本 `text-anchor="middle"` 居中、连接线用 `marker-end` 箭头。
 
-## 动效（可选 · 让图"动起来"）
+## 动效（推荐 · 让图"动起来"，与分步图天然配合）
 
-在 SVG 根内嵌 `<style>` 即可加**纯 CSS 动效**（无 JS；`<script>` 会被清洗，`<style>` 保留，两个通道都生效）：
+在 SVG 根内嵌 `<style>` 即可加**纯 CSS 动效**（无 JS；`<script>` 会被清洗，`<style>` 保留，两个通道都生效）。**分步图每个阶段切换时层会重新显示 → 该层内嵌动画每次进入该步都会重放一遍——正好做成"这一步的讲解动画"**（例：语义先验框先画出来、光流箭头后流动）。渲染器还会自动附加：阶段切换 320ms 上浮渐入 + 400ms 亮度高光、自动播放时控制条进度条 + 当前阶段点脉冲（已注入全局 keyframes，含 `prefers-reduced-motion` 降级）。
 
-- **箭头流动**：连线加 `class="flow"`，CSS：`.flow{stroke-dasharray:10 8;animation:dshflow 1.1s linear infinite}@keyframes dshflow{to{stroke-dashoffset:-18}}`
-- **节点/层渐入**：容器加 `class="pop d1"`（d1/d2/d3 递进延迟 .15s），CSS：`.pop{opacity:0;animation:dshpop .5s ease forwards}@keyframes dshpop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}`
-- **克制原则**：只给关键路径或 1–2 处强调加动效；并加 `@media (prefers-reduced-motion:reduce){*{animation:none !important}}` 尊重无障碍。
+即用模板（复制进 `<style>` 改类名即可）：
+
+- **箭头流动**（连线）：`.flow{stroke-dasharray:10 8;animation:dshflow 1.1s linear infinite}@keyframes dshflow{to{stroke-dashoffset:-18}}`
+- **点脉冲强调**（当前步骤的关键点）：`.pulse{animation:dshpulse 1.6s ease-out infinite}@keyframes dshpulse{0%{r:4;opacity:1}70%{r:10;opacity:.25}100%{r:4;opacity:1}}`
+- **描线生长**（路径/框线逐步画出）：`.draw{stroke-dasharray:600;stroke-dashoffset:600;animation:dshdraw 1.2s ease forwards}@keyframes dshdraw{to{stroke-dashoffset:0}}`
+- **数字跳动**（统计变化）：`.num{animation:dshnum .8s cubic-bezier(.2,.8,.3,1.4)}@keyframes dshnum{0%{transform:scale(1.5);opacity:0}100%{transform:scale(1);opacity:1}}`
+- **闪烁徽章**（提醒/注意）：`.blink{animation:dshblink 1.2s steps(2,start) infinite}@keyframes dshblink{50%{opacity:.25}}`
+
+**克制原则**：动效只给**关键路径或 1–2 处强调**；并加 `@media (prefers-reduced-motion:reduce){*{animation:none !important}}` 尊重无障碍；数据/过程图动效服务于理解（哪里变、按什么顺序变），不为炫技。
 
 ## 常见图类型要点
 

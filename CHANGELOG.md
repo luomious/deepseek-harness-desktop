@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer v6.1：动态效果（阶段过渡 / 播放进度条 / 点脉冲 + 作者侧动效规范）
+
+- **渲染器级动效**（client.js，StageViewer）：① 阶段切换改为 **320ms 上浮渐入 + 400ms 亮度高光**（注入全局 keyframes：`dsh-stage-rise`/`dsh-stage-glow`，幂等 `<style id="dsh-diagram-stage-styles">`，含 `prefers-reduced-motion` 降级，动画容器挂 `.dsh-anim`）；② 自动播放时控制条底部 **2s 阶段进度条**（`dsh-stage-progress`，随阶段重置）；③ 播放中当前阶段点 **靛蓝脉冲**（`dsh-dot-pulse`）。
+- **作者侧动效规范升级**（SKILL.md「动效」章节）：新增 5 个即用模板（箭头流动 / 点脉冲 / 描线生长 / 数字跳动 / 闪烁徽章），并说明**分步图每步层重显会重放动画**——正好做成"这一步的讲解动画"；克制原则 + reduced-motion 保留。
+- **管线回归 18 → 21 断言**（computeStageSvg 层过滤 ×2 + keyframes 存在性 ×1）。
+- **🐛 记录（重要 bug 与教训）**：新增动效断言首跑 **20/21 失败**——排查实锤 **v6 阶段层切换从未真正生效**：Chrome `image/svg+xml` 的 DOMParser 产出的是 SVGElement，**没有 `.style` 属性**（HTMLElement 专属），原实现 `gs[i].style.display=…` 抛 TypeError 被 catch 吞掉 → 静默返回未过滤原图（每步显示全部图层）。修复：改用 `setAttribute('style')` 属性级手术（保留其余 CSS，`display:none` 追加/剥离）。**教训：① 静默 catch + 早退返回原串让「无 layers 直通」断言仍绿，掩盖了真实渲染路径失效——管线应覆盖"有 layers 且确实发生了过滤"的断言（本次已补）；② SVG 元素操作不要假设 `.style` 可用，用属性 API。**
+- 验证：node --check OK；管线 **21/21 PASS**；真实 Chrome 插桩复现（gCount=3、`gs[i].style` undefined → 抛错）→ 修复后断言全绿。
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer v6：分步交互图（stages —— 上一步/下一步/播放）
 
 - **用户反馈**：「WorkBuddy 示意图下面有上一步/下一步/播放按钮，不够智能和自适应」→ 新增 stages 协议 + StageViewer。

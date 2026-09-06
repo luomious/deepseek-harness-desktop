@@ -38,6 +38,12 @@ check('stages: meta carries array', !!(ps && ps.meta && Array.isArray(ps.meta.st
 check('stages: fields preserved', !!(ps && ps.meta && ps.meta.stages[0].title === '阶段A' && ps.meta.stages[0].layers[0] === 'a' && ps.meta.stages[1].id === 'b'))
 var pse = T.parseEnvelope(JSON.stringify(senv).slice(1, -1))
 check('stages escaped: still parsed', !!(pse && pse.meta && Array.isArray(pse.meta.stages) && pse.meta.stages.length === 2))
+var csV = '<svg viewBox="0 0 100 50" width="100" height="50"><g data-stage="all"><rect width="100" height="50" fill="#fff"/></g><g data-stage="a"><circle r="2"/></g><g data-stage="b"><rect width="4" height="4"/></g></svg>'
+var cs1 = T.computeStageSvg(csV, ['a'])
+check('stageSvg: keeps all+a, hides b', !!cs1 && cs1.indexOf('data-stage="all"') !== -1 && cs1.indexOf('data-stage="a"') !== -1 && /data-stage="b"/.test(cs1) && cs1.indexOf('none') !== -1)
+var cs2 = T.computeStageSvg(csV)
+check('stageSvg: no layers -> passthrough', cs2 === csV)
+check('stageSvg: keyframes + reduced-motion present', T.STAGE_CSS.indexOf('@keyframes dsh-stage-rise') !== -1 && T.STAGE_CSS.indexOf('@keyframes dsh-stage-progress') !== -1 && T.STAGE_CSS.indexOf('prefers-reduced-motion') !== -1)
 out.done = true
 document.getElementById('out').textContent = JSON.stringify(out, null, 1)
 </script>
