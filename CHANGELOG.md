@@ -34,6 +34,16 @@
 
 ---
 
+## 2026-09-06 dsh-diagram-renderer v6.4：单通道化——keyed 工具节点完整渲染，历史卡刷新后自动恢复
+
+- **🐛 根因诊断（用户连续反馈「刷新后什么都看不到」，最终实锤）**：插件一直采用「单卡策略」——工具调用节点只渲染一行摘要（"图表已生成…交互视图见本条回复下方"），完整交互卡只在 turnTail（回复下方）由**实时事件流**挂载；而 **turnTail 依赖 turn/start + tool/result 事件，历史会话重放不产生这些事件** → 刷新/重进会话后完整卡消失，只剩摘要行 → 用户"看不到图"（首次生成时临时挂载的卡截图正常，印证了重放缺失）。
+- **修复（v6.4）**：`DiagramCard`（keyed `tool_call` 卡）在完成态**直接渲染完整交互视图**——svg → `DiagramViewer`（含 `stages` → StageViewer 分步/播放/进度条/统计卡/说明面板），mermaid → `MermaidWidget`；无法解析的旧载荷才回退摘要行。**keyed 槽在历史重放时会重渲染（v4 已有实证：刷新后历史 DiagramViewer 自动恢复）** → 历史卡刷新即恢复。
+- **turnTail 通道退役**（`conversation.chat.turnTail` 注册改为返回 null）：单通道渲染，杜绝同一图双份大卡；`diagramEventDef`/`DiagramTurnTail` 代码保留备用。
+- **验证**：node --check OK；管线回归维持 21/21 PASS（解析层不受影响）；服务端 bundle 实测 72.5KB 含全部新代码（no-cache、无 ETag，无 304 缓存陷阱）。
+- **教训（记录）**：①「事件流驱动的一次性挂载」≠「历史持久化」——凡依赖实时事件渲染的 UI，刷新后必然消失，必须调研槽位重放语义或改用持久化槽（keyed toolview 经 v4 实证可重放）；② 用户「看不到」优先怀疑"渲染时机/通道"，而非缓存——本次先用网络层实测排除了缓存（no-cache + 无 ETag），再定位到通道设计。
+
+---
+
 ## 2026-09-06 dsh-diagram-renderer v6.3：WorkBuddy 式布局（图下说明面板 + 统计卡 + 分步图按显示尺寸作画）
 
 - **用户反馈**：「图太小」「ORB 特征提取显示框会挡住对话框在对话框的上面，效果很垃圾」，并附 WorkBuddy 同款演示页截图（图下描述面板 + 3 张统计卡 + 阶段胶囊条）→ v6.3。
@@ -3039,3 +3049,17 @@ ode --check 外，还应做
 - 待观察：dsh-model-picker-group 800ms aria 补丁定时器在巨型 DOM 上仍有小成本，
   如仍卡再评估；conversation 无虚拟化是内核行为，会话过大可归档。
 - 验收补充：better-sidebar 备份曾因 A/B 恢复被清理，已重建 client.js.bak-20260906（正式修复版快照）。
+
+### 2026-09-06 补丁固化（可维护性）：apply-ui-perf-patches.mjs + verify-patches 登记
+
+- 新增 scripts/apply-ui-perf-patches.mjs：幂等重打 better-sidebar 折叠门控 + vision-engine
+  输入轻量化。按「修复特征」判定（state && (...)、function render(allowFullScan)），
+  手动修复态与脚本注入态都识别，重复运行零写入；注入前自动备份 + node --check。
+- scripts/verify-patches.ps1 新增 2 项检查：ui-perf better-sidebar collapse gate /
+  ui-perf vision-engine render(allowFullScan)（当前 41 checks ALL PASS）。
+- 触发场景：dsh plugin update 重装 better-sidebar、checkout 还原 plugins/ 后
+  运行 
+ode scripts/apply-ui-perf-patches.mjs 一键恢复。
+- 教训：固化脚本的 anchor 必须以「原始包源码」（src/ 或 npm 缓存）为准，并以修复
+  特征做幂等判定而非 marker 注释（手动修复态无 marker，会导致重复注入——本次
+  曾因此把 better-sidebar 门控注入两次，已用备份恢复并重写脚本）。

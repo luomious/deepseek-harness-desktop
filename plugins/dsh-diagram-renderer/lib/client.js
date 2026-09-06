@@ -1316,8 +1316,27 @@ function StageViewer(props) {
       var output = resultText(block)
       var parsed = null
       try { parsed = parseEnvelope(output) } catch (e) { parsed = null }
-      // 单卡策略（2026-09-05）：完整交互视图只在 turnTail（回复下方）渲染一次；
-      // 工具调用节点只出摘要行，避免同一张图出现两份大卡。
+      // v6.4 single-channel: the keyed tool node renders the FULL interactive
+      // view (stages / stat cards / desc panel included). Keyed slots
+      // re-render on session replay (verified v4), so historical cards
+      // recover after a refresh — the old summary-only policy hid diagrams
+      // from history (user: 刷新后“什么都没看到”).
+      if (parsed && parsed.type === 'mermaid' && parsed.code && parsed.code.length >= 8) {
+        return React.createElement(MermaidWidget, {
+          code: parsed.code,
+          title: (parsed.meta && parsed.meta.title) || ''
+        })
+      }
+      if (parsed && parsed.svg) {
+        var meta = parsed.meta || {}
+        return React.createElement(DiagramViewer, {
+          svg: parsed.svg,
+          title: meta.title || '',
+          fileBase: basename(meta.path),
+          stages: meta.stages
+        })
+      }
+      // Fallback summary row: old payloads / unparseable results.
       var cardTitle = (parsed && parsed.meta && parsed.meta.title) || ''
       var cardFile = (parsed && parsed.meta && parsed.meta.path) || ''
       return React.createElement(MiniCard, {
@@ -1333,8 +1352,8 @@ function StageViewer(props) {
     function DiagramSettingsSection() {
       var rows = [
         ['工具', 'render_diagram（agent 调用）'],
-        ['渲染', 'tool.call.toolview keyed card（本插件）'],
-        ['交互', '自适应：宽度铺满 · 高度随图 · 免缩放（超高图卡内滚动）· ⋮ 菜单（下载 .svg / 保存 PNG / 复制 / 查看代码）'],
+        ['渲染', 'tool.call.toolview keyed card（工具节点内完整渲染，刷新后历史卡自动恢复）'],
+        ['交互', '分步（◀▶播放·阶段点·进度条·统计卡）· 自适应免缩放 · ⋮ 菜单（下载 .svg / 保存 PNG / 复制 / 查看代码）'],
         ['保存位置', '当前工作区 diagrams/ 目录'],
         ['触发方式', '对 agent 说「画架构图 / 流程图 / 用图形化解释…」'],
         ['卸载', 'dev_uninject_plugin dsh-diagram-renderer']
@@ -1445,31 +1464,10 @@ function StageViewer(props) {
           label: function () { return '\u56fe\u8868' }
         }, DiagramSettingsSection)
       })
-      // WorkBuddy-style placement: interactive diagram card right below the
-      // assistant message (turn tail), impossible to miss in the message flow.
-      // conversationEvents is provided by ui-conversation — resolve it LATE
-      // (inside the inject callback, when the slot is declared) so apply
-      // never crashes on service load order.
-      slots.inject('conversation.chat.turnTail', function () {
-        var events = null
-        try { events = ctx.conversationEvents || (typeof ctx.get === 'function' ? ctx.get('conversationEvents') : null) } catch (e) { events = null }
-        if (!events || typeof events.register !== 'function') return null
-        if (!events.__diagramDefRegistered) {
-          events.__diagramDefRegistered = true
-          events.register(diagramEventDef)
-        }
-        return slots.register({
-          name: 'conversation.chat.turnTail',
-          select: function (owner) {
-            try {
-              var data = owner && owner.turn && owner.turn.data ? owner.turn.data.get('diagram') : null
-              if (!data || !data.diagrams || data.diagrams.length === 0) return null
-              return data.diagrams
-            } catch (e) { return null }
-          },
-          inject: function () { return {} }
-        }, DiagramTurnTail)
-      })
+      // v6.4 single-channel: keyed tool cards now render the FULL interactive
+      // view and recover on history replay. The turn-tail placement is
+      // retired — two copies of the same diagram polluted the message flow.
+      slots.inject('conversation.chat.turnTail', function () { return null })
     }
 
     exports.apply = apply
