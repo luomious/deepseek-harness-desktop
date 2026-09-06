@@ -1316,18 +1316,21 @@ function StageViewer(props) {
       var output = resultText(block)
       var parsed = null
       try { parsed = parseEnvelope(output) } catch (e) { parsed = null }
-      // v6.5: keyed tool cards stay SUMMARY-ONLY. The FULL interactive view
-      // lives on the turnTail channel — harness sessions have NO tool-node
-      // DOM at all, so the keyed slot can never render there (v6.4
-      // single-channel was reverted for exactly this reason).
+      // v7: render full interactive diagram directly in the tool card.
       var cardTitle = (parsed && parsed.meta && parsed.meta.title) || ''
       var cardFile = (parsed && parsed.meta && parsed.meta.path) || ''
-      return React.createElement(MiniCard, {
-        state: 'ok', color: C.ok, inspect: inspect,
-        body: React.createElement('div', {
-          style: { marginTop: '3px', color: C.label2, fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
-        }, '图表已生成：' + (cardTitle || firstLine(output)) + (cardFile ? ' · ' + cardFile : '') + '（交互视图见本条回复下方，可缩放 / 下载）')
-      })
+      var stages = (parsed && parsed.meta && parsed.meta.stages) || undefined
+      
+      if (parsed.type === 'mermaid') {
+        return React.createElement('div', { style: { margin: '6px 0' } },
+          React.createElement(MermaidWidget, { code: parsed.code, title: cardTitle })
+        )
+      }
+      return React.createElement('div', { style: { margin: '6px 0' } },
+        React.createElement(DiagramViewer, {
+          svg: parsed.svg, title: cardTitle, fileBase: basename(cardFile), stages: stages
+        })
+      )
     }
 
     // ---- settings management section -----------------------------------
@@ -1501,13 +1504,145 @@ function StageViewer(props) {
           inject: function () { return {} }
         }, DiagramTurnTail)
       })
+
+      // v7: DOM scanner — direct rendering without conversationEvents
+      startDomScanner()
+    }
+
+
+    // ---- v8: Direct DOM interception for render_diagram --------------------
+    // Instead of relying on slot system or conversationEvents, directly
+    // intercept tool call elements and render DiagramViewer in-place.
+
+    var _ReactDOM = null
+    try { _ReactDOM = require('react-dom/client') } catch (_e1) {
+      try { _ReactDOM = require('react-dom') } catch (_e2) { /* noop */ }
+    }
+
+    function startDomScanner() {
+      if (typeof MutationObserver === 'undefined' || typeof document === 'undefined') return
+      var seen = new WeakSet()
+
+      function processToolCard(el) {
+        try {
+          if (seen.has(el)) return
+          var toolName = el.getAttribute('data-tool')
+          if (toolName !== 'render_diagram') return
+          
+          // Read envelope from React fiber (works even when card is collapsed)
+          var outputText = ''
+          var fiberKey = null
+          var keys = Object.keys(el)
+          for (var k = 0; k < keys.length; k++) {
+            if (keys[k].indexOf('__reactFiber') === 0 || keys[k].indexOf('__reactInternalInstance') === 0) {
+              fiberKey = keys[k]; break
+            }
+          }
+          if (!fiberKey) return
+          
+          var fiber = el[fiberKey]
+          var depth = 0
+          while (fiber && depth < 30) {
+            if (fiber.memoizedProps && fiber.memoizedProps.block) {
+              var block = fiber.memoizedProps.block
+              var content = block.content
+              if (Array.isArray(content)) {
+                for (var ci = 0; ci < content.length; ci++) {
+                  var c = content[ci]
+                  if (c && c.type === 'text' && typeof c.text === 'string' && c.text.indexOf('dsh-diagram:begin') !== -1) {
+                    outputText = c.text
+                    break
+                  }
+                }
+              }
+              if (outputText) break
+            }
+            fiber = fiber.return
+            depth++
+          }
+          
+          if (!outputText || outputText.indexOf('dsh-diagram:begin') === -1) return
+          seen.add(el)
+
+          var parsed = null
+          try { parsed = parseEnvelope(outputText, true) } catch (e) { parsed = null }
+          if (!parsed) return
+          if (parsed.type === 'mermaid') { if (!parsed.code || parsed.code.length < 8) return }
+          else if (!looksLikeRealSvg(parsed.svg)) return
+
+          // Create diagram container
+          var container = document.createElement('div')
+          container.className = 'dsh-diagram-rendered'
+          container.style.cssText = 'margin:8px 0;border-radius:12px;overflow:hidden;background:#fff;'
+
+          var props = parsed.type === 'mermaid'
+            ? { code: parsed.code, title: (parsed.meta && parsed.meta.title) || '' }
+            : { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '',
+                fileBase: basename((parsed.meta && parsed.meta.path) || ''),
+                stages: (parsed.meta && parsed.meta.stages) || undefined }
+
+          var Component = parsed.type === 'mermaid' ? MermaidWidget : DiagramViewer
+
+          try {
+            if (_ReactDOM && _ReactDOM.createRoot) {
+              _ReactDOM.createRoot(container).render(React.createElement(Component, props))
+            } else if (_ReactDOM && _ReactDOM.render) {
+              _ReactDOM.render(React.createElement(Component, props), container)
+            } else {
+              container.innerHTML = sanitizeSvgDom(parsed.svg || '')
+            }
+          } catch (e) {
+            try { container.innerHTML = sanitizeSvgDom(parsed.svg || '') } catch (e2) { /* noop */ }
+          }
+
+          // Insert after the tool card
+          if (el.nextSibling) el.parentNode.insertBefore(container, el.nextSibling)
+          else el.parentNode.appendChild(container)
+          
+          // Collapse the original tool card to hide the raw envelope
+          var row = el.querySelector('[data-disclosure-row]')
+          if (row && row.getAttribute('aria-expanded') === 'true') row.click()
+          
+        } catch (e) { /* non-fatal */ }
+      }
+
+      function scanAll() {
+        try {
+          var cards = document.querySelectorAll('[data-tool]')
+          for (var i = 0; i < cards.length; i++) processToolCard(cards[i])
+        } catch (e) { /* non-fatal */ }
+      }
+
+      // Debounced mutation handler
+      var timer = null
+      function schedule() {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(scanAll, 500)
+      }
+
+      // Initial scan
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { setTimeout(scanAll, 1000) })
+      } else {
+        setTimeout(scanAll, 1000)
+      }
+
+      // Observe future additions
+      try {
+        var obs = new MutationObserver(function (muts) {
+          for (var i = 0; i < muts.length; i++) {
+            if (muts[i].type === 'childList' && muts[i].addedNodes.length) { schedule(); break }
+          }
+        })
+        obs.observe(document.body, { childList: true, subtree: true })
+      } catch (e) { /* non-fatal */ }
     }
 
     exports.apply = apply
     // Short service names bound onto ctx by the client loader (same protocol
     // as @deepseek-ai/dsh-client-ui-deliverables). Without this export the
     // loader passes a bare ctx and slots/conversationEvents never resolve.
-    exports.inject = ['slots', 'conversationEvents']
+    exports.inject = ['slots']  // conversationEvents optional — DOM scanner works without it
     // Test hooks (pipeline verification harness; not used in production UI).
     exports.__test = {
       resultText: resultText,
