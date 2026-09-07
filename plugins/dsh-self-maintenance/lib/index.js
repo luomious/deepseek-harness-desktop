@@ -31,6 +31,7 @@
  *   5. 无跨插件 HTTP 耦合：不 loopback 拉取其他插件报表，独立轻扫（目录 stat 级，开销可忽略）。
  */
 import { statSync, readdirSync, statfsSync, readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process'; // DSH-2026-09-07 renderer-probe-final
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -59,6 +60,8 @@ const DEFAULT_CONFIG = {
   radarProbeIntervalMs: 6 * 60 * 60 * 1000, // 雷达巡检节流（默认 6h 一次）
   radarMaxAgeDays: 7, // 快照超过 N 天未刷新 -> 提醒跑 update-watch
   npmRegistry: 'https://registry.npmmirror.com', // dist-tags 探测源
+  rendererCpuWarnPct: 25, // DSH-2026-09-07 renderer-probe-final: renderer idle CPU threshold (% of one core)
+  rendererCpuStreak: 2, // consecutive rounds above threshold before warning
 };
 
 export function resolveConfig(raw) {
@@ -79,6 +82,10 @@ export function resolveConfig(raw) {
     throw new Error('dsh-self-maintenance: radarProbeIntervalMs must be >= 60000');
   if (!(config.radarMaxAgeDays >= 1))
     throw new Error('dsh-self-maintenance: radarMaxAgeDays must be >= 1');
+  if (!(config.rendererCpuWarnPct >= 1 && config.rendererCpuWarnPct <= 100))
+    throw new Error('dsh-self-maintenance: rendererCpuWarnPct must be in [1,100]');
+  if (!(config.rendererCpuStreak >= 1))
+    throw new Error('dsh-self-maintenance: rendererCpuStreak must be >= 1');
   return config;
 }
 
@@ -227,6 +234,38 @@ export function apply(ctx, rawConfig) {
     return null;
   };
 
+  // DSH-2026-09-07 renderer-probe-final: renderer CPU probe state
+  let rendererCpuStreak = 0;
+  let rendererLastPct = null;
+  let rendererLastProbeAt = null;
+  let rendererLastResult = null; // 'ok' | 'no-renderer' | 'error'
+
+  /** DSH-2026-09-07 renderer-probe-final: inline PowerShell sampling of the desktop renderer idle CPU (no file-path deps, works inside app.asar). */
+  const RENDERER_CPU_CMD = [
+    "$p = Get-CimInstance Win32_Process -Filter \"Name='DSH Desktop.exe'\" | Where-Object { $_.CommandLine -match '--type=renderer' } | Select-Object -First 1",
+    "if (-not $p) { Write-Output 'NO_RENDERER'; exit 0 }",
+    "$a = Get-Process -Id $p.ProcessId",
+    "$c1 = $a.CPU",
+    "Start-Sleep -Seconds 3",
+    "$b = Get-Process -Id $p.ProcessId",
+    "$c2 = $b.CPU",
+    "$pct = [math]::Round(($c2-$c1)/3.0*100)",
+    "if ($pct -lt 0) { $pct = 0 }",
+    "Write-Output $pct"
+  ].join('; ');
+  const probeRendererCpu = () => new Promise((resolve) => {
+    try {
+      execFile('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', RENDERER_CPU_CMD], { timeout: 8000, windowsHide: true }, (err, stdout) => {
+        if (err) { try { log('renderer cpu probe exec failed: ' + (err && err.message)); } catch {} resolve(null); return; }
+        const raw = String(stdout).trim();
+        if (raw === 'NO_RENDERER') { try { log('renderer cpu probe: no renderer process yet (early boot or window closed)'); } catch {} resolve(null); return; }
+        const pct = Number.parseInt(raw, 10);
+        if (!Number.isFinite(pct)) { try { log('renderer cpu probe: non-numeric output: ' + JSON.stringify(raw)); } catch {} resolve(null); return; }
+        resolve(pct);
+      });
+    } catch { resolve(null); }
+  });
+
   const cycle = () => {
     void (async () => {
       const ts = Date.now();
@@ -281,7 +320,26 @@ export function apply(ctx, rawConfig) {
       try { radarFinding = await checkUpstreamRadar(); } catch { radarFinding = null; }
       if (radarFinding) alerts.push(radarFinding);
 
-      lastScan = { ts, diskFreeGB, workspaces: scan.workspaces, sessions: scan.sessions, bigCount: scan.bigCount, totalMB: Math.round(scan.totalMB), connFailStreak, radar: radarFinding ? radarFinding.msg : 'ok', alerts };
+      // step 2.7 DSH-2026-09-07 renderer-probe-final: sample renderer idle CPU; consecutive high -> warning
+      let rendererPct = null;
+      rendererLastProbeAt = ts;
+      try { rendererPct = await probeRendererCpu(); } catch { rendererPct = null; }
+      rendererLastPct = rendererPct;
+      rendererLastResult = rendererPct === null ? 'no-renderer' : 'ok';
+      if (rendererPct !== null) {
+        if (rendererPct > config.rendererCpuWarnPct) {
+          rendererCpuStreak += 1;
+          log('renderer cpu probe: ' + rendererPct + '% (streak=' + rendererCpuStreak + '/' + config.rendererCpuStreak + ')');
+          if (rendererCpuStreak >= config.rendererCpuStreak) {
+            alerts.push({ level: 'warning', kind: 'renderer-cpu', msg: '桌面窗口渲染进程空闲 CPU 持续偏高（' + rendererPct + '% > ' + config.rendererCpuWarnPct + '%，连续 ' + rendererCpuStreak + ' 轮）：疑似插件空转循环，检查 plugins/ 最近改动或跑 scripts/apply-ui-perf-patches.mjs' });
+          }
+        } else {
+          if (rendererCpuStreak > 0) log('renderer cpu probe recovered (' + rendererPct + '%)');
+          rendererCpuStreak = 0;
+        }
+      }
+
+      lastScan = { ts, diskFreeGB, workspaces: scan.workspaces, sessions: scan.sessions, bigCount: scan.bigCount, totalMB: Math.round(scan.totalMB), connFailStreak, radar: radarFinding ? radarFinding.msg : 'ok', rendererCpuPct: rendererPct, alerts };
 
       // ── 3. 分级通知（24h 去重） ──
       if (alerts.length === 0) {
@@ -312,6 +370,7 @@ export function apply(ctx, rawConfig) {
         lastScan: lastScan ?? null,
         connWatch: { webPort: config.webPort, probeTimeoutMs: config.probeTimeoutMs, failThreshold: config.connFailThreshold, currentStreak: connFailStreak },
         radarWatch: { enabled: !!config.radarStateFile, stateFile: config.radarStateFile, probeIntervalMs: config.radarProbeIntervalMs, maxAgeDays: config.radarMaxAgeDays, lastProbeAt: lastRadarProbeAt },
+        rendererWatch: { enabled: true, warnPct: config.rendererCpuWarnPct, streak: config.rendererCpuStreak, currentStreak: rendererCpuStreak, lastPct: rendererLastPct, lastProbeAt: rendererLastProbeAt, lastResult: rendererLastResult },
         intervalMs: config.intervalMs,
       });
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
