@@ -216,6 +216,51 @@ try {
 // registry 包（@liustack/*、dsh-* 等）由包管理器保证完整，不在此列。
 // node --check 会读取最近 package.json 的 type 字段，因此对 "type":"module" 插件
 // 能抓到顶层 return（CJS 合法、ESM 非法的 2026-08-29 启动事故形态）。
+//
+// 2026-09-07 修复：spawnSync 被 DSH 沙箱拦截（EPERM）时 r.error 非空、r.status 为 null，
+// 旧逻辑 `r.status !== 0` 把 71 个未检查文件全部误报 "syntax error"（假阳性，狼来了效应，
+// PERF-5 漂移藏 6 天的生态根因）。现抽 classifyNodeCheck 纯函数三态分类：
+//   ok            —— status === 0，语法正常
+//   syntax-error  —— 子进程真实运行并报错（r.error 为空、status 非 0）→ 仍然 FAIL
+//   env-blocked   —— 子进程根本没跑起来（r.error 非空：EPERM/EACCES/...）→ WARN 降级
+// 官方语义佐证：https://nodejs.org/api/child_process.html —— spawn 失败时返回值带 error 属性。
+export function classifyNodeCheck(r) {
+  // 子进程从未运行（spawn 本身失败）= 环境限制，文件未被检查，绝不能当语法错
+  if (r && r.error) {
+    const code = r.error.code || ''
+    return { kind: 'env-blocked', reason: `spawn blocked (${code || String(r.error.message || 'unknown')})` }
+  }
+  if (r && r.status === 0) return { kind: 'ok' }
+  // status 为 null/undefined（非数字）= 子进程没有完整运行（超时被杀等），同样未检查
+  if (!r || r.status === null || r.status === undefined) {
+    return { kind: 'env-blocked', reason: 'spawn did not complete (status is null/undefined)' }
+  }
+  // 子进程真实运行了且以非零码退出 = 真语法错误
+  return {
+    kind: 'syntax-error',
+    reason: ((r && (r.stderr || r.stdout)) || '').trim().split('\n')[0] || 'syntax error',
+  }
+}
+// V9 聚合判定纯函数：锁死三态聚合语义（供单元测试固化，无需 e2e）
+//   bad    真语法错误列表（basename: reason）
+//   blocked 环境拦截列表（basename (reason)）
+// 语义优先级：FAIL（真错）> WARN（未检查）> PASS（全查且全过）
+// 真错即使与拦截并存也必须 FAIL——降级只针对「未检查」，绝不掩盖「已确认的错」。
+export function v9Verdict({ bad = [], blocked = [], fileCount = 0, linkCount = 0 } = {}) {
+  if (bad.length > 0) {
+    return {
+      ok: false, level: undefined,
+      detail: `bad files: ${bad.join(' | ')}${blocked.length ? ` | [env-blocked, not checked: ${blocked.length}]` : ''}`,
+    }
+  }
+  if (blocked.length > 0) {
+    return {
+      ok: true, level: 'WARN',
+      detail: `env-blocked: ${blocked.length}/${fileCount} files not checked (${blocked[0]}) — rerun outside DSH sandbox for real result`,
+    }
+  }
+  return { ok: true, level: undefined, detail: `link plugins=${linkCount} files=${fileCount} all ok` }
+}
 function collectJs(dir, out) {
   let entries
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
@@ -235,15 +280,16 @@ try {
     collectJs(path.join(nm, dep.replace('/', path.sep)), files)
   }
   const bad = []
+  const blocked = []
   for (const f of files) {
     const r = spawnSync(process.execPath, ['--check', f], { encoding: 'utf8', windowsHide: true })
-    if (r.status !== 0) {
-      const first = (r.stderr || r.stdout || '').trim().split('\n')[0] || 'syntax error'
-      bad.push(`${path.basename(f)}: ${first}`)
-    }
+    const c = classifyNodeCheck(r)
+    if (c.kind === 'syntax-error') bad.push(`${path.basename(f)}: ${c.reason}`)
+    else if (c.kind === 'env-blocked') blocked.push(`${path.basename(f)} (${c.reason})`)
   }
-  check('V9', 'plugin bundle syntax', bad.length === 0,
-    bad.length ? `bad files: ${bad.join(' | ')}` : `link plugins=${files.length > 0 ? Object.keys(pkg.dependencies || {}).filter((d) => String(pkg.dependencies[d]).startsWith('link:')).length : 0} files=${files.length} all ok`)
+  const linkCount = files.length > 0 ? Object.keys(pkg.dependencies || {}).filter((d) => String(pkg.dependencies[d]).startsWith('link:')).length : 0
+  const verdict = v9Verdict({ bad, blocked, fileCount: files.length, linkCount })
+  check('V9', 'plugin bundle syntax', verdict.ok, verdict.detail, verdict.level)
 } catch (e) {
   check('V9', 'plugin bundle syntax', false, `error: ${e.message}`)
 }

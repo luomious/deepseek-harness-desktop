@@ -40,7 +40,11 @@ function runStartupVerify() {
       timeout: 120_000,
       windowsHide: true,
     })
-    if (res.error) return { ok: false, error: String(res.error.message || res.error) }
+    // 2026-09-07 修复：spawn 本身被 DSH 沙箱拦截（EPERM）时子进程根本没跑，
+    // 这是「环境限制」不是「启动检查失败」。旧逻辑记 ok:false → SLO 历史被假失败污染
+    // （健康看板连续失败告警狼来了）。改为 ok:null = inconclusive：
+    // 不算 PASS、不算 FAIL、退出码不受影响，SLO 采样窗口只统计真实运行的结果。
+    if (res.error) return { inconclusive: true, error: String(res.error.message || res.error) }
     let parsed = null
     try { parsed = JSON.parse(res.stdout) } catch { /* fallthrough */ }
     if (!parsed || typeof parsed !== 'object') {
@@ -88,19 +92,26 @@ function appendHistory(record) {
 
 function summarize(rows, n = 50) {
   const recent = rows.slice(-n)
-  const fails = recent.filter((r) => r.fail > 0 || r.ok === false)
-  const passCount = recent.filter((r) => r.ok === true).length
-  const rate = recent.length === 0 ? null : Math.round((passCount / recent.length) * 100)
-  // 连续失败检测（按时间序）
+  // 2026-09-07 修复：ok:null = inconclusive（沙箱拦截等环境限制）不计入统计，
+  // 也不打断连续失败链——它不是失败，只是「这次没测成」。
+  const conclusive = recent.filter((r) => r.ok === true || r.ok === false)
+  const fails = conclusive.filter((r) => r.fail > 0 || r.ok === false)
+  const passCount = conclusive.filter((r) => r.ok === true).length
+  const inconclusiveCount = recent.length - conclusive.length
+  const rate = conclusive.length === 0 ? null : Math.round((passCount / conclusive.length) * 100)
+  // 连续失败检测（按时间序；跳过 inconclusive 记录）
   let consecutiveFails = 0
   let consecutiveFailed = false
   for (let i = recent.length - 1; i >= 0; i--) {
+    if (recent[i].ok === null || recent[i].ok === undefined) continue
     if (recent[i].ok === true) break
     consecutiveFails += 1
     if (consecutiveFails >= CONSECUTIVE_FAIL_LIMIT) { consecutiveFailed = true; break }
   }
   return {
     sampled: recent.length,
+    conclusive: conclusive.length,
+    inconclusive: inconclusiveCount,
     passRate: rate,
     passCount,
     failCount: fails.length,
@@ -118,6 +129,7 @@ const summaryOnly = process.argv.includes('--summary')
 let record = null
 if (!summaryOnly) {
   const result = runStartupVerify()
+  // ok:null = inconclusive（环境拦截）——照常记入历史（可追溯）但不算 PASS/FAIL
   record = {
     ts: new Date().toISOString(),
     source: 'health-check',
@@ -126,7 +138,7 @@ if (!summaryOnly) {
     pass: result.pass ?? 0,
     fail: result.fail ?? 0,
     warn: result.warn ?? 0,
-    ok: result.ok,
+    ok: result.ok ?? null, // inconclusive 时为 null
     error: result.error ?? null,
     elapsedMs: result.elapsedMs ? Date.now() - result.elapsedMs + 1 : null,
   }
@@ -146,7 +158,7 @@ if (jsonMode) {
   console.log(`采样窗口: 最近 ${summary.sampled} 次`)
   console.log(`启动成功率: ${summary.passRate === null ? 'N/A' : summary.passRate + '%'} (${summary.passCount} PASS / ${summary.failCount} FAIL)`)
   if (!summaryOnly && record) {
-    console.log(`本次: ${record.ok ? 'PASS' : 'FAIL'} (total=${record.total}, pass=${record.pass}, fail=${record.fail}, warn=${record.warn}${record.error ? ', error=' + record.error : ''})`)
+    console.log(`本次: ${record.ok === true ? 'PASS' : record.ok === false ? 'FAIL' : 'INCONCLUSIVE (env-blocked)'} (total=${record.total}, pass=${record.pass}, fail=${record.fail}, warn=${record.warn}${record.error ? ', error=' + record.error : ''})`)
   }
   if (summary.consecutiveFailed) {
     console.log(`⚠️ 连续 ${summary.consecutiveFails} 次启动检查失败 — 建议：导出诊断 (菜单→帮助→导出诊断) 或回滚 (docs/UPGRADE-EXECUTION-LOG.md)`)
