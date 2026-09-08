@@ -6,6 +6,21 @@
 # promote-build.ps1), so this never goes stale when a rebuild lands in a new
 # directory.
 
+# --- DSH version matrix (2026-09-08 dry-run rehearsal vs official 0.1.3-alpha.2) ---
+# Retirement candidates (official 0.1.3-alpha.2 covers natively / target package gone):
+#   #17 subprocess-local windowsHide    -> official ships windowsHide:true (3 sites)
+#   #31 host-apiproxy default cwd home  -> ApiProxy removed; npm frozen at 0.1.1-rc.2
+#   #48 picker utf16 NUL fix            -> official worker.cjs has readUtf16 (confirm via smoke)
+#   #54 workspace bundle ADD_CHAT       -> bundle rewritten, anchor gone
+#   #55 conversation bundle chatOnly    -> bundle rewritten, anchor gone
+#   #59/#67/#69 session zstd patches    -> official node:zlib zstd + packed chunks + revisions
+# Keep & re-apply on upgrade:
+#   #32 sandbox-local runner node (#15) -> official still uses process.execPath as node
+#   #40/#41 pwsh recycle-bin guard      -> no official recycle handling
+#   #57 frontend-static no-cache        -> no official cache headers
+#   #56/#58 settings-models / dir-picker browse bundles -> re-evaluate after client rewrite
+# Full evidence: _backups/upstream-probe-0.1.3-alpha.2/IMPACT-REPORT.md
+
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\src'

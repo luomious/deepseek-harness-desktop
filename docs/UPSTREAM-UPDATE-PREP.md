@@ -156,6 +156,13 @@
 
 ## Phase 2（冻结，触发条件监控中）
 
+> **2026-09-08 预演进展**：官方已发布 0.1.3-alpha.2（2026-09-07，npm alpha tag），完成一次只读 dry-run 影响评估（
+> `docs/UPGRADE-REHEARSAL-2026-09-08.md`，证据 `_backups/upstream-probe-0.1.3-alpha.2/IMPACT-REPORT.md`）：
+> ① 补丁预计瘦身 ≥10 项（官方原生实现 zstd/子进程/目录选择器，ApiProxy 停更），8 项保留重打；
+> ② `snapshotEvents()` 确认为同步数组 API，tier-router/routing-suite 预适配零改动可用；③ 无 persona/ApiProxy/handle-pid 依赖；
+> ④ 最大风险 Session v0→v2 迁移已由全量备份（173.8MB）对冲；⑤ npm dist-tags 现状 latest=0.1.2-rc.1 / alpha=0.1.3-alpha.2，
+> **仍为 prerelease，触发条件未满足**，继续由雷达常驻监控。
+
 - 触发 #1 进展（2026-09-04 雷达首弹命中）：`npm.dist-tags.latest` 已翻转 0.1.1-rc.2 → 0.1.2-rc.1
   （官方将 rc 转正为 latest tag）；但对象仍为 prerelease 语义且转正仅 1 天，未满足「正式版 +
   稳定 1~2 周」——继续观察；该条件现已由常驻自检（1.4）自动监控，无需人工盯梢；
