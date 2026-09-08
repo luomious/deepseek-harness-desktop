@@ -42,3 +42,19 @@
 - 触发条件（沿用 UPSTREAM-UPDATE-PREP）：npm latest 翻转且正式版稳定 1~2 周，或断连/长会话问题实际影响使用。
 - 执行：按 `docs/UPGRADE-EXECUTION-PLAN-2026-09-07.md` 阶段 6 升级日 12 步 SOP + `IMPACT-REPORT.md §4` 执行手册；冒烟清单见报告 §4.9（含「开」路径选择器、旧会话 v0→v2 迁移、tier-router 回归、回收站 guard、断线重连）。
 - 回滚：junction 切回 `win-unpacked-build202608272104` + sessions 备份还原 + 补丁 rollback（三层均演练过路线）。
+
+---
+
+## 5. 归档前待办（2026-09-08 收尾，push 未完成）
+
+> **背景**：`git push` 在本 agent 沙箱内被凭据链路阻断（credential.helper 为 `!` 前缀=经 shell 执行，沙箱 sh/bash 起不来；GCM 无缓存凭据）。本地提交已完成，只差推送到 GitHub。
+
+- [ ] **在真实终端执行（用户或用户安排的 workbuddy）**：
+      ```powershell
+      cd D:\Deepseek-Harness
+      git push origin master
+      ```
+      推送内容：`575bc0e`（预演收尾）+ `1672c8f`（diagram 修复）；成功后 `git status` 显示 `ahead 0`。
+- [ ] push 完成后本对话即可归档。
+- [ ] 归档前确认：verify-patches 49 PASS（已验证）；sessions 备份在位（`_backups/sessions-pre-upgrade-20260908-232327/`）。
+- [ ] 触发条件监控由常驻雷达 `update-watch.mjs`（dsh-self-maintenance）自动执行，无需人工盯梢。
