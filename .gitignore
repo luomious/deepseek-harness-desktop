@@ -103,6 +103,9 @@ scripts/test-siliconflow-vision.mjs
 .env
 *.local.env
 
+# Runtime audit data (crashpad-hygiene events; regenerated at runtime, untracked since 2026-09-08)
+plugins/dsh-crashpad-hygiene/data/events.jsonl
+
 
 # Generated diagram artifacts (workspace-local outputs of render_diagram)
 diagrams/

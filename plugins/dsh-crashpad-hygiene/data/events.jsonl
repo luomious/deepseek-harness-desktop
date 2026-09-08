@@ -1,8 +1,0 @@
-{"ts":"2026-09-07T17:24:06.062Z","type":"delete","file":"d52371c8-8f93-416a-9994-c0e51b074ff1.dmp","reason":"beyond-maxKeep","sizeBytes":35016272}
-{"ts":"2026-09-07T17:24:06.062Z","type":"scan","cycle":1,"dumps":3,"toDelete":1,"durationMs":2}
-{"ts":"2026-09-07T17:24:06.345Z","type":"delete-failed","file":"d52371c8-8f93-416a-9994-c0e51b074ff1.dmp","reason":"beyond-maxKeep"}
-{"ts":"2026-09-07T17:24:06.345Z","type":"cleanup","deleted":0,"freedBytes":0}
-{"ts":"2026-09-08T01:25:46.242Z","type":"delete","file":"d52371c8-8f93-416a-9994-c0e51b074ff1.dmp","reason":"beyond-maxKeep","sizeBytes":35016272}
-{"ts":"2026-09-08T01:25:46.242Z","type":"scan","cycle":1,"dumps":3,"toDelete":1,"durationMs":3}
-{"ts":"2026-09-08T01:25:46.792Z","type":"cleanup","deleted":1,"freedBytes":35016272}
-{"ts":"2026-09-08T02:41:30.259Z","type":"scan","cycle":1,"dumps":2,"toDelete":0,"durationMs":3}

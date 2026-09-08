@@ -21,10 +21,16 @@
         # 2026-09-04：qwen3.8-max 已声明原生多模态（settings.yaml input:[text,image]），
         # modlens 不再为其生成 (modlens vision) 双胞胎 → 移除该包装路由；
         # 高规格文本任务由 deepseek-v4-pro-0813 路由承接。
+        # 2026-09-08：sennsenova(日日新) kimi-k3 账号 TPM/RPM 持续打满；子代理简单任务
+        # 降级到 deepseek-v4-flash 保 kimi3 额度给主对话复杂任务。
+        # 注意：主对话不受影响（subagentOnly），仍由用户选择的 kimi-k3 服务。
         routes:
           - provider: modlens-tokenrhythm01
             high: deepseek-v4-pro-0813
             low: deepseek-v4-flash-0731
           - provider: modlens-xiaomi-token-plan-cn
             high: mimo-v2.5-pro
+            low: deepseek-v4-flash
+          - provider: modlens-sennsenova
+            high: kimi-k3
             low: deepseek-v4-flash

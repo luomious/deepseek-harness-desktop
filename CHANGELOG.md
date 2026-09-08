@@ -6,6 +6,19 @@
 
 ---
 
+## 2026-09-08 日日新 sennsenova kimi-k3 限流治理（聚焦方案，回滚多余改动）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **RATE-1 [x]** | `~/.dsh/settings.yaml` 仅保留 `sennsenova` 的 `retryPolicy`（`mode: normal, maxRetries: 6, backoff 5s→65s, jitter 0.2`）。期间曾批量给全部 16 个 provider 注入同款策略，**已回滚**（收益仅在 sennsenova、风险摊到全部 provider、且持久故障会空等 3.4 分钟——收益/风险不对称，判定回滚）。回滚后与运行态一致（内核加载的就是这版） | 内核 `RetryPolicySchema` 16 校验、1 带策略；回读 retryPolicy 仅行 58 | `settings.yaml.bak-retryall-20260908-153919` |
+| **RATE-2 [x]** | `tier-router` 新增 `modlens-sennsenova` 路由（high=`kimi-k3`, low=`deepseek-v4-flash`）：子代理简单任务降级 flash，为 kimi3 主对话省 TPM 额度；主对话不受影响（subagentOnly） | 模型 id 实测存在于 sennsenova 目录；YAML 回读 4 条路由；`node --check` 通过 | `_backups/cordis.patch-tierrouter-20260908-155714.yml` |
+| **RATE-3 [x]** | 遗留项证伪：上轮报「task-scheduler 锁全系统失效」**不实**——`changes.jsonl` 显示 locked/released 全程正常，EPERM 系沙箱 shell 直写 `.task-scheduler/locks` 被拦，HTTP 通道可用 | `GET /task-scheduler/status` + changes.jsonl 时间线 | — |
+| **RATE-4 [x]** | 根因结论（实测）：sennsenova/kimi-k3 429 `ModelAccountTpmRateLimitExceeded` = **账号级 TPM/RPM 持续打满**，非瞬时抖动；qiniu/moonshotai/kimi-k3 实测 200 OK 为备用源；opencode-go kimi-k3 本月额度耗尽（8 天后重置）。DSH 侧无法提额，只能降耗对冲 | `/model-whitelist/test` 三路实测 | — |
+
+> **需要重启生效**：tier-router 路由由 bundles 装配读取（重启后生效）。重启后：主对话选 kimi3（日日新），子代理自动用 flash 兜底省额度；若仍 429 且属持续打满，属账号额度问题，需去 token.sensenova.cn 提额。
+
+---
+
 ## 2026-09-07 补丁脚本治理定案（防增量规则 + 重打 HINT + git 三连提交）
 
 | 项 | 内容 | 证据 | 备份 |
