@@ -3,8 +3,10 @@
  *
  * Session file size hygiene monitor for DSH.
  *
- * Periodically scans ~/.dsh/sessions/ for oversized .jsonl.zstd files and
- * dispatches alerts through two channels:
+ * Periodically scans ~/.dsh/sessions/ for oversized session files and
+ * over-threshold workspace directories (PERF-1: aggregate per top-level
+ * workspace dir, since a 250MB project split across many small files never
+ * trips the per-file check), and dispatches alerts through two channels:
  *   - Electron Notification (instant toast, best-effort)
  *   - Context injection (persistent reminder in next conversation)
  *
@@ -60,6 +62,10 @@ const DEFAULT_CONFIG = {
   enabled: true,
   warnBytes: 4_194_304,
   errorBytes: 8_388_608,
+  // 目录聚合阈值（PERF-1，2026-09-07）：单文件不超限但工作区目录合计很大时告警。
+  // 触发案例：`--D-Deepseek-Harness--` 250M 分散在 269 个小文件里，单文件判定永不告警。
+  warnDirBytes: 157_286_400,   // 150MB
+  errorDirBytes: 262_144_000,  // 250MB
   scanIntervalMs: 3_600_000,
   idleHours: 24,
   suggestArchive: true,
@@ -78,6 +84,10 @@ export function resolveConfig(raw) {
     throw new Error('session-hygiene: `warnBytes` must be >= 1MB');
   if (!(c.errorBytes > c.warnBytes))
     throw new Error('session-hygiene: `errorBytes` must exceed `warnBytes`');
+  if (!(c.warnDirBytes >= 16_777_216))
+    throw new Error('session-hygiene: `warnDirBytes` must be >= 16MB');
+  if (!(c.errorDirBytes > c.warnDirBytes))
+    throw new Error('session-hygiene: `errorDirBytes` must exceed `warnDirBytes`');
   if (!(c.scanIntervalMs >= 300_000))
     throw new Error('session-hygiene: `scanIntervalMs` must be >= 5min');
   if (!(c.idleHours >= 1))
@@ -87,18 +97,57 @@ export function resolveConfig(raw) {
   return c;
 }
 
-/** Classify a session file by size and idle time. Pure function. */
-export function classifySession(sizeBytes, mtimeMs, config) {
+/** Classify a session file by size and idle time. Pure function.
+ * `thresholds` 可选覆盖（默认取 config.warnBytes/errorBytes）：
+ * 目录聚合判定传 { warnBytes: config.warnDirBytes, errorBytes: config.errorDirBytes }。 */
+export function classifySession(sizeBytes, mtimeMs, config, thresholds) {
+  const t = thresholds ?? config;
   const now = Date.now();
   const idleMs = Math.max(0, now - mtimeMs);
   const idleHours = Math.round((idleMs / 3_600_000) * 10) / 10;
   const level =
-    sizeBytes >= config.errorBytes ? 'error' :
-    sizeBytes >= config.warnBytes  ? 'warn' :
+    sizeBytes >= t.errorBytes ? 'error' :
+    sizeBytes >= t.warnBytes  ? 'warn' :
     'ok';
   const suggestArchive =
     level === 'error' && config.suggestArchive && idleHours >= config.idleHours;
   return { level, idleHours, suggestArchive };
+}
+
+/** 把顶层会话目录名（--D-Deepseek-Harness-- 风格）解码为可读工作区路径。Pure function. */
+export function decodeWorkspaceName(raw) {
+  return String(raw ?? '')
+    .replace(/^--|--$/g, '')
+    .replace(/-/g, pathSep)
+    .replace(/~([0-9A-Fa-f]{4})/g, (_, h) => {
+      try { return String.fromCharCode(parseInt(h, 16)); } catch { return '?'; }
+    })
+    .slice(0, 60);
+}
+
+/** 目录聚合条目标题（用于告警/报告的可读展示）。 */
+export function deriveDirTitle(projectName, mtimeMs) {
+  const ws = decodeWorkspaceName(projectName) || '(root)';
+  const time = new Date(mtimeMs).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  return `${ws} (workspace, ${time})`;
+}
+
+/** 按顶层会话目录聚合计字节数与最近活动时间。Pure function. */
+export function aggregateDirs(files) {
+  const map = new Map();
+  for (const f of files) {
+    if (!f.project) continue;
+    const cur = map.get(f.project) ?? { sizeBytes: 0, mtimeMs: 0, count: 0 };
+    cur.sizeBytes += f.sizeBytes;
+    if (f.mtimeMs > cur.mtimeMs) cur.mtimeMs = f.mtimeMs;
+    cur.count += 1;
+    map.set(f.project, cur);
+  }
+  return [...map.entries()]
+    .filter(([, v]) => v.count > 0 && v.sizeBytes > 0)
+    .map(([project, v]) => ({ project, sessionId: project, ...v }));
 }
 
 /**
@@ -108,13 +157,7 @@ export function classifySession(sizeBytes, mtimeMs, config) {
  */
 export function deriveReadableTitle(sessionId, projectDirName, mtimeMs) {
   const shortId = (sessionId || '?').slice(0, 8);
-  const project = (projectDirName || '')
-    .replace(/^--|--$/g, '')
-    .replace(/-/g, pathSep)
-    .replace(/~([0-9A-Fa-f]{4})/g, (_, h) => {
-      try { return String.fromCharCode(parseInt(h, 16)); } catch { return '?'; }
-    })
-    .slice(0, 60);
+  const project = decodeWorkspaceName(projectDirName) || '(root)';
   const time = new Date(mtimeMs).toLocaleString('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   });
@@ -162,6 +205,25 @@ export function buildReport(files, config) {
       };
     });
 
+  // 目录聚合（PERF-1）：按顶层会话目录统计，总大小超过目录阈值即告警
+  const directories = aggregateDirs(files)
+    .sort((a, b) => b.sizeBytes - a.sizeBytes)
+    .map((d) => {
+      const c = classifySession(d.sizeBytes, d.mtimeMs, config, {
+        warnBytes: config.warnDirBytes, errorBytes: config.errorDirBytes,
+      });
+      return {
+        project: d.project,
+        sessionId: d.project,
+        title: deriveDirTitle(d.project, d.mtimeMs),
+        sessionCount: d.count,
+        sizeBytes: d.sizeBytes,
+        sizeMB: +(d.sizeBytes / 1_048_576).toFixed(2),
+        lastActive: new Date(d.mtimeMs).toISOString(),
+        ...c,
+      };
+    });
+
   return {
     version: SCAN_VERSION,
     generatedAt: new Date().toISOString(),
@@ -171,8 +233,12 @@ export function buildReport(files, config) {
       warnCount: ranked.filter(r => r.level === 'warn').length,
       errorCount: ranked.filter(r => r.level === 'error').length,
       archiveSuggestionCount: ranked.filter(r => r.suggestArchive).length,
+      workspaceWarnCount: directories.filter(d => d.level === 'warn').length,
+      workspaceErrorCount: directories.filter(d => d.level === 'error').length,
+      workspaceTotalMB: +(directories.reduce((s, d) => s + d.sizeBytes, 0) / 1_048_576).toFixed(2),
     },
     sessions: ranked,
+    directories,
   };
 }
 
@@ -327,7 +393,9 @@ function createAlertBuffer() {
   function push(alerts) {
     const now = Date.now();
     for (const alert of alerts) {
-      const last = seen.get(alert.sessionId) ?? 0;
+      // dir 与 file 是不同命名空间（dir 用 project 名、file 用 session id），键加 kind 前缀防碰撞
+      const key = `${alert.kind ?? 'file'}:${alert.sessionId}`;
+      const last = seen.get(key) ?? 0;
       if (now - last < ALERT_COOLDOWN_MS) continue;
       if (queue.length >= MAX_PENDING) queue.shift();
       queue.push({ ...alert, injectedAt: now });
@@ -337,7 +405,7 @@ function createAlertBuffer() {
   function drain() {
     if (queue.length === 0) return null;
     const alerts = queue.splice(0);
-    for (const a of alerts) seen.set(a.sessionId, a.injectedAt);
+    for (const a of alerts) seen.set(`${a.kind ?? 'file'}:${a.sessionId}`, a.injectedAt);
     // Prune expired entries from seen map
     if (seen.size > MAX_TITLE_CACHE) {
       const cutoff = Date.now() - ALERT_COOLDOWN_MS * 2;
@@ -450,9 +518,22 @@ export function apply(ctx, rawConfig) {
 
       lastReport = buildReport(files, config);
 
-      const alerts = lastReport.sessions
+      // 目录聚合告警在前（工作区整体超限是最需要用户看到的），单文件告警在后。
+      const dirAlerts = (lastReport.directories ?? [])
+        .filter(d => d.level !== 'ok')
+        .map(d => ({
+          kind: 'dir',
+          sessionId: d.project,
+          title: d.title,
+          level: d.level,
+          sizeBytes: d.sizeBytes,
+          idleHours: d.idleHours,
+          suggestArchive: d.suggestArchive,
+        }));
+      const fileAlerts = lastReport.sessions
         .filter(s => s.level !== 'ok')
         .map(s => ({
+          kind: 'file',
           sessionId: s.sessionId,
           title: s.title,
           level: s.level,
@@ -460,6 +541,7 @@ export function apply(ctx, rawConfig) {
           idleHours: s.idleHours,
           suggestArchive: s.suggestArchive,
         }));
+      const alerts = [...dirAlerts, ...fileAlerts];
 
       writeStat({
         ts: new Date().toISOString(),
@@ -476,10 +558,14 @@ export function apply(ctx, rawConfig) {
         }
         // Channel 1: Electron Notification
         if (config.notifyElectron) {
-          const errors = alerts.filter(a => a.level === 'error');
-          const body = errors.length > 0
-            ? `${errors.length} session(s) over 8MB, largest ${Math.round(Math.max(...errors.map(a => a.sizeBytes)) / 1_048_576)}MB`
-            : `${alerts.length} session(s) over 4MB`;
+          const dirCount = alerts.filter(a => a.kind === 'dir').length;
+          const fileCount = alerts.length - dirCount;
+          const biggest = alerts.reduce((m, a) => (a.sizeBytes > m.sizeBytes ? a : m), alerts[0]);
+          const levelBits = alerts.filter(a => a.level === 'error').length > 0
+            ? `error=${alerts.filter(a => a.level === 'error').length}`
+            : `warn=${alerts.length}`;
+          const body = `${dirCount} workspace(s) + ${fileCount} session(s) over threshold (${levelBits}), ` +
+            `largest ${Math.round(biggest.sizeBytes / 1_048_576)}MB`;
           tryElectronNotify('Session Hygiene', body);
         }
         // Channel 2: Context injection
@@ -533,8 +619,9 @@ export function apply(ctx, rawConfig) {
   // ── 8. Startup log ──
   try {
     ctx.logger.info(
-      `[session-hygiene] started: warn=${(config.warnBytes / 1_048_576) | 0}MB ` +
-      `error=${(config.errorBytes / 1_048_576) | 0}MB ` +
+      `[session-hygiene] started: file warn=${(config.warnBytes / 1_048_576) | 0}MB ` +
+      `error=${(config.errorBytes / 1_048_576) | 0}MB | ` +
+      `dir warn=${(config.warnDirBytes / 1_048_576) | 0}MB error=${(config.errorDirBytes / 1_048_576) | 0}MB | ` +
       `interval=${(config.scanIntervalMs / 60_000) | 0}min route=${ROUTE}`
     );
   } catch {}

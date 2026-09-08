@@ -11,6 +11,7 @@
 //  4) desktop profile 的 modlens 无缝接管补丁（与 web 对齐）。
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
 import { assertLibUnpacked } from './check-dist-integrity.mjs'
 
@@ -21,8 +22,10 @@ const UPDATE_CANON = process.argv.includes('--update-canon')
 const HOME = process.env.USERPROFILE || process.env.HOME
 if (!HOME) throw new Error('cannot resolve user home')
 const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai')
-const CANON_DIR = 'D:/Deepseek-Harness/patches/bundles'
-const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
+// SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const CANON_DIR = join(REPO_ROOT, 'patches', 'bundles').replace(/\\/g, '/')
+const DEV_ROOT = join(REPO_ROOT, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop', 'node_modules', '@deepseek-ai').replace(/\\/g, '/')
 // 支持 DSH_PKG_ROOT 覆盖打包目录；否则自动解析"最新真实构建"（resolve-dist.mjs；与应用入口 junction 机制分开）。
 const resolvedBuild = process.env.DSH_PKG_ROOT ? null : resolveCurrentBuild()
 // Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
@@ -169,7 +172,7 @@ const ZSTD_MODULE = {
     join(DEV_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
     join(PKG_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
   ],
-  markers: ['PATCH(zstd-async)'],
+  markers: ['PATCH(zstd-async)', 'PATCH(zstd-stream-readraw', 'PATCH(zstd-stream-readprefix'],
 }
 
 let failed = 0

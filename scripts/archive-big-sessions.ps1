@@ -10,14 +10,24 @@
 #   - only sessions idle (newest inner file older than IdleHours) AND larger than MinMB
 #   - per-item try/catch: locked/active dirs are skipped, never forced
 #
+# Directory-aggregate mode (-ByWorkspace, added 2026-09-07):
+#   Some workspaces hold MANY small sessions (e.g. 250 MB across 100+ dirs) where
+#   no single session exceeds MinMB, so the classic rule never fires even though
+#   the aggregate slows startup traversal. With -ByWorkspace, any workspace whose
+#   TOTAL bytes >= WorkspaceMinMB also contributes its idle (>= IdleHours)
+#   sessions regardless of per-session MB. Tag Reason = 'ws-aggregate' vs 'big-file'.
+#
 # USAGE:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\archive-big-sessions.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\archive-big-sessions.ps1 -ByWorkspace -WorkspaceMinMB 150
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\archive-big-sessions.ps1 -Execute
 
 param(
   [switch]$Execute,
   [int]$MinMB = 8,
-  [int]$IdleHours = 24
+  [int]$IdleHours = 24,
+  [switch]$ByWorkspace,
+  [int]$WorkspaceMinMB = 150
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,33 +48,66 @@ function Get-DirStats([string]$p) {
   return @{ Bytes = $size; Newest = $newest }
 }
 
-$candidates = @()
+# Phase A: stat every session dir once; accumulate per-workspace totals.
+$items = @()
+$wsTotal = @{}
 foreach ($ws in (Get-ChildItem $sessRoot -Directory -ErrorAction SilentlyContinue)) {
+  $wsBytes = 0.0
   foreach ($sd in (Get-ChildItem $ws.FullName -Directory -ErrorAction SilentlyContinue)) {
     try {
       $st = Get-DirStats $sd.FullName
     } catch { continue }
     $mb = $st.Bytes / 1MB
     $idleH = ((Get-Date) - $st.Newest).TotalHours
-    if ($mb -ge $MinMB -and $idleH -ge $IdleHours) {
-      $candidates += [pscustomobject]@{
-        Workspace = $ws.Name
-        Session   = $sd.Name
-        MB        = [math]::Round($mb, 2)
-        IdleHours = [math]::Round($idleH, 1)
-        FullPath  = $sd.FullName
-      }
+    $wsBytes += $st.Bytes
+    $items += [pscustomobject]@{
+      Workspace = $ws.Name
+      Session   = $sd.Name
+      MB        = $mb
+      IdleHours = $idleH
+      FullPath  = $sd.FullName
+      Newest    = $st.Newest
+    }
+  }
+  # stray top-level files inside the workspace root count toward the aggregate too
+  foreach ($f in (Get-ChildItem $ws.FullName -File -ErrorAction SilentlyContinue)) { $wsBytes += $f.Length }
+  $wsTotal[$ws.Name] = $wsBytes
+}
+
+# Phase B: classify candidates.
+$seen = @{}
+$candidates = @()
+foreach ($it in $items) {
+  $wsAggMb = if ($wsTotal.ContainsKey($it.Workspace)) { $wsTotal[$it.Workspace] / 1MB } else { 0.0 }
+  $bigFile = ($it.MB -ge $MinMB -and $it.IdleHours -ge $IdleHours)
+  $aggHit  = ($ByWorkspace -and $wsAggMb -ge $WorkspaceMinMB -and $it.IdleHours -ge $IdleHours)
+  if ($bigFile -or $aggHit) {
+    if ($seen.ContainsKey($it.FullPath)) { continue }
+    $seen[$it.FullPath] = $true
+    $candidates += [pscustomobject]@{
+      Workspace   = $it.Workspace
+      Session     = $it.Session
+      MB          = [math]::Round($it.MB, 2)
+      IdleHours   = [math]::Round($it.IdleHours, 1)
+      WorkspaceMB = [math]::Round($wsAggMb, 1)
+      Reason      = if ($bigFile) { 'big-file' } else { 'ws-aggregate' }
+      FullPath    = $it.FullPath
     }
   }
 }
 
 if ($candidates.Count -eq 0) {
-  Write-Output "No sessions match (>= ${MinMB}MB and idle >= ${IdleHours}h). Nothing to do."
+  if ($ByWorkspace) {
+    Write-Output "No sessions match (idle >= ${IdleHours}h, and big-file >= ${MinMB}MB OR workspace aggregate >= ${WorkspaceMinMB}MB). Nothing to do."
+  } else {
+    Write-Output "No sessions match (>= ${MinMB}MB and idle >= ${IdleHours}h). Nothing to do."
+    Write-Output "Tip: run with -ByWorkspace to also archive idle sessions inside workspaces whose TOTAL exceeds ${WorkspaceMinMB}MB."
+  }
   exit 0
 }
 
-Write-Output ("=== {0} candidate session(s) (>={1}MB, idle >={2}h) ===" -f $candidates.Count, $MinMB, $IdleHours)
-$candidates | Sort-Object MB -Descending | Format-Table Workspace, Session, MB, IdleHours -AutoSize | Out-String | Write-Output
+Write-Output ("=== {0} candidate session(s) ===" -f $candidates.Count)
+$candidates | Sort-Object Workspace, MB -Descending | Format-Table Workspace, Session, MB, IdleHours, WorkspaceMB, Reason -AutoSize | Out-String | Write-Output
 $totalMB = [math]::Round((($candidates | Measure-Object MB -Sum).Sum), 1)
 Write-Output ("Total: {0} MB across {1} session(s)" -f $totalMB, $candidates.Count)
 
@@ -85,7 +128,7 @@ foreach ($c in $candidates) {
     New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
     Move-Item -Path $c.FullPath -Destination $target -ErrorAction Stop
     $moved += 1
-    Write-Output ("  moved  {0}/{1} ({2} MB)" -f $c.Workspace, $c.Session, $c.MB)
+    Write-Output ("  moved  {0}/{1} ({2} MB, {3})" -f $c.Workspace, $c.Session, $c.MB, $c.Reason)
   } catch {
     $failed += $c.Session
     Write-Output ("  SKIP   {0}/{1} (locked or busy): {2}" -f $c.Workspace, $c.Session, $_.Exception.Message)
@@ -94,7 +137,7 @@ foreach ($c in $candidates) {
 
 # Manifest for restore
 $manifest = Join-Path $dest 'manifest.txt'
-$candidates | ForEach-Object { "{0}/{1} <- {2}" -f $_.Workspace, $_.Session, $_.FullPath } | Set-Content $manifest -Encoding UTF8
+$candidates | ForEach-Object { "{0}/{1} <- {2} [{3}]" -f $_.Workspace, $_.Session, $_.FullPath, $_.Reason } | Set-Content $manifest -Encoding UTF8
 
 Write-Output ""
 Write-Output ("Done: moved {0}, skipped {1}. Archive: {2}" -f $moved, $failed.Count, $dest)

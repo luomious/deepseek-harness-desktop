@@ -36,6 +36,13 @@ const MAX_LOCKS = 512
 const MAX_CHANGES = 2000
 const DEFAULT_TTL_MS = 60 * 60 * 1000
 
+// SELF-1 (2026-09-07): module-level observability state — appendChange/readChanges
+// failures are fail-soft by design (audit trail loss must not break lock ops), but
+// previously they were SILENT. Now status() surfaces a `degraded` field so CLI and
+// HTTP wrappers can surface the problem instead of pretending everything is fine.
+let lastAuditError = null  // { ts, error } — last appendChange failure
+let lastReadError = null   // { ts, error } — last readChanges failure
+
 export function priorityRank(label) {
   if (typeof label === 'number') return label
   return PRIORITY[String(label || 'normal')] ?? PRIORITY.normal
@@ -99,7 +106,12 @@ function appendChange(entry) {
     ensureDirs()
     const line = JSON.stringify({ id: `${now().toString(36)}-${randHex(3)}`, ts: now(), ...entry })
     appendFileSync(changesFile(), line + '\n', 'utf8')
-  } catch { /* 时间线失败不影响锁功能 */ }
+    lastAuditError = null // clear on success (recovered)
+  } catch (e) {
+    // SELF-1: fail-soft is correct (audit loss must not break locks), but record
+    // so status() can report degraded — previously this was completely silent.
+    lastAuditError = { ts: now(), error: String(e?.message ?? e) }
+  }
 }
 function readChanges(limit = 200) {
   const all = []
@@ -109,7 +121,10 @@ function readChanges(limit = 200) {
         if (line.trim()) try { all.push(JSON.parse(line)) } catch { /* bad line */ }
       }
     }
-  } catch {}
+    lastReadError = null // clear on success
+  } catch (e) {
+    lastReadError = { ts: now(), error: String(e?.message ?? e) }
+  }
   if (all.length === 0) {
     try {
       const olds = readdirSync(storeDir()).filter((f) => f.startsWith('changes.jsonl.old-')).sort()
@@ -209,8 +224,23 @@ function tryAcquire(list, key, opts) {
         preemptRequested: null, baseChange: opts.baseChange || null,
         beforeHashes: hashResources(list),
       }
-      writeFileSync(f, JSON.stringify(lock, null, 2), { encoding: 'utf8', flag: 'wx' })
-      acquired.push({ r, f })
+      // SELF-1: EEXIST race handling — another process created the lock between
+      // our existsSync check and the wx write (narrow race window). Re-read the
+      // holder and return BUSY instead of a confusing ERROR code.
+      try {
+        writeFileSync(f, JSON.stringify(lock, null, 2), { encoding: 'utf8', flag: 'wx' })
+        acquired.push({ r, f })
+      } catch (writeErr) {
+        if (writeErr?.code === 'EEXIST') {
+          for (const a of acquired) { try { unlinkSync(a.f) } catch {} }
+          const holder = readLock(f)
+          appendChange({ action: 'race-eexist', resource: r, resources: list, holderId: holder?.id || null, by: opts.who || 'unknown' })
+          return { ok: false, code: 'BUSY', reason: 'race-eexist', resource: r, key,
+            holder: holder ? summarizeHolder(holder) : null,
+            hint: 'lock created by another process between check and write (rare race)' }
+        }
+        throw writeErr // other errors fall to outer catch
+      }
     }
     appendChange({ action: 'locked', resources: list, who: opts.who || '', task: opts.task || '', priority: myLabel, token: tk })
     return { ok: true, token: tk, key, resources: list, priority: myLabel,
@@ -303,7 +333,13 @@ export function status(opts = {}) {
       }
     }
   } catch { /* 懒回收失败不影响 status 返回 */ }
-  return { ok: true, ts: now(), store: storeDir(), locks, changes }
+  // SELF-1: surface observability state so CLI/HTTP can report instead of lying
+  const degraded = {}
+  if (lastAuditError) degraded.audit = lastAuditError
+  if (lastReadError) degraded.read = lastReadError
+  const hasDegraded = Object.keys(degraded).length > 0
+
+  return { ok: true, ts: now(), store: storeDir(), locks, changes, ...(hasDegraded ? { degraded } : {}) }
 }
 
 export function clear(opts = {}) {

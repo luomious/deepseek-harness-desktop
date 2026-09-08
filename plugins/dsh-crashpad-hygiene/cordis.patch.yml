@@ -1,0 +1,10 @@
+# dsh-crashpad-hygiene bundle patch: crashpad .dmp accumulation guard.
+- insert:
+    - id: dsh-crashpad-hygiene
+      name: '@dsh-external/dsh-crashpad-hygiene'
+      config:
+        enabled: true
+        maxKeep: 2
+        retentionDays: 30
+        quotaBytes: 314572800
+        scanIntervalMs: 21600000

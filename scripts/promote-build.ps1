@@ -12,7 +12,8 @@
 #      (the app keeps working on the last known-good build).
 #   3. After a successful promote, older win-unpacked-build* dirs are archived
 #      to _backups\dist-archive\<ts>\ (keep: new + previous + the currently
-#      running build), so dist never accumulates buildN dirs.
+#      running build), so dist never accumulates buildN dirs. An UPD-1 gate
+#      guarantees dist keeps >= 2 build dirs (rollback targets) at all times.
 
 param(
   [Parameter(Mandatory=$true)][string]$From,
@@ -140,6 +141,24 @@ if ($prevTarget -ne '') { $keep += (BuildRootOf $prevTarget) }
 if ($runningPath -ne '') { $keep += (BuildRootOf $runningPath) }
 $keep += $newRoot
 $keep = $keep | Select-Object -Unique
+
+# ---------- UPD-1 gate: never leave dist with fewer than 2 build dirs ----------
+# dist must keep >= 2 win-unpacked-build* dirs as rollback targets even when
+# prevTarget is empty (first promote) or equals From (re-promote of same build)
+# or the running path cannot be resolved. If the keep set is smaller, extend it
+# with the oldest remaining build dirs so the archive step below can never
+# reduce dist below two candidates.
+$availBuilds = @(
+    Get-ChildItem $dist -Directory -Filter 'win-unpacked-build*' -ErrorAction SilentlyContinue |
+        ForEach-Object { (Resolve-Path $_.FullName -ErrorAction SilentlyContinue).Path } |
+        Where-Object { $_ -ne '' } |
+        Sort-Object
+)
+$keep = @($keep | Where-Object { $_ -ne '' -and ($availBuilds -contains $_) } | Select-Object -Unique)
+foreach ($cand in $availBuilds) {
+    if ($keep.Count -ge 2) { break }
+    if ($keep -notcontains $cand) { $keep += $cand }
+}
 
 $ts = Get-Date -Format 'yyyyMMddHHmmss'
 $builds = Get-ChildItem $dist -Directory -Filter 'win-unpacked-build*' -ErrorAction SilentlyContinue

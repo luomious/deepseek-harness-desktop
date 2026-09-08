@@ -1,0 +1,17 @@
+{
+  "name": "@dsh-external/dsh-crashpad-hygiene",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./lib/index.js",
+  "description": "Crashpad crash-dump hygiene: cap .dmp accumulation via recycle-bin cleanup with full audit",
+  "dependencies": {},
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

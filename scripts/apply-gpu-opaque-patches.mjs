@@ -7,6 +7,12 @@
 //   3. lib/electron-runtime-*.js : opaque win32 window + conditional mica
 //   4. lib/electron-runtime-*.js : guarded refreshThemeMaterial
 //   5. lib/main.js          : occlusion + backgrounding switches
+//   6. lib/main.js          : in-process-gpu + disable-gpu-compositing
+//                            (eliminates the GPU child crash-loop on virtual
+//                             display adapters; --disable-gpu alone still spawns
+//                             a GPU process in current Chromium and it dies,
+//                             which is the source of the ghost-transparent
+//                             window and the multi-second startup stall).
 //
 // Run after each rebuild:  node scripts/apply-gpu-opaque-patches.mjs
 // (package-vendor.ps1 calls this automatically right after apply-winhide-patches.)
@@ -107,6 +113,27 @@ const patches = [
       '\tif (!app.commandLine.hasSwitch("disable-features")) app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");',
       '\tapp.commandLine.appendSwitch("disable-backgrounding-occluded-windows");',
       '\tapp.commandLine.appendSwitch("disable-renderer-backgrounding");',
+    ].join('\n'),
+  },
+  {
+    // 2026-09-07: on this machine the GPU child process still spawns under
+    // --disable-gpu (Chromium uses it as the software-compositor host) and
+    // crashes (exit_code=1) due to the virtual display adapter. That crash
+    // loop leaves the native window with no compositor -> the user sees a
+    // ghost / see-through window and the main process stalls waiting for the
+    // GPU, which is the source of both "UI 变透明" and "打开卡顿几秒".
+    // Routing the compositor in-process and disabling GPU compositing removes
+    // the GPU child entirely; the existing DSH_DESKTOP_FORCE_GPU=1 path keeps
+    // the original GPU+mica look.
+    name: 'in-process-gpu + disable-gpu-compositing (lib/main.js)',
+    file: join(build.lib, 'main.js'),
+    marker: 'app.commandLine.appendSwitch("in-process-gpu")',
+    anchor: '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+    replacement: [
+      '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+      '\t// dsh patch (apply-gpu-opaque-patches): eliminate the GPU child crash-loop on virtual display adapters.',
+      '\tif (!app.commandLine.hasSwitch("in-process-gpu")) app.commandLine.appendSwitch("in-process-gpu");',
+      '\tapp.commandLine.appendSwitch("disable-gpu-compositing");',
     ].join('\n'),
   },
 ]

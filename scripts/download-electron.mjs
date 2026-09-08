@@ -3,17 +3,21 @@
 // Usage: node scripts/download-electron.mjs
 import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const { ProxyAgent } = require('D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/undici')
+// SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const { ProxyAgent } = require(join(REPO_ROOT, 'vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/undici'))
 
 const VERSION = '43.4.0'
 const URL = `https://github.com/electron/electron/releases/download/v${VERSION}/electron-v${VERSION}-win32-x64.zip`
 const SHASUMS_URL = `https://github.com/electron/electron/releases/download/v${VERSION}/SHASUMS256.txt`
 const BASENAME = `electron-v${VERSION}-win32-x64.zip`
-const CACHE = 'D:/Deepseek-Harness/.electron-cache'
+const CACHE = join(REPO_ROOT, '.electron-cache').replace(/\\/g, '/')
 const OUT = `${CACHE}/${BASENAME}`
 mkdirSync(CACHE, { recursive: true })
 

@@ -21,15 +21,18 @@
 // NOTE: this is a HOST module, so it only takes effect after the desktop app is
 // restarted (Node module cache). Browser refresh is NOT enough for this one.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
 import { assertLibUnpacked } from './check-dist-integrity.mjs'
+import { fileURLToPath } from 'node:url'
 
 const MARK = 'cwd: homedir(), /* dsh-desktop patch'
 const ANCHOR = '\t\t\tcwd: process.cwd(),'
 const REPLACEMENT = '\t\t\tcwd: homedir(), /* dsh-desktop patch: empty session.create lands in home (outside any workspace) */'
 
-const DEV_ROOT = 'D:/Deepseek-Harness/vendor/deepseek-harness-desktop/dsh-plugin-desktop/node_modules/@deepseek-ai'
+// SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const DEV_ROOT = join(REPO_ROOT, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop', 'node_modules', '@deepseek-ai').replace(/\\/g, '/')
 const build = resolveCurrentBuild()
 // Fail loudly if the rebuild packed lib/ back into app.asar (dist patches
 // target app.asar.unpacked and would otherwise become silently ineffective).

@@ -15,7 +15,7 @@
 //
 // 临时关闭守卫：在 cordis.patch.yml 顶部加注释 `# modlens-guard: off`。
 // 卸载守卫：dev_uninject_plugin dsh-modlens-guard（注入器常驻，重启后自动恢复）。
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, renameSync, unlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 
@@ -43,6 +43,20 @@ function log(...parts) {
     appendFileSync(LOG_PATH, line)
   } catch {
     /* 日志失败不影响守卫本身 */
+  }
+}
+
+// DATA-1（2026-09-07）：原子写文本文件——同目录 .tmp-* + rename 覆盖。
+// 守卫写的是 cordis.patch.yml（服务启动装配输入），中途崩溃不能留下半截 YAML。
+// 失败时清理 tmp 并上抛，沿用调用方 try/catch + log('write error') 语义。
+function atomicWriteText(file, text) {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now().toString(36)}`
+  try {
+    writeFileSync(tmp, text, 'utf8')
+    renameSync(tmp, file)
+  } catch (error) {
+    try { unlinkSync(tmp) } catch { /* tmp 清理失败不影响主错误 */ }
+    throw error
   }
 }
 
@@ -149,7 +163,7 @@ function runOnce(ctx) {
       let attacked = readFileSync(PATCH_PATH, 'utf8')
       const attack = insertVisionProviderFalse(attacked)
       if (attack.inserted) {
-        writeFileSync(PATCH_PATH, attack.text)
+        atomicWriteText(PATCH_PATH, attack.text)
         log('SIMULATED attack: visionProvider: false 已写回（测试钩子）')
       }
     }
@@ -170,7 +184,7 @@ function runOnce(ctx) {
   const { text, removed, familiesRewritten } = fixModlensBlock(raw)
   if (!removed && !familiesRewritten) return
   try {
-    writeFileSync(PATCH_PATH, text)
+    atomicWriteText(PATCH_PATH, text)
     const bits = []
     if (removed) bits.push(`removed ${removed}× visionProvider: false`)
     if (familiesRewritten) bits.push(`families -> [${FIXED_FAMILIES.join(', ')}]`)

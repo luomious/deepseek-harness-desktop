@@ -1,0 +1,21 @@
+{
+  "version": "2026-09-07.1",
+  "note": "CAP-1 hub skill 直装选单。hub 目录 = 唯一事实源；增删条目后重跑 scripts/install-hub-skills.mjs。",
+  "skills": [
+    "diagram-design",
+    "docx",
+    "pptx",
+    "xlsx",
+    "pdf",
+    "security-audit",
+    "dep-auditor",
+    "zh-docgen",
+    "dispatching-parallel-agents",
+    "verification-before-completion",
+    "systematic-debugging",
+    "test-driven-development"
+  ],
+  "excluded": {
+    "web-artifacts-builder": "面向 claude.ai artifact 环境写死，对 DSH 有误导性"
+  }
+}

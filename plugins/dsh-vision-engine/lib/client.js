@@ -791,13 +791,13 @@ window.__ModuleLoader__.load({
         chip.style.left = (rect.left + Math.min(i * (w + 8), Math.max(0, rect.width - w))) + 'px';
         chip.style.top = Math.max(8, rect.top - 88) + 'px';
       }
-      function render() {
+      function render(allowFullScan) {
         try {
           var el = document.activeElement;
           var isInput = el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
           var paths = isInput ? findPaths(el.value) : [];
           // 增强:焦点输入框无匹配时,扫描全部输入框(应对 composer 重渲染/焦点丢失导致只显示路径不出卡片)
-          if (paths.length === 0) {
+          if (paths.length === 0 && allowFullScan) {
             var boxes = document.querySelectorAll('textarea,input');
             for (var i = 0; i < boxes.length && paths.length === 0; i++) {
               var found = findPaths(boxes[i].value || '');
@@ -876,7 +876,7 @@ window.__ModuleLoader__.load({
         if (__veRaf) return;
         __veRaf = window.requestAnimationFrame(function () {
           __veRaf = null;
-          render();
+          render(false);
         });
       }
       var onInput = function () { scheduleRender(); };
@@ -890,9 +890,15 @@ window.__ModuleLoader__.load({
         _cancelRaf: function () {
           if (__veRaf) { window.cancelAnimationFrame(__veRaf); __veRaf = null; }
         },
-        // 低频兜底（3s，原 900ms）：仅覆盖“编辑器直接改 value 不触发
-        // input/focusin”的边角场景；render() 无预览时 early-return，开销可忽略。
-        timer: window.setInterval(function () { render(); }, 3000)
+        // 低频兜底（3s，原 900ms）：仅覆盖"编辑器直接改 value 不触发
+        // input/focusin"的边角场景；render() 无预览时 early-return，开销可忽略。
+        // PERF-3（2026-09-07）：加可见性门控——页面隐藏(document.hidden)或无任何
+        // textarea/input 时跳过，避免背景标签页和纯阅读页浪费 CPU。
+        timer: window.setInterval(function () {
+          if (document.hidden) return;
+          if (!document.querySelector('textarea, input[type="text"], [contenteditable="true"]')) return;
+          render(true);
+        }, 3000)
       };
       document.addEventListener('input', onInput, true);
       document.addEventListener('focusin', onFocusIn, true);

@@ -2,12 +2,16 @@
 // scripts/fix-security.mjs
 // 安全修复（幂等，标记校验）：H1 注入器任意目录删除 / H2 注入器路由 CSRF / H3 vision-engine 路径穿越 / H4 staging RCE / M1 file-explorer 路径逃逸 / M2 remote-workspace 目标注入 / M3 目录列举引号 bug / M4 context-lifecycle CSRF
 import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const INJECTOR = ['D:/Deepseek-Harness/plugins/dsh-routing-suite/injector/lib/index.js', 'D:/Deepseek-Harness/plugins/dsh-routing-suite/injector/src/index.ts']
-const VISION = ['D:/Deepseek-Harness/plugins/dsh-vision-engine/lib/index.js']
-const FILEEX = ['D:/Deepseek-Harness/plugins/dsh-file-explorer/lib/index.js']
-const REMOTE = ['D:/Deepseek-Harness/plugins/dsh-remote-workspace/src/index.ts']
-const CONTEXT = ['D:/Deepseek-Harness/dsh-context-lifecycle/lib/index.js']
+// SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const INJECTOR = [join(REPO_ROOT, 'plugins/dsh-routing-suite/injector/lib/index.js'), join(REPO_ROOT, 'plugins/dsh-routing-suite/injector/src/index.ts')]
+const VISION = [join(REPO_ROOT, 'plugins/dsh-vision-engine/lib/index.js')]
+const FILEEX = [join(REPO_ROOT, 'plugins/dsh-file-explorer/lib/index.js')]
+const REMOTE = [join(REPO_ROOT, 'plugins/dsh-remote-workspace/src/index.ts')]
+const CONTEXT = [join(REPO_ROOT, 'dsh-context-lifecycle/lib/index.js')]
 
 let fail = 0
 const report = []

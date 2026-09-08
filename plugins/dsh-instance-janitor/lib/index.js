@@ -102,6 +102,10 @@ export function apply(ctx, rawConfig) {
         "$list = @();",
         "$list += Get-CimInstance Win32_Process -Filter \"Name='DSH Desktop.exe'\";",
         "$list += Get-CimInstance Win32_Process -Filter \"CommandLine LIKE '%hy3-gateway%server.js%'\";",
+        // 2026-09-07 修复：crashpad 进程名为 crashpad_handler.exe，既不匹配上面的
+        // Name='DSH Desktop.exe'，也不含 hy3 命令行，导致下方 crashpad 分支永远进不去
+        // （死代码，孤儿 crashpad 永不清理）。补查该进程名。
+        "$list += Get-CimInstance Win32_Process -Filter \"Name='crashpad_handler.exe'\";",
         '$procs = $list | Sort-Object ProcessId -Unique | ForEach-Object { [pscustomobject]@{ pp = $_.ProcessId; nm = $_.Name; st = if ($_.CreationDate) { $_.CreationDate.ToString(\'o\') } else { $null }; cl = $_.CommandLine } };',
         '[pscustomobject]@{ main = $main; procs = $procs } | ConvertTo-Json -Compress -Depth 3',
       ].join('\n');
@@ -178,7 +182,9 @@ export function apply(ctx, rawConfig) {
         if (startedMs >= resolvedAnchor - config.generationToleranceMs) continue; // 当前代，不碰
         const cl = String(p?.cl ?? '');
         const nm = String(p?.nm ?? '');
-        if (cl.includes('--type=crashpad-handler')) {
+        // 2026-09-07 加固：原判据只认命令行 --type=crashpad-handler，若 Electron 变更启动参数即失效；
+        // 补进程名匹配做双保险（nm 取自查询结果集，已含 crashpad_handler.exe）。
+        if (cl.includes('--type=crashpad-handler') || /crashpad/i.test(nm)) {
           const ok = await killPid(pid);
           snapshot.killed.crashpad.push({ pid, ok });
           log(`kill crashpad-handler pid=${pid} ok=${ok} (started ${p.st})`);

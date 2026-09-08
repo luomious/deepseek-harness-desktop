@@ -16,7 +16,7 @@
  *  4. 可观察：启动日志 + /host-services/status 诊断端点。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 export const name = '@dsh-external/dsh-host-services'
@@ -199,10 +199,22 @@ export function readJson(file, fallback) {
   return fallback
 }
 
-/** 写 JSON 文件（自动建目录，UTF-8 + 尾换行）。 */
+/**
+ * 写 JSON 文件（自动建目录，UTF-8 + 尾换行）。
+ * DATA-1（2026-09-07）：改为原子写——先写同目录 .tmp-* 再 rename 覆盖，
+ * 消除"写入中途崩溃/断电 → 目标文件损坏"窗口（单机无冗余，配置损坏不可接受）。
+ * 失败时清理 tmp 并上抛，与调用方既有错误处理语义一致。
+ */
 export function writeJson(file, value) {
   mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8')
+  const tmp = `${file}.tmp-${process.pid}-${Date.now().toString(36)}`
+  try {
+    writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8')
+    renameSync(tmp, file)
+  } catch (error) {
+    try { unlinkSync(tmp) } catch { /* tmp 清理失败不影响主错误 */ }
+    throw error
+  }
 }
 
 // ── 插件入口 ───────────────────────────────────────────────────────────

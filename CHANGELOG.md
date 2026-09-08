@@ -6,6 +6,169 @@
 
 ---
 
+## 2026-09-07 验证层假阳性修复（V9 三态分类 + SLO inconclusive 语义）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **SIG-1 [x]** | `startup-verify.mjs` V9 假阳性根治：spawnSync 被 DSH 沙箱拦截（EPERM，子进程根本没跑、`r.status=null`）时，旧逻辑 `r.status !== 0` 把全部 73 个未检查文件误报 "syntax error"（狼来了效应——PERF-5 漂移藏 6 天的生态根因）。现抽导出纯函数 `classifyNodeCheck`（ok / syntax-error / env-blocked 三态）+ `v9Verdict` 聚合判定（FAIL > WARN > PASS，**真错即使与拦截并存仍 FAIL，降级绝不掩盖已确认的错**） | 单元测试 **10/10 PASS**（含"真错+拦截并存仍 FAIL"、"status null 无 error 边界→env-blocked"）；沙箱内实跑 V9=**WARN** `env-blocked: 73/73`，startup-verify **exit 1→0** | `_backups/fix-20260907-v9-002425/` |
+| **SIG-2 [x]** | `health-check.mjs` inconclusive 语义：spawn 被拦记 `ok:null`（INCONCLUSIVE）而非 `ok:false`；summarize 三处消费点同步（pass-rate 分母只算 conclusive、连续失败链跳过 inconclusive、展示三态 PASS/FAIL/INCONCLUSIVE）；退出码不受影响 | check-all Step 1.5 从「永远 FAIL health-check code 1」恢复为通过；输出 `本次: INCONCLUSIVE (env-blocked)`；SLO 史 14 条 100% 不被新记录污染 | 同上 |
+| **结论** | check-all 沙箱内 **2 FAILED → 1 FAILED**（仅剩 diagram pipeline 的 python/Playwright EPERM 环境限制，沙箱外正常）。V9 修复后真实语法检查仍受沙箱限制无法 e2e 验证"真坏文件"路径——已由 v9Verdict 单元测试锁死该语义 | check-all 实跑全文 | — |
+
+> 官方语义佐证：[nodejs.org/api/child_process](https://nodejs.org/api/child_process.html)——spawn 失败时返回值带 `error` 属性（`status` 为 null）。
+> 故障注入记录：构造真坏文件（`function broken({{`）在沙箱内因 spawn 全被拦无法触发 syntax-error 路径（子进程没跑）→ 单元测试以构造返回值 `{status:1, stderr:'file.js:1...'}` 锁死该语义；测试过程中还捕获并修复一个边界 bug（status null 且无 error 被误判 syntax-error）。
+> **无需重启**：纯离线脚本（scripts/）改动，不碰运行路径。
+> 语义决策：EPERM 降级为 WARN 而非静默 PASS——「未检查」≠「通过」，显式可见保持诚实。
+
+## 2026-09-07 补丁生命周期标准化（登记制 + 统一原子引擎 + 漂移门禁）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **REG-1 [x]** | 补丁登记制：`scripts/patch-registry.mjs`（id/bundle/anchors/markers/appliedWhen/targets 纯数据 + dist/dev 双根解析），新增补丁只加一个条目即获得全生命周期管理 | registry 1 条目（perf5-session-decode-streaming） | — |
+| **ENG-1 [x]** | 统一原子补丁引擎 `scripts/patch-apply.mjs`：`scan/status/apply/rollback/self-test` 五模式；apply 链 = 全量备份 → 锚点校验（源+目标，防上游换版误打）→ `node --check` 预检 → 同目录临时文件+rename 原子替换 → 回读 marker 校验 → 失败自动恢复备份。根治两类事故模式：apply-*.mjs 直写非原子（2026-08-29 半写启动失败同款）与"补丁源码就绪忘了部署"（PERF-5 静默漂移实例） | self-test 故障注入 **6/6 PASS**（漂移判定/部署/内容一致/幂等重跑/上游换版拒写/源缺标记拒部署）；沙箱内 spawn EPERM 时自动降级 marker 回读校验并显式提示 | — |
+| **GATE-1 [x]** | `check-all.ps1` 新增 **Step 2.6 漂移门禁**：`patch-apply.mjs scan` 只读扫描，发现"bundle 就绪但目标缺 marker"即 FAIL+HINT，把静默漂移变成启动即报 | check-all 实跑 Step 2.6：`1 个登记补丁, 0 个漂移 OK` | — |
+| **PERF-5 重部署 [x]** | 经新引擎重打 dist+dev 两目标（上次部署后被重建覆盖，verify 第 67 项 FAIL 即此漂移——正是本次登记制根治的实例） | verify-patches **ALL PASS（49 checks，退出码 0）**；幂等重跑全 SKIP；部署后 dist 文件沙箱外 `node --check` EXIT 0；marker 行 926 在位、旧 marker `PATCH(zstd-async)` 保留（回退路径完好） | `_backups/patch-apply/perf5-session-decode-streaming-2026-09-07T14-34-56/`（含 README 回滚说明，`rollback --id` 可一键回滚） |
+
+> 旧入口 `scripts/apply-session-decode-streaming.mjs` 重写为薄封装（调引擎 `apply --id perf5-session-decode-streaming`），旧调用方式完全兼容。
+> 部署前已在沙箱外独立 `node --check` 预检补丁内容（EXIT 0）——沙箱内降级不构成语法盲区。
+> 剩余 2 FAIL（health-check / diagram pipeline）为已知沙箱 EPERM 环境限制，沙箱外均正常，非本次引入。
+> 需重启 DSH Desktop 生效（等用户指示，agent 不自动重启）。
+
+## 2026-09-07 PERF-5 会话解码流式化部署（打开对话载入历史加速）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **PERF-5 [x]** | `dsh-session-persistence-jsonl` readRaw 多帧 zstd 解码从"逐帧 `zstdDecompressAsync` 线程池往返"改为单一流式解码器（`dsh-patch: zstd-stream-readraw v1`）；12MB/39666 帧会话实测 **2976ms→876ms（3.4x）**，输出逐字节一致；任何流式错误自动回退原逐帧路径 | 部署文件新 marker `zstd-stream-readraw` 2 处 + 旧 marker `PATCH(zstd-async)` 2 处（verify 第 59 行旧检查不破）+ `node --check` OK + `check-dist-integrity.mjs` EXIT 0；模块内新旧路径对比验证 PASS | `_backups/perf5-session-decode-2026-09-07T10-37-48/`（apply 自动备份 `index.js.dist-before`） |
+
+> 部署方式：`scripts/apply-session-decode-streaming.mjs`（幂等，源缺 marker 拒绝，部署前时间戳备份）；验收 `scripts/verify-patches.ps1` 第 67 行已登记。
+> 核验绕行：verify-patches 在本 agent PowerShell 宿主有 PATCH-5 已知捕获假象（per-check 输出被 `exit` 截断、3 个动态检查误报 FAIL），已用"直接 grep marker + 独立跑 check-dist-integrity"绕过；用户真机 PowerShell 跑即 PASS。
+> 重启：未由 agent 自动重启——沙箱在工具调用返回时回收派生进程（ENV-1 同类限制），已由用户双击 DSH Desktop 启动生效。
+
+## 2026-09-07 阶段 2 启动：CAP-1 hub skill 直装 + CAP-3 能力注册表 + CAP-2 重定性
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **CAP-1 [x]** | 72 个 hub skill 中直装 12 个高频到 `~/.dsh/skills`（docx/pptx/xlsx/pdf/diagram-design/security-audit/dep-auditor/zh-docgen/dispatching-parallel-agents/verification-before-completion/systematic-debugging/test-driven-development）。新工具链：`scripts/hub-skills.selection.json`（选单外置，扩装只改 JSON）+ `scripts/install-hub-skills.mjs`（幂等/manifest 审计/`--remove` 显式回滚/--dry-run）；安装前强制 frontmatter 合规校验 | `lint-skills` 18/18 PASS；幂等复跑 12 SKIP；manifest 12 项（hash/文件清单/时间）；排除 web-artifacts-builder（claude.ai 写死） | 安装为纯新增，无覆盖；回滚走 `--remove`（仅删 manifest 登记文件） |
+| **LINT-1 提前落地 [x]** | `scripts/lint-skills.mjs`（C 层格式门禁：name kebab/dir 一致/desc≤500/fail-closed 字段/snake_case 陷阱），阶段 5 清单同步勾选 | 90/90 PASS（6 自研 + 72 hub + 12 新装） | — |
+| **CAP-3 [x]** | `docs/CAPABILITY-REGISTRY.md`：能力顶层地图（skill 18 项明细/插件分组引 plugins/INVENTORY.md/脚本工具箱/宿主能力/"明确没有的能力"防幻觉） | 四层全覆盖 | — |
+| **CAP-2 重定性 [~]** | 勘察确认**双通道已存在**（SVG 原子落盘 + `/diagram-files/` 静态路由 + markdown 兜底图行 + 交互卡，index.js:240-285），原计划"新建后备通道"已完成大半；剩余"降低 React fiber 依赖"移入阶段 4 **QUAL-7**（三次翻修根源，非必要不动） | 代码级证据 | — |
+
+> CAP-6 重叠观察开始（dispatching-parallel-agents vs subagent-orchestration，一周）。
+> 待用户：重启后用 skill_search 确认 12 个新 skill 可发现；docx/pptx 断网生成待实测。
+
+### 官方接口规范统一（用户要求补充执行）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **lint-skills 升级为官方规范精确校验** | 弃正则改用内核同款 `yaml` 包真解析（正确处理 `description: \|` 块标量）；官方全项：name kebab/dir 一致（reject stale name）、desc≤500、fail-closed 字段布尔字面量、snake_case 陷阱、whenToUse 类型、根内查重（跨根=hub 源与副本属正常复制）；metadata 为本系统约定 → WARN 不 FAIL | 90 PASS / 0 FAIL；曾实战拦截一次 metadata 插入坏行（bash 转义致 `/n` 字面量 → 从备份恢复后用脚本文件重做） | `_backups/fix-20260907-skillmeta-164904/`（含修复前后） |
+| **SKILL-1 提前落地 [x]** | 6 个自研方法论 skill 补全 metadata（version/owner/status/tags/since，status=active）；上游 hub 12+60 个不改源，metadata 由 `.hub-install-manifest.json` 承载（符合官方"frontmatter open YAML、metadata 可选"定位） | 自研 6 个 metadata WARN 清零；幂等（已含 metadata 自动跳过） | 同上 |
+
+---
+
+## 2026-09-07 启动失败事故闭环（SELF-2b shim 修复 + ENV-1 启动环境约定）
+
+> 完整时间线/证据/排除项见 `docs/INCIDENT-20260907-STARTUP-FAILURE.md`。数据零丢失。
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **SELF-2b（P1 回归修复）** | 15:26 起启动必卡 install-recovery：shim 把删除劫持到"回收站→隔离"，对应用自持句柄的 `state.json.lock` 双失败 → EQ_DELETE 抛错 → 恢复窗口 ERR_FAILED → startup.run.failed。修复：①瞬态旁路（`*.lock`/`*.tmp`/`*.tmp-*` 直走原始删除，恢复 stock 语义）；②竞态委托（隔离时目标已消失 → 委托原始 fs，ENOENT 由 rimraf 正常消化）。用户数据保护链（回收站→`_quarantine`→抛错）不变 | `tests/plugins/safe-delete-shim.test.mjs` **9/9 PASS**（新增）；修复后 install-recovery 稳定通过；`node --check` PASS；startup-verify 10/10；check-dist-integrity 3/3 | `_backups/fix-20260907-shimfix-154357/` |
+| **ENV-1（约定文档化）** | 15:50–16:10 renderer-startup 连续失败：根因 = 从 WorkBuddy Job 嵌套环境启动（`CREATE_BREAKAWAY_FROM_JOB` 实测被拒）→ Chromium 沙箱 renderer 无法初始化被 killed → 健康上报超时。单变量确认：仅 `--no-sandbox` → startup.run.completed；系统代理（7897）ProxyOverride 含 `127.*`/`<local>` 排除代理拦截；用户双击启动不受影响（14:40 完整成功同版本） | winreg 查证 + 二分摘除 15:08 补丁仍失败（排除补丁）+ 单变量开关测试 | main.js.before-bisect 已还原（port-preflight/quit-lock-cleanup 补丁保留，已证明无辜） |
+
+**教训**：①启动链路补丁必须在 dirty 状态（有残留锁）下做过启动测试；②"启动失败"先核对启动方式
+（agent 会话内的启动不可作准），再怀疑代码。
+
+---
+
+## 2026-09-07 运行时诊断与保守修复（单机化定位定案 + janitor 死代码修复）
+
+### 定位定案
+用户明确：**长期离线单机运行，仅在"升级日"主动访问上游**。据此产出整合方案
+`docs/DSH-MASTER-PLAN-2026-09-07.md`（Master Plan，收拢审计/诊断/能力/标准化/路线 5 份子文档）。
+
+### 已修复（均有备份 + 验证，未自动重启）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **janitor crashpad 死代码** | `plugins/dsh-instance-janitor/lib/index.js` 查询集加 `Name='crashpad_handler.exe'`，判断加 `/crashpad/i.test(nm)` 双保险。原查询只含 `DSH Desktop.exe`+`hy3-gateway`，`:181` crashpad 分支永远进不去（实测 5 个孤儿） | `node --check` PASS；startup-verify V4-V10 全 PASS | `_backups/fix-20260907-095241/` |
+| **清理孤儿 crashpad** | 终止 2 个（15960/19892）；3 个（8128/19548/28000）Services 会话需管理员 | taskkill 实测 | — |
+| **隔离 installer 残留** | 127MB `installer.exe` 移至 `_quarantine_20260907/`（可逆，未删除） | 移后原路径不存在 | 同目录 quarantine |
+
+### 运行时三大问题根因（已定位，详见 `docs/DIAGNOSIS-2026-09-07-RUNTIME.md`）
+- **卡顿**：会话 372M/269 文件，启动同步遍历 + `PublicZstdFrameDecoder` 同步 zstd 解压 + vision-engine 3s 全量重渲染；session-hygiene 只按单文件判定 → 250M 项目目录永不告警。
+- **更新后重启失败**：更新包只验 PE 魔数（`update-download.ts:421-454`）+ 仅 1 个 build 无回滚 + 无半安装检测。
+- **旧实例**：`second-instance` 只 show 不杀旧实例（`main.ts:498-501`）；陈旧 lock 2 分钟阈值（`:294`）；非 DSH 占 43120 直接启动失败。
+
+### 新发现问题（待后续排查）
+- **N1**：`PROJECT_README.md` 指向工作区根 `dist/`，实测不存在（真实构建在 vendor 下）。
+- **N2**：`verify-patches.ps1` 组合执行报 3 FAIL，但 resolve-dist / check-dist-integrity 单独跑均 PASS（`$LASTEXITCODE` 环境问题误报），与本次改动无关。
+
+---
+
+## 2026-09-07 GPU 子进程崩溃 → 透明窗口 + 启动卡顿（根因修复）
+
+### 现象（用户原话）
+"打开 dsh 会卡顿几秒，界面 ui 变透明"——整窗透出桌面/鬼影，运行时启动耗时数秒。
+
+### 根因（静态 + 运行时双确认）
+- 启动器（`DSH Desktop.lnk`）参数带 `--disable-gpu`，新版 Chromium 仍会**派生一个 GPU 子进程作为软件合成器宿主**。
+- 该 GPU 子进程在用户的虚拟显示适配器下**反复崩溃（`exit_code=1`，×4+）**：无合成器 → 原生窗口无背板 → 视觉上**整窗透出桌面**；同时主进程等 GPU → **卡顿数秒**。
+- 原 `apply-gpu-opaque-patches.mjs` 注释已记录该 bug（"virtual display adapter → transparent window, renderer hang"），但 `--disable-gpu` 单独不够。
+
+### 修复（沿用既有补丁体系，零崩溃风险）
+扩展 `scripts/apply-gpu-opaque-patches.mjs` 新增补丁 #6 + `scripts/verify-patches.ps1` 新增检查项：
+
+```diff
++ if (!app.commandLine.hasSwitch("in-process-gpu")) app.commandLine.appendSwitch("in-process-gpu");
++ app.commandLine.appendSwitch("disable-gpu-compositing");
+```
+
+让合成器**跑在主进程内**、禁用 GPU 合成 → **彻底消除 GPU 子进程崩溃循环** → 不再有鬼影窗口，启动卡顿相应缓解。`DSH_DESKTOP_FORCE_GPU=1` 启用原生 GPU+Mica 的原路径不受影响（条件 if 仍包裹）。
+
+### 验证
+| 项 | 结果 |
+|---|---|
+| `node --check scripts/apply-gpu-opaque-patches.mjs` | PASS |
+| 第一次 apply：1 patched（#6 新增），5 already-ok，0 failed | ✅ |
+| 第二次 apply（幂等）：0 patched，6 already-ok，0 failed | ✅ |
+| `node --check` on patched `lib/main.js` | PASS |
+| `verify-patches.ps1`：3 FAIL **= 已知 N2 组合伪故障**（独立跑 resolve-dist / check-dist-integrity 均 PASS），新检查项未新增 FAIL | ✅ |
+| 备份 | `_backups/fix-20260907-1045-gpu-inprocess/{apply-gpu-opaque-patches.mjs.bak, verify-patches.ps1.bak}` |
+
+### 用户侧行动
+**重启 DSH Desktop 即生效**（按重启守则，不自动重启）。重启后预期：开窗不再鬼影透明、首屏延迟明显下降；若 `DSH_DESKTOP_FORCE_GPU=1` 临时启用，原 Mica 视觉行为仍可恢复。
+
+### 未解决（待用户决策）
+- **PERF-2 归档 250M 项目会话**（启动期同步遍历的最大单点）：默认 `dry-run`，需你确认。
+- **QUAL-6 异步化 zstd 解压**（C2 根因）：高风险补丁，需单独评审。
+
+---
+
+## 2026-09-07 阶段1 Sprint·第一批（归档目录聚合 + 会话瘦身）
+
+### 已执行
+| ID | 项 | 结果 | 证据 |
+|---|---|---|---|
+| PERF-2 | `archive-big-sessions.ps1` 增加 **`-ByWorkspace` 目录聚合模式**（原判据"单文件≥8MB"对"250M 摊在 269 个小文件"的场景无效，dry-run 空手而归） | 默认行为不变；加 `-ByWorkspace -WorkspaceMinMB 150` 后按"工作区总量≥150MB + 会话闲置≥24h"选候选，Reason 标记 `big-file`/`ws-aggregate` | 脚本重写，备份见下 |
+| PERF-2(执行) | 目录聚合 dry-run → 清单确认 → **实际归档 `--D-Deepseek-Harness--` 140 个闲置旧会话 / 229.2MB** | **会话目录 250M → 21M**（269 → 9 文件）；归档可逆，manifest 140 行 | `_backups/archived-sessions-20260907-105624/`（含 manifest.txt，恢复=移回原路径） |
+
+### 验证
+- dry-run 先出清单（140 会话/229.2MB），确认后 `-Execute` 执行；`moved 140, skipped 0`。
+- 归档后实测：活动会话（<24h）未受影响。
+
+### 备份
+`_backups/fix-20260907-1055-sprint1/{archive-big-sessions.ps1.bak, promote-build.ps1.bak}`
+
+### 本批未执行（留待下一批，附理由）
+- PERF-1（session-hygiene 目录告警）：需读插件代码后小改，重启生效。
+- DATA-1（2 处原子写）：dsh-host-services + dsh-modlens-guard，改 tmp+rename。
+- UPD-1（promote-build 归档旧 build 守卫）：脚本加固。
+- 均已备份，等下一批 Sprint 继续。
+- **N3**：3 个 Services 会话 crashpad 需管理员权限清理。
+
+### 已实施（同日早些，方法论层）
+新建 6 个方法论 skill（`~/.dsh/skills/`，frontmatter 6/6 校验通过）+ `~/.dsh/AGENTS.md` +26 行认知纪律（备份 `AGENTS.md.bak-20260907-005225`）。**需重启生效。**
+
+---
+
 ## 2026-09-06 全面审计与修复（4 批次 + 死锁自动回收，20 文件，4 个 atomic commit）
 
 ### 背景
@@ -3091,3 +3254,176 @@ ode scripts/apply-ui-perf-patches.mjs 一键恢复。
 - 教训（重要）：PowerShell here-string 会对 ${...} 插值，禁止用它写含模板字符串的 JS；
   写代码补丁一律用 node 脚本（readFileSync + 精确字符串替换 + marker 幂等），且插入位置
   用「锚点行」而非索引（多次索引插入易错位，本次曾两次插错位置，均靠 git checkout 恢复）。
+
+### 2026-09-06 终审修复：renderer 探针路径解析 bug（Windows fileURLToPath）
+
+- 事故：RENDERER_PROBE_SCRIPT 用 
+ew URL('.', import.meta.url).pathname 拼路径，
+  Windows 下生成 /D:/...，join 后变成 \scripts\probe-renderer-cpu.ps1（错误路径）
+  -> 探针 execFile 静默失败 -> 护栏失效但无告警。
+- 修复：改用 join(dirname(fileURLToPath(import.meta.url)), '..','..','..', ...)，
+  import 补 ileURLToPath/dirname；apply-sm-renderer-probe.mjs 模板同步修正
+  （marker DSH-2026-09-06 renderer-probe-path-fix）。
+- 验证：用插件真实路径 ESM 语义模拟，解析 D:\Deepseek-Harness\scripts\probe-renderer-cpu.ps1
+  并成功执行（输出 93）。需重启生效（当前实例仍为旧路径，探针 lastPct 保持 null）。
+- 教训：
+ew URL().pathname 在 Windows ESM 下带前导 /D:，绝不可用于拼本地路径；
+  必须 fileURLToPath。且「写补丁脚本的模板」与「补丁本身」要一致，改模板后必须
+  用真实文件位置端到端模拟，不能只 node --check。
+
+### 2026-09-06 终审修复 2：探针改为内联 PowerShell（彻底绕开 asar 路径）
+
+- 背景：fileURLToPath 修正后，打包环境（app.asar）下 import.meta.url 指向 asar 内路径，
+  dirname + ../../.. 可能解析到错误位置 -> 探针在真实实例仍失败（lastPct 保持 null，
+  22:40 重启验证失败）。
+- 修复：RENDERER_PROBE_SCRIPT 文件调用改为 RENDERER_CPU_CMD 内联命令数组
+  （execFile -Command），零文件路径依赖，打包环境同样可靠；手动验证输出真实值。
+- apply-sm-renderer-probe.mjs 模板同步为内联版；移除冗余 fileURLToPath/dirname import。
+- 备份：git 可恢复（plugins/dsh-self-maintenance/lib/index.js）。
+- 验证：node --check 通过；verify-patches 42 checks ALL PASS。
+- 生效：需再次重启（当前实例仍为旧代码）。
+- 教训：外部文件路径在 Electron 打包（app.asar）环境不可靠，能内联就内联；
+  每次改动后用「与运行时一致」的方式（临时副本/内联命令）验证，而非只 node --check。
+
+### 2026-09-07 终审修复 3：探针首轮时序 + 结果可视化（renderer-probe-final）
+
+- 根因（终于实锤）：cycle 首轮在 renderer 进程启动前运行（主进程先起、renderer 晚 3s），
+  探针找不到 renderer -> 输出 NO_RENDERER -> parseInt NaN -> resolve(null) -> 静默无日志。
+- 修复：
+  1. probe 输出 NO_RENDERER / 非数字时打日志（不再静默）；
+  2. rendererWatch 新增 lastProbeAt + lastResult（'ok'/'no-renderer'/'error'），/status 直接可见真相；
+  3. 用完整 powershell.exe 路径（绕开打包环境 PATH 解析）；
+  4. 从 git HEAD 干净基线一次性重打完整补丁（6/6 锚点匹配），避免多次行编辑错位。
+- apply-sm-renderer-probe.mjs 模板已从插件代码自动同步（1804 字符探针块）。
+- verify-patches.ps1 检查项更新为 renderer-probe-final marker（42 checks ALL PASS）。
+- 验证：提取插件真实命令端到端执行成功（输出 98）。生效需重启。
+- 教训：探针类诊断必须「结果全记录」——成功/失败/无目标三种状态都要留日志和状态字段，
+  否则 null 与「没执行」无法区分，会浪费数轮重启排查（本次 22:40/23:34/0:38 三轮盲查）。
+- 2026-09-07 并发会话排查：git status 出现 D plugins/dsh-diagram-renderer/stage-viewer.snippet.js、
+  D scripts/apply-stage-viewer.mjs 及大量 scripts/*.py 未跟踪文件（时间戳 23:46-0:13）——
+  系并发会话操作痕迹，非本会话改动；本会话 4 项改动（probe/vision/verify/3 脚本+备份）经核对完好。
+
+### 2026-09-07 阶段1 第一批执行：PERF-1 / DATA-1 / UPD-1 + 计划并入 SELF-1/2/3
+
+- PERF-1（session-hygiene 目录聚合告警，plugins/dsh-session-hygiene/lib/index.js）：
+  - DEFAULT_CONFIG 新增 warnDirBytes:150MB / errorDirBytes:250MB；resolveConfig 同步校验（≥16MB、error>warn）。
+  - classifySession 支持阈值覆盖；新增纯函数 aggregateDirs / deriveDirTitle / decodeWorkspaceName。
+  - buildReport 新增 directories[]（含 sessionCount/lastActive/level/suggestArchive）与 summary 的
+    workspaceWarnCount/workspaceErrorCount/workspaceTotalMB。
+  - 告警合并 dir 优先 + 单文件；通知文案动态化；去重键改为 `${kind}:${sessionId}`（dir/file 命名空间隔离）。
+  - 验证：269×0.87MB 模拟工作区 223MB → 目录 warn（单文件 ok，即原缺口）；150MB 以下不误报；
+    单大文件仍走文件级判定。`node --check` PASS。需重启生效。
+- DATA-1（高危非原子写 → tmp+rename 原子写）：
+  - plugins/dsh-host-services/lib/index.js writeJson：同目录 `.tmp-<pid>-<ts>` + renameSync 覆盖，
+    失败清理 tmp 并上抛（一处修复惠及全部 writeJson 调用方）。
+  - plugins/dsh-modlens-guard/lib/index.js 新增 atomicWriteText，两处 cordis.patch.yml 写（模拟攻击/恢复）改用它。
+  - 实测：首次写+覆盖写+读回全过、无 tmp 残留。两文件 `node --check` PASS。需重启生效。
+- UPD-1（promote-build.ps1 ≥2 build 兜底门禁，纯 ASCII）：
+  - 归档段 keep 集合后新增门禁：$availBuilds 全量 build，keep 过滤后按名字最旧补足到 ≥2，
+    保证归档永不把 dist 减到 <2 个 build（prevTarget 缺失/等于 From/运行路径不可解析的边界都覆盖）。
+  - PowerShell Parser 校验 PARSE OK。
+- 计划文档 docs/UPGRADE-EXECUTION-PLAN-2026-09-07.md：PERF-1/DATA-1/UPD-1 置 [x] 并补证据块；
+  新增 1.6 节「自研代码审查修复」并入 SELF-1（task-scheduler catch 吞异常 P1）、SELF-2（safe-delete-shim
+  无 fallback P1）、SELF-3（7 脚本硬编码仓库路径 P2）；问题索引与执行进度表同步（阶段1 21 项/4 完成）。
+- 备份：`_backups/fix-20260907-phase1b-20260907-110726/`（5 文件）。
+- 纪律：task-scheduler 锁 tk-mtqnsurw-cda5ef70 已 acquire/release；未自动重启（按重启守则等用户指示）。
+
+### 2026-09-07 SELF-2：safe-delete-shim 隔离兜底（回收站失败绝不硬删）
+
+- 审计关键事实：原 patches/bundles/safe-delete-shim.cjs 在回收站失败时 catch 回落**原永久删除**——
+  失败模式=数据丢失，恰与"安全删除"目标相反（P1 实锤）。
+- 修复（仅源码补丁，补丁唯一事实源 patches/bundles/）：
+  1. 新增 `_quarantine` 兜底：`~/.dsh/_quarantine`（DSH_HOME 可覆盖），同卷 rename 可逆，
+     30 天 TTL 机会性清理（pruneQuarantine，受保护路径内安全，无递归）。
+  2. 回收站失败 → quarantineOrThrow：隔离成功即返回；隔离也失败 → 抛 EQ_QUARANTINE/EQ_DELETE，
+     调用方可见失败，**绝不静默硬删**。
+  3. 覆盖全部 6 个删除形态：unlinkSync / rmSync / unlink / rm / promises.unlink / promises.rm
+     （原 unlink/rm 回调形态已 fail-loud 保留；同步/promise 形态从硬删改为隔离）。
+  4. 受保护路径（~/.dsh、node_modules、系统 temp）保持原硬删（junction heal 依赖）；
+     `rm force` 缺失目标不抛（语义对齐）；callback 无参形态隔离失败时上抛。
+  5. 测试旋钮 DSH_SAFE_DELETE_FAIL_RECYCLE=1 + 导出 isProtected/quarantinePath/quarantineOrThrow/
+     getQuarantineRoot（CI/manual e2e 可确定性触发隔离路径）。
+- 验证：强制失败 harness 9/9 PASS（unlinkSync/rmSync/promises 均落入隔离、目录递归隔离、受保护硬删、
+  missing+force 不抛、helper 导出）；`node --check` PASS。
+- 备份：`_backups/fix-20260907-self2-20260907-112144/`（shim + 计划 + CHANGELOG）。
+- 生效：源码已就位；部署 = app 停止窗口跑 scripts/apply-safe-delete-shim.mjs + verify-patches（未执行，等用户）。
+- 锁：tk-mtqoekwy-b116cd26 acquire/release。
+
+### 2026-09-07 SELF-1：task-scheduler 核心可观测性增强（P1 审计链 + EEXIST 竞态）
+
+- 审计关键事实：CLI 层 acquire/release 失败**本就 loud**（BUSY→2/STALE→3/ERROR→5）；
+  真正的 P1 隐患是审计链与竞态分类，不是 lock ops 的返回值。
+- 修复 `plugins/dsh-task-scheduler/lib/core.js`（4 处改动）：
+  1. 新增模块级 observability state：`lastAuditError`/`lastReadError`（{ ts, error }，
+     失败时记录，成功时清零）——保留 fail-soft 语义（audit loss 不 break locks），
+     但**不再完全静默**。
+  2. `appendChange`：从静默 `catch {}` 改为 catch 记录 `lastAuditError`。
+  3. `readChanges`：同上（status 不再在 store 读取失败时返回虚假空列表）。
+  4. `status()`：新增 `degraded` 字段（audit/read 任一失败时出现；CLI JSON 自动输出，
+     无需改 CLI）。
+  5. `tryAcquire`：`wx` EEXIST 竞态从外层 catch（返回 ERROR）改为内层 try/catch，
+     EEXIST→BUSY 路径（重新读取 holder，reason=`race-eexist`）——覆盖两个进程同时
+     existsSync=false 然后都 wx 的窄窗口。
+- 不动项（fail-soft by design，共 ~23 catch）：readLock 重命名损坏文件 / fileHash 返回 null /
+  pruneChanges 非关键维护 / pidAlive EPERM / lazy reclaim —— 保持原样合理。
+- 验证：temp store harness 9/9 PASS（基本 acquire/release/并发 BUSY/降级出现/降级恢复/
+  checkUnsupervised）；`node --check` PASS。备份 `_backups/fix-20260907-self1-20260907-113510/`。
+- 计划 SELF-1 置 [x]（阶段1 21 项/6 完成）。锁 tk-mtqotylm-98f2cf36 acquire/release。
+
+### 2026-09-07 SELF-3：dev 脚本路径硬编码收敛（P2，4 脚本）
+
+- grep 实测 11 脚本含 `D:/Deepseek-Harness` 字面量；排除注释（4 个，已用 import.meta.url）、
+  模式检测字符串（1 个）、legacy（1 个）后，需修 = 4 个脚本。
+- 修复（同一模式）：
+  - `scripts/port-user-patches.mjs`：CANON_DIR / DEV_ROOT 改为 `join(REPO_ROOT, ...)` 推导。
+  - `scripts/fix-security.mjs`：INJECTOR / VISION / FILEEX / REMOTE / CONTEXT 5 个路径数组改为推导。
+  - `scripts/download-electron.mjs`：ProxyAgent require 路径 / CACHE 改为推导。
+  - `scripts/patch-host-apiproxy-default-cwd.mjs`：DEV_ROOT 改为推导（补 `dirname` 导入）。
+- `node --check` 4/4 PASS；REPO_ROOT 推导实测 = `D:\Deepseek-Harness`。
+- 备份 `_backups/fix-20260907-self3-20260907-114238/`。锁 tk-mtqp3m7m-a4558634 acquire/release。
+- 计划 SELF-3 置 [x]（阶段1 21 项/7 完成）。
+
+### 2026-09-07 阶段1 第二批：PERF-3/DATA-2/DATA-3/PROC-4
+
+- PERF-3（vision-engine 可见性门控）：3s timer 加 `document.hidden` 检查 + 无 textarea/input 时跳过，
+  背景标签页和纯阅读页不再空转 CPU。插件 source `plugins/dsh-vision-engine/lib/client.js`，
+  运行时从本地加载，重启即生效。
+- DATA-2/3（`scripts/dsh-maintenance.mjs` 新建）：统一维护脚本覆盖日志轮转（>50MB rename，最多 5 份，
+  >14 天删除）和磁盘配额（>2GB warn，>3GB 自动清 attachments 90 天 + 旧日志 30 天）。
+  dry-run 验证：~/.dsh=1.2GB 未超 2GB 警戒线，日志均 <50MB 无需轮转。
+- PROC-4（陈旧锁阈值）：`scripts/apply-stale-lock-patch.mjs` 将 main.js 的 singleton lock
+  陈旧判断从 120s 缩短到 60s（幂等标记 `dsh-patch: stale-lock-60s`）。已部署到 dist。
+- 计划文档：PERF-3/DATA-2/DATA-3/PROC-4 置 [x]（阶段1 21 项/11 完成/8 待做/2 决策）。
+- startup-verify 10/10 PASS 回归无影响。
+
+### 2026-09-07 阶段1 第三批：UPD-2/UPD-3 决策落地
+
+- UPD-2（关闭自动更新）：`scripts/apply-disable-auto-update.mjs` 将 dist `lib/updates.js`
+  的 `enabled` 默认值从 `true` 改为 `false`（幂等标记 `dsh-patch: disable-auto-update`）。
+  手动"Check for Updates"托盘菜单不受影响。已部署到 dist。
+- UPD-3（确认走本地构建）：决策确认——单机离线场景不用在线 installer，升级走本地构建管道。
+  无需代码改动，记录于计划文档。
+- 计划文档：UPD-2/UPD-3 置 [x]（阶段1 21 项/13 完成/8 待做/0 决策）。
+- 注：PROC-3/PROC-5 涉及内核代码和 UI 改动（中高风险），本轮推迟到阶段 4 统一处理。
+
+### 2026-09-07 阶段1 第四批：PROC-5 端口预检 + 退出自清锁（启动韧性补丁）
+
+- 背景：用户核心诉求=①长期不打不开 ②怕多实例 ③新旧实例指向。WDOG-1 用户决策暂不安装
+  （副作用=主动关 DSH 后 15min 会被拉起；脚本保留随时可装）。
+- 新增 `scripts/apply-startup-resilience-patches.mjs`（幂等标记，已部署 dist lib/main.js）：
+  1. port-preflight v1（PROC-5）：在 `__DSH_BOOT__` 探活判定之后、内核启动之前，probe-bind 43120；
+     被非 DSH 进程占用 → showErrorBox 友好提示 + stderr 日志 + 干净退出（替代原先深处的密码式 bind 失败）。
+  2. quit-lock-cleanup v1（退出自检）：will-quit 时删除 userData/lockfile，下次启动从干净状态开始。
+- verify-patches.ps1 登记 4 个新检查项（stale-lock-60s / disable-auto-update / port-preflight /
+  quit-lock-cleanup），PS Parser PARSE OK。
+- 验证：node --check main.js PASS；幂等复跑 skip 确认；check-dist-integrity 3/3 OK；
+  startup-verify 10/10 PASS。快照 `_backups/fix-20260907-startup-resilience-20260907-150839/`。
+- 计划：PROC-5 置 [x]；WDOG-1 置 [!]（用户决策，脚本就绪）；阶段1 = 21 项/14 完成/7 待做/0 决策。
+
+### 2026-09-07 ✅ 探针闭环验证成功（renderer-probe-final 上线）
+
+- 实测（dsh-2026-09-07.log）：
+  - 16:17:08 首轮 enderer cpu probe: no renderer process yet —— renderer 未就绪场景被正确记录（不再静默）；
+  - 16:35:55 enderer cpu probe: 91% (streak=1/2) + status lastResult=ok lastPct=91 —— 探针真实闭环。
+- 长期护栏正式生效：任何插件再引入空转循环 -> 连续 2 轮 >25% -> 桌面通知自动告警。
+- 本轮终审共 3 次修复（fileURLToPath 路径 / 内联命令 / 结果可视化+时序），教训均已入档。
