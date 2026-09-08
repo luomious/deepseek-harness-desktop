@@ -7,6 +7,7 @@
 | 面 | 机制 | 位置 |
 |---|---|---|
 | 工具 | `render_diagram`（host 注册，SVG 入参 → 校验清洗 → 原子落盘 → 返回信封） | `lib/index.js` |
+| **进度看板** | `render_diagram({ board })`（**数据入参** → `buildBoardSvg` 内置模板 → 动态交互卡；模型无需手写 SVG） | `lib/index.js` + `lib/client.js` |
 | 渲染 | `tool.call.toolview` keyed 渲染器（交互 SVG 卡） | `lib/client.js` |
 | 管理 | `settings.section` id=`diagram-renderer`（设置页「图表」分区） | `lib/client.js` |
 | 触发 | skill `diagram`（对 agent 说「画架构图/用图形化解释…」即触发） | `skill/SKILL.md` |
@@ -28,6 +29,9 @@
 - `stages`（可选，v6）：分步交互阶段数组 `[{ id, title, description?, layers?, stats? }]`——`layers` 引用 SVG 中 `<g data-stage="...">` 分组（`"all"` 常显）；`stats`（可选）为该阶段数字概览 `[{label,value}]` ×≤6；client 收到后渲染「上一步/下一步/播放/阶段点/播放进度条」控制条 + **图下说明面板 + 统计卡**（不遮挡图，v6.3），并按阶段切换层显隐（320ms 上浮渐入 + 400ms 高光）。缺省 = 普通单视图卡，完全向后兼容。
 
 client 渲染器单通道解析（v6.4）：**keyed 工具卡（`tool_call` keyed 槽）在工具节点内完整渲染**（分步交互/统计/说明面板全套），历史消息刷新后经 keyed 重放自动恢复；解析走严格信封匹配（信封缺失一律忽略——防止 read/skill 结果里的文档文本被误判成图，v4 幻影卡根治）。tunTail 通道已退役（事件流不重放导致刷新后卡消失——v6.4 根因修复，见 CHANGELOG）。
+
+- `board`（可选，v7）：**进度看板数据** `{ overall?: {label?,pct}|number, items:[{label,pct,status?,note?}] }`。host 用内置模板 `buildBoardSvg()` 直接生成 SVG —— **模型无需手写 SVG**（token 成本骤降、视觉与 WorkBuddy 规范天然统一）。数据同时写入 meta，client 用 `ProgressBoardViewer` 渲染**真实完成度**进度条；配合 `stages[].board` 快照（按 index 与基线合并，只写变化量）可实现「进度随时间/阶段演进」的动态看板。status 四态：`done` / `active` / `blocked` / `pending`（支持中文别名与英文变体，缺省按 pct 推断）。
+- ⚠️ **两种进度条语义不可混用**：看板（board）= 真实完成度；分步图（stages）= 播放时间轴。
 
 ## 安全（纵深防御）
 
@@ -85,6 +89,8 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - 阶段 5 ✅（2026-09-06）：**分步交互图 v6（stages）**——host `stages` 参数编码进信封 meta；client 新增 `StageViewer`（◀ ▶ 播放 · 阶段点 · 阶段标题/说明浮层 · 320ms 上浮渐入+400ms 高光 · 键盘 ←→/空格 · 全屏 · ⋮ 菜单），按 `<g data-stage>` 层显隐；管线回归扩至 18 断言；SKILL 新增「分步交互图」章节。**host（lib/index.js）改动需重启一次；client 刷新即生效。**
 - 阶段 6 ✅（2026-09-06）：**动态效果 v6.1**——阶段切换上浮渐入+高光（全局 keyframes 幂等注入、reduced-motion 降级）、自动播放 2s 阶段进度条、播放中阶段点脉冲；SKILL 动效章节升级为 5 个即用模板并说明分步图层重显重放动画；管线 21 断言；修复 v6 层切换静默失效 bug（SVGElement 无 `.style`，改属性级手术）。**client 改动刷新即生效。**
 - 阶段 7 ✅（2026-09-06）：**WorkBuddy 式布局 v6.3**——移除图上说明浮层（曾遮挡图，用户反馈"挡住对话框/效果垃圾"），改**图下说明面板 + 每阶段统计卡**（`stages[].stats` 协议，host normalize + client 渲染）；分步图按显示尺寸作画（画布 720–900px，窄列 fit 不再把字缩没——"太小了"修复）；v6.2 审查修复（自动播放永久锁死/空格双触发/死代码）。**client 刷新即生效；host stats 支持需重启一次。**
+
+- 阶段 8 ✅（2026-09-08）：**进度看板 v7（board）**——数据驱动的项目/任务/里程碑看板。① host：`normalizeBoard()` 校验（status 四态 + 中英别名 + 按 pct 推断 + overall 缺省均值）+ `buildBoardSvg()` 模板（880px 画布、一行三段、纸面卡、SMIL 生长动画且**静态 width 保留终值**——无 SMIL 环境仍正确显示）+ 信封 meta 携带 board；② client：`ProgressBoardViewer`（进度条 CSS 过渡 + 百分比 count-up + active 脉冲 + stages 阶段演进 2.5s/步 + 阶段点跳转 + 键盘 ←→/空格 + 复制数据/下载 SVG/看源码 + reduced-motion 降级）；③ 闸门豁免 `isBoardPayload()`——board 是数据驱动，不受 `looksLikeRealSvg` 防幻影门槛误杀；④ **根因修复：skill 从未安装**（`~/.dsh/skills/diagram/` 缺失）→ 已安装；⑤ SKILL 补「模式 ③ 进度看板」协议。单测 `tests/board-unit.mjs` 40 断言全绿，预览 `tests/board-preview.html`。**host 需重启一次；client 刷新即生效。**
 
 ## 记录
 

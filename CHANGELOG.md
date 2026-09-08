@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-09-08 修复 dsh-diagram-renderer 插件树加载失败（additionalProperties 缺失）
+
+| 项 | 内容 | 证据 |
+|---|---|---|
+| **FIX-1 [x]** | 根因：`plugins/dsh-diagram-renderer/lib/index.js:361` 的 `render_diagram` 工具参数 `board` 声明为 `type: 'object'` 但未显式给出 `additionalProperties: true|false`。DSH 工具 schema 编译子集（`@deepseek-ai/dsh-tools` 第 697 行）强制要求「object 型参数必须显式声明 additionalProperties 为布尔」——缺失即抛 `unsupported JSON schema: parameters.board.additionalProperties must be explicitly true or false`，导致整棵插件树加载失败（`plugin tree failed to load`）。修复：`board` 参数补 `additionalProperties: true`（payload 为自由结构，`normalizeBoard` 已容错忽略未声明字段） | 修复前 `defineTool` 实测复现同一报错；修复后**真实 dsh-tools 编译器实测 `COMPILE OK`**（含 `board` + `stages` 数组两项）；`node --check` 通过 |
+| **FIX-2 [x]** | 相似问题扫描（全 `plugins/` 的 `type: 'object'` 参数）：`dsh-remote-workspace/lib/index.js`、`dsh-routing-suite/injector`、`dsh-project-brief` 均已正确声明 `additionalProperties`；`dsh-routing-suite/preset/probe/*.mjs` 是 OpenAI 格式的评测 mock 工具、非 DSH `defineTool`，不受影响。**无其他漏网** | 全插件扫描仅命中已修复处 |
+| **FIX-3 [x]** | **故障记录落盘**：原始报错仅出现在 GUI 弹窗、从未写入任何日志文件。按 super-injector 日志约定（`~/.dsh/super-injector/<插件名>.log`，append + ISO 时间戳）补记完整故障记录（错误原文/栈顶/根因/修复/验证/相似扫描结论）到 `dsh-diagram-renderer.log`。**坑位**：agent 沙箱（pwsh/文件工具，workspace-write ACL）**无权写 `~/.dsh`**（探测 root/super-injector 均 `UnauthorizedAccessException`）；须走**宿主同权通道**——`shell` 工具（沙箱外、与 DSH 进程同权限）执行 `node` 脚本写入。中文经 UTF-8 无 BOM 写入，hex 校验无损坏 | 日志文件 2605 B，hex 前 60 字节 `e69585...`（「故障记录」UTF-8）；`decodes as utf8 ok:true`；关键词回读命中 |
+
+> **需要重启生效**：`lib/index.js`（host）改动在打包壳下无法热重载，**必须重启桌面应用**；重启后 `plugin tree failed to load` 应消失、`render_diagram` 工具正常注册。日志 FIX-3 已落盘，无需重启。
+
+---
+
+## 2026-09-08 进度看板 v7（dsh-diagram-renderer · board 数据驱动 + 动态交互卡）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **PB-1 [x]** | host `render_diagram` 新增 `board` 参数：数据驱动进度看板（项目/任务/里程碑）。新增 `normalizeBoard()`（status 四态 + 中英别名 + 按 pct 推断 + overall 缺省取均值）与 `buildBoardSvg()` 模板（880px、一行三段、纸面卡、SMIL 生长动画且**静态 width 保留终值**——无 SMIL 环境仍正确显示）；信封 meta 携带 board 供 client 渲染 | `tests/board-unit.mjs` 40/40 PASS；生成 `diagrams/progress-board-rk3588-20260908101607.svg`（6769 B / 7 行） | `_backups/fix-progressboard-20260908-180213/` |
+| **PB-2 [x]** | client 新增 `ProgressBoardViewer`：进度条 CSS 过渡生长 + 百分比 count-up + active 脉冲 + `stages` 阶段演进（2.5s/步自动播放、阶段点跳转、键盘 ←→/空格）+ 复制数据 / 下载 SVG / 看源码 + reduced-motion 降级。**与 StageViewer 语义隔离**：看板进度条=真实完成度，分步图进度条=播放时间轴 | `node --check lib/client.js` 通过；4 处接入点（keyed 状态机 / item / children / DOM 扫描器） | 同上 |
+| **PB-3 [x]** | 修复「看板被防幻影闸门误杀」：新增 `isBoardPayload()`，让 `looksLikeRealSvg` 门槛对 board 载荷豁免（board 是数据驱动，不靠 SVG 文本判定合法性） | `grep -c isBoardPayload` = 4（1 定义 + 3 使用） | 同上 |
+| **PB-4 [x]** | **根因修复：skill 从未安装** —— `~/.dsh/skills/diagram/` 不存在（插件内 `skill/SKILL.md` 不在 DSH 任何发现根内），模型端无协议可循，「自动判断」名存实亡。已安装至 `~/.dsh/skills/diagram/SKILL.md`（rank400，`trigger: auto`） | `ls ~/.dsh/skills/diagram/` + frontmatter 回读 | 同上 |
+| **PB-5 [x]** | SKILL 协议补「模式 ③ 进度看板」章节 + 布局选型表新增「进度/完成度 → 进度看板」行 + description/whenToUse 增加进度类触发词；并明确两种进度条语义不可混用 | `skill/SKILL.md` 回读 | 同上 |
+
+> **需要重启生效**：`lib/index.js`（host）改动在打包壳下无法热重载（`dev_reload_package` 报 loader.internal 不可用），**必须重启桌面应用**；`lib/client.js` 改动刷新页面即生效。重启后问「项目进度怎么样」即应自动出看板。
+
+---
+
 ## 2026-09-08 日日新 sennsenova kimi-k3 限流治理（聚焦方案，回滚多余改动）
 
 | 项 | 内容 | 证据 | 备份 |

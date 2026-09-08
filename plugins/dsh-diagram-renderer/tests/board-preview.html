@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>进度看板 v7 · 动态效果预览</title>
+<style>
+  :root{
+    --card:#F7F6F2; --line:rgba(136,135,128,0.38); --ink:#2C2C2A;
+    --ink2:#5F5E5A; --ink3:#888780; --hover:#ECEAE2; --accent:#534AB7; --ok:#0F6E56;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:40px 24px; background:#EFEEE9;
+    font-family:system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    color:var(--ink); display:flex; flex-direction:column; align-items:center; gap:18px;
+  }
+  .wrap{width:100%; max-width:760px}
+  .hint{font-size:13px; color:var(--ink2); line-height:1.7; margin:0 0 4px}
+  .hint code{background:rgba(127,127,127,.14); padding:1px 5px; border-radius:4px; font-size:12px}
+  .card{
+    border:1px solid var(--line); border-radius:12px; background:var(--card);
+    box-shadow:0 2px 14px rgba(44,44,42,.10); overflow:hidden; position:relative;
+  }
+  .bar{display:flex; align-items:center; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line)}
+  .bar .t{font-weight:700; font-size:13px; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .bar .tag{font-size:11px; color:var(--ink3); white-space:nowrap}
+  .btn{
+    border:1px solid var(--line); background:transparent; color:var(--ink2); border-radius:8px;
+    cursor:pointer; min-width:26px; height:26px; font-size:13px; line-height:1; font-family:inherit;
+    padding:0 6px; display:inline-flex; align-items:center; justify-content:center;
+  }
+  .btn:hover:not(:disabled){background:var(--hover)}
+  .btn:disabled{color:var(--ink3); cursor:default; opacity:.5}
+  .body{padding:14px 20px 18px}
+  .ov-head{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:10px}
+  .ov-label{font-size:13px; color:var(--ink2)}
+  .ov-num{font-size:26px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; line-height:1.1}
+  .track{background:#fff; border:1px solid #E3E1D8; border-radius:7px; overflow:hidden; height:14px}
+  .fill{height:100%; border-radius:7px; transition:width 700ms cubic-bezier(.22,.61,.36,1)}
+  .rows{border-top:1px solid var(--line); padding-top:4px; margin-top:12px}
+  .row{display:flex; align-items:center; gap:12px; padding:8px 0}
+  .r-label{
+    flex:1 1 24%; min-width:0; font-size:14px; font-weight:500; color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .r-track{flex:1 1 auto; min-width:56px; height:10px; border-radius:5px; background:#fff; border:1px solid #E3E1D8; overflow:hidden}
+  .r-fill{height:100%; border-radius:5px; transition:width 700ms cubic-bezier(.22,.61,.36,1)}
+  .r-pct{flex:none; width:44px; text-align:right; font-size:13px; font-weight:700; font-variant-numeric:tabular-nums}
+  .r-badge{
+    flex:none; width:58px; text-align:center; font-size:11px; font-weight:500;
+    border-radius:6px; padding:3px 0; border:1px solid; white-space:nowrap;
+  }
+  .stages{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding-top:12px; margin-top:4px; border-top:1px solid var(--line);
+  }
+  .dot{
+    width:7px; height:7px; border-radius:4px; border:none; padding:0; cursor:pointer;
+    background:rgba(136,135,128,.45); transition:width 260ms ease, background 260ms ease;
+  }
+  .dot.on{width:16px; background:var(--accent)}
+  .st-title{font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:46%}
+  .st-count{font-size:11px; color:var(--ink3); margin-left:auto}
+  .st-desc{font-size:12px; color:var(--ink2); line-height:1.6; padding-top:8px}
+  @keyframes pulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}
+  .dot.on.play{animation:pulse 1.8s ease-in-out infinite}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="hint">
+    进度看板 <b>v7</b> 动态效果预览（等价于 <code>render_diagram({ board })</code> 在 DSH 会话流中的交互卡）：
+    进度条 CSS 过渡生长、百分比 count-up、阶段自动播放演进。点击 ▶ 播放，或点圆点跳阶段。
+  </p>
+  <div class="card" id="card"></div>
+</div>
+
+<script>
+var ST = {
+  done:{label:'完成',fill:'#0F6E56',soft:'#E1F5EE',ink:'#04342C'},
+  active:{label:'进行中',fill:'#534AB7',soft:'#EEEDFE',ink:'#26215C'},
+  blocked:{label:'阻塞',fill:'#B45309',soft:'#FAEEDA',ink:'#633806'},
+  pending:{label:'未开始',fill:'#888780',soft:'#F1EFE8',ink:'#2C2C2A'}
+};
+
+var BASE = {
+  overall:{label:'整体进度',pct:41},
+  items:[
+    {label:'硬件选型与采购',pct:100,status:'done',note:'RK3588 已到货'},
+    {label:'BSP / 驱动适配',pct:80,status:'active',note:'NPU 驱动联调中'},
+    {label:'模型转换与量化',pct:45,status:'active',note:'ONNX → RKNN'},
+    {label:'推理管线打通',pct:20,status:'active'},
+    {label:'产线联调',pct:0,status:'blocked',note:'等海康相机到货'},
+    {label:'性能优化',pct:0,status:'pending'},
+    {label:'文档与交付',pct:0,status:'pending'}
+  ]
+};
+
+var STAGES = [
+  {title:'第 1 周 · 硬件到位', description:'核心板与载板到货，BSP 启动，模型侧尚未开始。',
+   board:{overall:{pct:22},items:[{pct:100},{pct:40},{pct:0},{pct:0},{pct:0},{pct:0},{pct:0}]}},
+  {title:'第 2 周 · 驱动攻坚', description:'NPU 驱动跑通，模型开始转 RKNN，产线仍卡在相机到货。',
+   board:{overall:{pct:33},items:[{pct:100},{pct:65},{pct:15},{pct:0},{pct:0},{pct:0},{pct:0}]}},
+  {title:'第 3 周 · 管线打通', description:'推理管线端到端跑通，量化精度对齐中，相机已发货。',
+   board:{overall:{pct:41},items:[{pct:100},{pct:80},{pct:45},{pct:20},{pct:0},{pct:0},{pct:0}]}},
+  {title:'第 4 周 · 联调收尾', description:'相机到位开始产线联调，性能优化与文档同步推进。',
+   board:{overall:{pct:72},items:[{pct:100},{pct:100,status:'done'},{pct:90},{pct:80},{pct:55,status:'active'},{pct:30,status:'active'},{pct:20,status:'active'}]}}
+];
+
+function mergeBoard(base, patch){
+  if(!patch) return base;
+  var items = base.items.map(function(it,i){
+    var p = patch.items && patch.items[i];
+    if(!p) return it;
+    return {
+      label:p.label||it.label,
+      pct:(p.pct===undefined||p.pct===null)?it.pct:p.pct,
+      status:p.status||it.status,
+      note:p.note===undefined?it.note:p.note
+    };
+  });
+  return {overall:patch.overall||base.overall, items:items};
+}
+
+var idx = 0, playing = false, timer = null, mounted = false;
+var card = document.getElementById('card');
+var cur = {overall:0, items:{}};   // count-up 当前显示值
+
+function board(){ return STAGES[idx] ? mergeBoard(BASE, STAGES[idx].board) : BASE; }
+
+function el(tag, cls, style, text){
+  var e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(style) for(var k in style) e.style[k] = style[k];
+  if(text!==undefined) e.textContent = text;
+  return e;
+}
+
+function countUp(node, key, target){
+  var from = cur[key] === undefined ? 0 : cur[key];
+  if(from === target){ cur[key]=target; node.textContent = Math.round(target)+'%'; return; }
+  var start = 0, dur = 700;
+  function step(ts){
+    if(!start) start = ts;
+    var p = Math.min(1,(ts-start)/dur);
+    var v = from + (target-from)*(1-Math.pow(1-p,3));
+    cur[key] = v;
+    node.textContent = Math.round(v)+'%';
+    if(p<1) requestAnimationFrame(step);
+    else { cur[key]=target; node.textContent = Math.round(target)+'%'; }
+  }
+  requestAnimationFrame(step);
+}
+
+function render(){
+  var b = board();
+  var st = b.overall;
+  var ovColor = st.pct>=100 ? '#0F6E56' : '#534AB7';
+  card.innerHTML = '';
+
+  // 工具栏
+  var bar = el('div','bar');
+  bar.appendChild(el('span','t',null,'RK3588 边缘部署进度'));
+  bar.appendChild(el('span','tag',null,'进度看板'));
+  var bFull = el('button','btn',null,'⛶'); bFull.title='全屏查看';
+  bFull.onclick = function(){ card.requestFullscreen ? card.requestFullscreen() : null; };
+  bar.appendChild(bFull);
+  bar.appendChild(el('button','btn',null,'⋮'));
+  card.appendChild(bar);
+
+  // 版身
+  var body = el('div','body');
+
+  // 整体进度
+  var ovHead = el('div','ov-head');
+  ovHead.appendChild(el('span','ov-label',null,st.label));
+  var ovNum = el('div','ov-num',{color:ovColor},'0%');
+  ovHead.appendChild(ovNum);
+  body.appendChild(ovHead);
+  var ovTrack = el('div','track');
+  var ovFill = el('div','fill',{width: mounted? st.pct+'%' : '0%', background:ovColor});
+  ovTrack.appendChild(ovFill);
+  body.appendChild(ovTrack);
+  countUp(ovNum,'__ov',st.pct);
+
+  // 行
+  var rows = el('div','rows');
+  b.items.forEach(function(it,i){
+    var s = ST[it.status]||ST.pending;
+    var row = el('div','row');
+    var lb = el('span','r-label',null,it.label);
+    if(it.note) lb.title = it.label+' — '+it.note;
+    row.appendChild(lb);
+    var tr = el('div','r-track');
+    tr.appendChild(el('div','r-fill',{width: mounted? it.pct+'%' : '0%', background:s.fill}));
+    row.appendChild(tr);
+    var pc = el('span','r-pct',{color:s.fill},'0%');
+    row.appendChild(pc);
+    row.appendChild(el('span','r-badge',{
+      color:s.ink, background:s.soft, borderColor:s.fill
+    }, s.label));
+    rows.appendChild(row);
+    countUp(pc,'r'+i,it.pct);
+  });
+  body.appendChild(rows);
+
+  // 阶段控制
+  var stagesBar = el('div','stages');
+  var prev = el('button','btn',null,'◀'); prev.title='上一阶段'; prev.disabled = idx<=0;
+  prev.onclick = function(){ go(idx-1); };
+  var play = el('button','btn',null, playing?'❙❙':'▶'); play.title = playing?'暂停':'自动播放';
+  play.onclick = togglePlay;
+  var next = el('button','btn',null,'▶'); next.title='下一阶段'; next.disabled = idx>=STAGES.length-1;
+  next.onclick = function(){ go(idx+1); };
+  stagesBar.appendChild(prev); stagesBar.appendChild(play); stagesBar.appendChild(next);
+  var dots = el('div',null,{display:'flex',alignItems:'center',gap:'4px'});
+  STAGES.forEach(function(s,i){
+    var d = el('button','dot'+(i===idx?' on':'')+(i===idx&&playing?' play':''));
+    d.title = s.title; d.onclick = function(){ go(i); };
+    dots.appendChild(d);
+  });
+  stagesBar.appendChild(dots);
+  stagesBar.appendChild(el('span','st-title',null, STAGES[idx]?STAGES[idx].title:''));
+  stagesBar.appendChild(el('span','st-count',null,(idx+1)+' / '+STAGES.length));
+  body.appendChild(stagesBar);
+  if(STAGES[idx] && STAGES[idx].description){
+    body.appendChild(el('div','st-desc',null,STAGES[idx].description));
+  }
+  card.appendChild(body);
+
+  // 首帧后放开宽度，触发生长过渡
+  if(!mounted){
+    requestAnimationFrame(function(){
+      mounted = true;
+      ovFill.style.width = st.pct+'%';
+      var fills = card.querySelectorAll('.r-fill');
+      b.items.forEach(function(it,i){ if(fills[i]) fills[i].style.width = it.pct+'%'; });
+    });
+  }
+}
+
+function go(n){
+  idx = Math.max(0, Math.min(STAGES.length-1, n));
+  stop();
+  render();
+}
+function togglePlay(){
+  playing = !playing;
+  if(!playing){ stop(); render(); return; }
+  render();
+  timer = setInterval(function(){
+    if(idx >= STAGES.length-1){ playing=false; stop(); render(); return; }
+    idx++; render();
+  }, 2500);
+}
+function stop(){ if(timer){ clearInterval(timer); timer=null; } }
+
+document.addEventListener('keydown', function(e){
+  if(e.key==='ArrowLeft') go(idx-1);
+  else if(e.key==='ArrowRight') go(idx+1);
+  else if(e.key===' '){ e.preventDefault(); togglePlay(); }
+});
+
+render();
+</script>
+</body>
+</html>

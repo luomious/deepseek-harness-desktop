@@ -185,6 +185,15 @@ window.__ModuleLoader__.load({
       return /viewBox\s*=/i.test(svg) || /<svg[^>]*\swidth\s*=/i.test(svg)
     }
 
+    // v7: 进度看板是**数据驱动**（meta.board 携带结构化进度），不依赖 SVG
+    // 文本门槛 —— 否则「real SVG」这道防幻影闸门会把合法看板误杀。
+    function isBoardPayload(parsed) {
+      try {
+        var b = parsed && parsed.meta && parsed.meta.board
+        return !!(b && Array.isArray(b.items) && b.items.length > 0)
+      } catch (e) { return false }
+    }
+
     // v4: the pan-zoom wrapper is sized exactly to the diagram box, so the svg
     // root must carry explicit pixel width/height — width="100%" inside a
     // fit-content wrapper collapses to the 300x150 default (tiny-thumbnail bug).
@@ -335,6 +344,451 @@ window.__ModuleLoader__.load({
     //   3. 容器任何尺寸变化（刷新、侧栏开合、虚拟列表回收）由 ResizeObserver
     //      驱动重排，用户零操作；全屏保留（矢量放大细读）。
     // 工具栏只留 全屏 + ⋮（下载 .svg / 保存 PNG / 复制 / 查看代码）。
+    // =====================================================================
+    // ProgressBoardViewer (v7) — 数据驱动的进度看板
+    // 与 StageViewer 的本质区别：StageViewer 的进度条是「自动播放时间轴」，
+    // 这里的进度条是**真实完成度**；配合 stages 可让看板随时间/阶段演进
+    // （每行进度平滑过渡 + 数字 count-up），这才是「动态看板」。
+    // =====================================================================
+
+    var PB_STATUS = {
+      done: { label: '完成', fill: '#0F6E56', soft: '#E1F5EE', ink: '#04342C' },
+      active: { label: '进行中', fill: '#534AB7', soft: '#EEEDFE', ink: '#26215C' },
+      blocked: { label: '阻塞', fill: '#B45309', soft: '#FAEEDA', ink: '#633806' },
+      pending: { label: '未开始', fill: '#888780', soft: '#F1EFE8', ink: '#2C2C2A' }
+    }
+
+    var PB_CSS = '@keyframes dsh-pb-pulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}' +
+      '@media (prefers-reduced-motion:reduce){.dsh-pb-anim,.dsh-pb-anim *{animation:none !important;transition:none !important}}'
+
+    function ensurePbStyles() {
+      try {
+        if (document.getElementById('dsh-pb-styles')) return
+        var st = document.createElement('style')
+        st.id = 'dsh-pb-styles'
+        st.textContent = PB_CSS
+        ;(document.head || document.documentElement).appendChild(st)
+      } catch (e) { /* noop */ }
+    }
+
+    function reduceMotion() {
+      try {
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+      } catch (e) { return false }
+    }
+
+    /**
+     * 按 index 把阶段快照合并到基线看板上：阶段只需写变化量
+     * （如 { items: [{ pct: 60 }] }），label/status 缺省继承基线。
+     */
+    function mergeBoard(base, patch) {
+      if (!patch) return base
+      if (!base) return patch
+      var bitems = (base.items || []).map(function (it, i) {
+        var p = patch.items && patch.items[i]
+        if (!p) return it
+        return {
+          label: p.label || it.label,
+          pct: p.pct === undefined || p.pct === null ? it.pct : p.pct,
+          status: p.status || it.status,
+          note: p.note === undefined ? it.note : p.note
+        }
+      })
+      // 阶段允许新增行（如后半程才启动的任务）
+      if (patch.items && patch.items.length > bitems.length) {
+        for (var j = bitems.length; j < patch.items.length; j++) bitems.push(patch.items[j])
+      }
+      return { overall: patch.overall || base.overall, items: bitems }
+    }
+
+    /** 数字 count-up：目标值变化时从当前显示值平滑过渡到新值。 */
+    function useCountUp(target, dur) {
+      var ref = useRef(0)
+      var pair = useState(0)
+      var val = pair[0]
+      var setVal = pair[1]
+      useEffect(function () {
+        var from = ref.current
+        var to = Number(target) || 0
+        if (reduceMotion() || from === to) { ref.current = to; setVal(to); return }
+        var start = 0
+        var raf = 0
+        function step(ts) {
+          if (!start) start = ts
+          var p = Math.min(1, (ts - start) / dur)
+          var eased = 1 - Math.pow(1 - p, 3)
+          var v = from + (to - from) * eased
+          ref.current = v
+          setVal(v)
+          if (p < 1) raf = requestAnimationFrame(step)
+          else { ref.current = to; setVal(to) }
+        }
+        raf = requestAnimationFrame(step)
+        return function () { if (raf) cancelAnimationFrame(raf) }
+      }, [target, dur])
+      return val
+    }
+
+    /** 单个百分比数字（自带 count-up，作为独立组件避免 hook 数量随行数变化）。 */
+    function AnimatedPct(props) {
+      var v = useCountUp(props.value, 700)
+      return React.createElement('span', {
+        style: {
+          flex: 'none', width: props.width || 44, textAlign: 'right',
+          fontSize: props.size ? props.size + 'px' : '13px',
+          fontWeight: 700, color: props.color || P.ink,
+          fontVariantNumeric: 'tabular-nums', lineHeight: 1.1
+        }
+      }, Math.round(v) + '%')
+    }
+
+    function ProgressBoardViewer(props) {
+      var base = props.board
+      var stages = Array.isArray(props.stages) ? props.stages : []
+      var title = props.title || '进度看板'
+      var svgText = props.svg || ''
+      var fileBase = props.fileBase || ''
+      var total = stages.length
+      var rootRef = useRef(null)
+      var timerRef = useRef(null)
+      var pairIdx = useState(0)
+      var idx = pairIdx[0]
+      var setIdx = pairIdx[1]
+      var pairPlay = useState(false)
+      var playing = pairPlay[0]
+      var setPlaying = pairPlay[1]
+      var pairMount = useState(false)
+      var mounted = pairMount[0]
+      var setMounted = pairMount[1]
+      var pairMenu = useState(false)
+      var menuOpen = pairMenu[0]
+      var setMenuOpen = pairMenu[1]
+      var pairCode = useState(false)
+      var codeOpen = pairCode[0]
+      var setCodeOpen = pairCode[1]
+      var pairMsg = useState('')
+      var actionMsg = pairMsg[0]
+      var setActionMsg = pairMsg[1]
+      var pairFull = useState(false)
+      var isFull = pairFull[0]
+      var setIsFull = pairFull[1]
+
+      var activeStage = total > 0 ? (stages[Math.min(idx, total - 1)] || stages[0]) : null
+      var board = useMemo(function () {
+        return activeStage && activeStage.board ? mergeBoard(base, activeStage.board) : base
+      }, [base, activeStage])
+      var items = (board && board.items) || []
+      var overall = (board && board.overall) || { label: '整体进度', pct: 0 }
+      var ovColor = overall.pct >= 100 ? '#0F6E56' : '#534AB7'
+      var barTransition = reduceMotion() ? 'none' : 'width 700ms cubic-bezier(.22,.61,.36,1)'
+
+      useEffect(function () { ensurePbStyles() }, [])
+      // 首帧 width=0，下一帧跳到真实值 → 触发 CSS transition 的生长动画
+      useEffect(function () {
+        var r = requestAnimationFrame(function () { setMounted(true) })
+        return function () { cancelAnimationFrame(r) }
+      }, [])
+
+      function flash(msg) {
+        setActionMsg(msg)
+        setTimeout(function () { setActionMsg('') }, 1600)
+      }
+      function go(n) { setIdx(Math.max(0, Math.min(total - 1, n))); setPlaying(false) }
+      function togglePlay() { setPlaying(function (v) { return !v }) }
+
+      // 自动播放：2.5s/阶段（比分步图慢，留出看进度演进的时间）
+      useEffect(function () {
+        if (!playing || total === 0) return
+        timerRef.current = setInterval(function () {
+          setIdx(function (p) {
+            if (p >= total - 1) { setPlaying(false); return p }
+            return p + 1
+          })
+        }, 2500)
+        return function () { if (timerRef.current) clearInterval(timerRef.current) }
+      }, [playing, total])
+
+      useEffect(function () {
+        function onFs() { setIsFull(!!document.fullscreenElement) }
+        document.addEventListener('fullscreenchange', onFs)
+        return function () { document.removeEventListener('fullscreenchange', onFs) }
+      }, [])
+
+      // 键盘 ← → 切换阶段，空格播放/暂停
+      useEffect(function () {
+        if (total === 0) return
+        function onKey(e) {
+          var t = e.target
+          if (t && (t.tagName === 'BUTTON' || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+          if (e.key === 'ArrowLeft') { e.preventDefault(); go(idx - 1) }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); go(idx + 1) }
+          else if (e.key === ' ') { e.preventDefault(); togglePlay() }
+        }
+        document.addEventListener('keydown', onKey)
+        return function () { document.removeEventListener('keydown', onKey) }
+      }, [idx, playing, total])
+
+      function toggleFull() {
+        try {
+          if (!document.fullscreenElement) {
+            if (rootRef.current && rootRef.current.requestFullscreen) rootRef.current.requestFullscreen()
+          } else if (document.exitFullscreen) document.exitFullscreen()
+        } catch (e) { /* noop */ }
+      }
+
+      function doCopy(text, msg) {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(
+              function () { flash(msg || '已复制') },
+              function () { legacyCopy(text); flash(msg || '已复制') }
+            )
+          } else { legacyCopy(text); flash(msg || '已复制') }
+        } catch (e) { flash('复制失败') }
+      }
+
+      function downloadSvg() {
+        try {
+          if (!svgText) { flash('无 SVG 可下载'); return }
+          var blob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' })
+          var url = URL.createObjectURL(blob)
+          var a = document.createElement('a')
+          a.href = url
+          a.download = fileBase || 'progress-board.svg'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
+          flash('SVG 已下载')
+        } catch (e) { flash('下载失败') }
+      }
+
+      function toolBtn(label, tip, onClick, disabled) {
+        return React.createElement('button', {
+          type: 'button', title: tip, 'aria-label': tip, onClick: onClick, disabled: !!disabled,
+          style: {
+            border: '1px solid ' + P.line, background: 'transparent', color: disabled ? P.ink3 : P.ink2,
+            borderRadius: '8px', cursor: disabled ? 'default' : 'pointer', minWidth: '26px', height: '26px',
+            fontSize: '13px', lineHeight: '1', fontFamily: 'inherit', padding: '0 6px',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+          },
+          onMouseEnter: function (e) { if (!disabled) e.currentTarget.style.background = P.hover },
+          onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
+        }, label)
+      }
+
+      // ---- 行 ------------------------------------------------------------
+      var rows = items.map(function (it, i) {
+        var st = PB_STATUS[it.status] || PB_STATUS.pending
+        return React.createElement('div', {
+          key: it.label + '#' + i,
+          style: { display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 0' }
+        },
+          React.createElement('span', {
+            title: it.note ? it.label + ' — ' + it.note : it.label,
+            style: {
+              flex: '1 1 24%', minWidth: 0, fontSize: '14px', fontWeight: 500, color: P.ink,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+            }
+          }, it.label),
+          React.createElement('div', {
+            style: {
+              flex: '1 1 auto', minWidth: 56, height: 10, borderRadius: 5,
+              background: '#FFFFFF', border: '1px solid #E3E1D8', overflow: 'hidden'
+            }
+          },
+            React.createElement('div', {
+              className: 'dsh-pb-anim',
+              style: {
+                width: mounted ? it.pct + '%' : '0%', height: '100%',
+                borderRadius: 5, background: st.fill, transition: barTransition
+              }
+            })
+          ),
+          React.createElement(AnimatedPct, { value: it.pct, color: st.fill, width: 44 }),
+          React.createElement('span', {
+            style: {
+              flex: 'none', width: 58, textAlign: 'center', fontSize: '11px', fontWeight: 500,
+              color: st.ink, background: st.soft, border: '1px solid ' + st.fill,
+              borderRadius: 6, padding: '3px 0', whiteSpace: 'nowrap'
+            }
+          }, st.label)
+        )
+      })
+
+      // ---- 整体进度 ------------------------------------------------------
+      var overallBlock = React.createElement('div', { style: { padding: '2px 0 12px' } },
+        React.createElement('div', {
+          style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }
+        },
+          React.createElement('span', { style: { fontSize: '13px', color: P.ink2 } }, overall.label),
+          React.createElement(AnimatedPct, { value: overall.pct, color: ovColor, size: 26, width: 'auto' })
+        ),
+        React.createElement('div', {
+          style: {
+            height: 14, borderRadius: 7, background: '#FFFFFF',
+            border: '1px solid #E3E1D8', overflow: 'hidden'
+          }
+        },
+          React.createElement('div', {
+            className: 'dsh-pb-anim',
+            style: {
+              width: mounted ? overall.pct + '%' : '0%', height: '100%',
+              borderRadius: 7, background: ovColor, transition: barTransition
+            }
+          })
+        )
+      )
+
+      // ---- 阶段控制条（仅多阶段）-----------------------------------------
+      var stageBar = null
+      if (total > 0) {
+        var dots = []
+        for (var d = 0; d < total; d++) {
+          (function (di) {
+            dots.push(React.createElement('button', {
+              key: 'dot' + di,
+              type: 'button', title: (stages[di] && stages[di].title) || ('阶段 ' + (di + 1)),
+              'aria-label': '跳到阶段 ' + (di + 1),
+              onClick: function () { go(di) },
+              className: di === Math.min(idx, total - 1) && playing ? 'dsh-pb-anim' : undefined,
+              style: {
+                width: di === Math.min(idx, total - 1) ? '16px' : '7px', height: '7px',
+                borderRadius: '4px', border: 'none', padding: 0, cursor: 'pointer',
+                background: di === Math.min(idx, total - 1) ? P.accent : 'rgba(136,135,128,0.45)',
+                transition: reduceMotion() ? 'none' : 'width 260ms ease, background 260ms ease',
+                animation: di === Math.min(idx, total - 1) && playing ? 'dsh-pb-pulse 1.8s ease-in-out infinite' : undefined
+              }
+            }))
+          })(d)
+        }
+        stageBar = React.createElement('div', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+            paddingTop: 12, marginTop: 4, borderTop: '1px solid ' + P.line
+          }
+        },
+          toolBtn('\u25c0', '上一阶段', function () { go(idx - 1) }, idx <= 0),
+          toolBtn(playing ? '\u2759\u2759' : '\u25b6', playing ? '暂停' : '自动播放', togglePlay),
+          toolBtn('\u25b6\uFE0E', '下一阶段', function () { go(idx + 1) }, idx >= total - 1),
+          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, dots),
+          React.createElement('span', {
+            style: {
+              fontSize: '13px', fontWeight: 600, color: P.ink,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '46%'
+            }
+          }, (activeStage && activeStage.title) || ''),
+          React.createElement('span', { style: { fontSize: '11px', color: P.ink3, marginLeft: 'auto' } },
+            (Math.min(idx, total - 1) + 1) + ' / ' + total)
+        )
+      }
+      var stageDesc = (activeStage && activeStage.description)
+        ? React.createElement('div', {
+            style: { fontSize: '12px', color: P.ink2, lineHeight: 1.6, paddingTop: 8 }
+          }, activeStage.description)
+        : null
+
+      // ---- 工具栏 --------------------------------------------------------
+      var bar = React.createElement('div', {
+        style: {
+          display: 'flex', alignItems: 'center', gap: '6px',
+          padding: '8px 12px', borderBottom: '1px solid ' + P.line
+        }
+      },
+        React.createElement('span', {
+          style: {
+            fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', flex: '1 1 auto', minWidth: 0, color: P.ink
+          }
+        }, title),
+        actionMsg
+          ? React.createElement('span', { style: { fontSize: '11px', color: P.ok, whiteSpace: 'nowrap', flex: 'none' } }, actionMsg)
+          : React.createElement('span', { style: { fontSize: '11px', color: P.ink3, whiteSpace: 'nowrap', flex: 'none' } }, '进度看板'),
+        toolBtn('\u26f6', isFull ? '退出全屏' : '全屏查看', toggleFull),
+        React.createElement('button', {
+          type: 'button', title: '更多操作', 'aria-label': '更多操作',
+          onClick: function () { setMenuOpen(function (v) { return !v }) },
+          style: {
+            border: '1px solid ' + P.line, background: 'transparent', color: P.ink2,
+            borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px',
+            fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+          },
+          onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
+          onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
+        }, '\u22ee')
+      )
+
+      var menu = menuOpen ? React.createElement('div', {
+        style: {
+          position: 'absolute', top: '40px', right: '12px', zIndex: 20,
+          background: P.card, border: '1px solid ' + P.line, borderRadius: '10px',
+          boxShadow: '0 6px 24px rgba(44,44,42,0.16)', overflow: 'hidden', minWidth: '168px'
+        }
+      },
+        menuItem('复制看板数据 (JSON)', function () { doCopy(JSON.stringify(board, null, 2), '数据已复制'); setMenuOpen(false) }),
+        menuItem('下载 SVG', function () { downloadSvg(); setMenuOpen(false) }),
+        menuItem('查看 SVG 源码', function () { setCodeOpen(true); setMenuOpen(false) })
+      ) : null
+
+      var codeOverlay = codeOpen ? React.createElement('div', {
+        style: {
+          position: 'absolute', inset: 0, zIndex: 30, background: P.card,
+          display: 'flex', flexDirection: 'column'
+        }
+      },
+        React.createElement('div', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '8px 12px', borderBottom: '1px solid ' + P.line
+          }
+        },
+          React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: P.ink, flex: '1 1 auto' } }, 'SVG 源码'),
+          toolBtn('复制', '复制源码', function () { doCopy(svgText, '源码已复制') }),
+          toolBtn('\u2715', '关闭', function () { setCodeOpen(false) })
+        ),
+        React.createElement('pre', {
+          style: {
+            margin: 0, padding: '12px', overflow: 'auto', flex: '1 1 auto',
+            fontSize: '11px', lineHeight: 1.6, color: P.ink, background: P.codeBg,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', whiteSpace: 'pre-wrap'
+          }
+        }, svgText || '(无 SVG)')
+      ) : null
+
+      return React.createElement('div', {
+        ref: rootRef,
+        style: {
+          position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
+          margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
+          background: P.card, overflow: 'hidden',
+          boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
+        }
+      },
+        bar,
+        React.createElement('div', { style: { padding: '14px 20px 18px' } },
+          overallBlock,
+          React.createElement('div', { style: { borderTop: '1px solid ' + P.line, paddingTop: 4 } }, rows),
+          stageBar,
+          stageDesc
+        ),
+        menu,
+        codeOverlay
+      )
+    }
+
+    // 菜单项（进度看板与 DiagramViewer 共用样式的小工具）
+    function menuItem(label, onClick) {
+      return React.createElement('div', {
+        onClick: onClick,
+        style: {
+          padding: '9px 14px', fontSize: '13px', color: P.ink, cursor: 'pointer', whiteSpace: 'nowrap'
+        },
+        onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
+        onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
+      }, label)
+    }
+
 // StageViewer component: multi-step interactive diagram viewer.
 // Renders stage controls (← → play · stage indicator · descriptions)
 // and toggles SVG layers per stage with smooth transitions.
@@ -1390,6 +1844,8 @@ function StageViewer(props) {
         if (!parsed) return st
         if (parsed.type === 'mermaid') {
           if (!parsed.code || parsed.code.length < 8) return st
+        } else if (isBoardPayload(parsed)) {
+          // v7 进度看板：数据驱动，豁免 real-SVG 门槛（否则合法看板会被误杀）
         } else if (!looksLikeRealSvg(parsed.svg)) return st
         var calls = Object.assign({}, st.calls)
         calls[callId] = true
@@ -1397,7 +1853,7 @@ function StageViewer(props) {
         if (parsed.type === 'mermaid') {
           item = { type: 'mermaid', code: parsed.code, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '' }
         } else {
-          item = { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '', stages: (parsed.meta && parsed.meta.stages) || undefined }
+          item = { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '', stages: (parsed.meta && parsed.meta.stages) || undefined, board: (parsed.meta && parsed.meta.board) || undefined }
         }
         var diagrams = st.diagrams.concat([item])
         return { turn: st.turn, calls: calls, diagrams: diagrams }
@@ -1416,6 +1872,8 @@ function StageViewer(props) {
         var key = (d.path || d.title || 'diagram') + '#' + i
         if (d.type === 'mermaid') {
           children.push(React.createElement(MermaidWidget, { key: key, code: d.code, title: d.title }))
+        } else if (d.board) {
+          children.push(React.createElement(ProgressBoardViewer, { key: key, board: d.board, stages: d.stages, title: d.title, svg: d.svg, fileBase: basename(d.path) }))
         } else {
           children.push(React.createElement(DiagramViewer, { key: key, svg: d.svg, title: d.title, fileBase: basename(d.path), stages: d.stages }))
         }
@@ -1568,7 +2026,7 @@ function StageViewer(props) {
           try { parsed = parseEnvelope(outputText, true) } catch (e) { parsed = null }
           if (!parsed) return
           if (parsed.type === 'mermaid') { if (!parsed.code || parsed.code.length < 8) return }
-          else if (!looksLikeRealSvg(parsed.svg)) return
+          else if (!isBoardPayload(parsed) && !looksLikeRealSvg(parsed.svg)) return
 
           // Create diagram container
           var container = document.createElement('div')
@@ -1579,9 +2037,12 @@ function StageViewer(props) {
             ? { code: parsed.code, title: (parsed.meta && parsed.meta.title) || '' }
             : { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '',
                 fileBase: basename((parsed.meta && parsed.meta.path) || ''),
-                stages: (parsed.meta && parsed.meta.stages) || undefined }
+                stages: (parsed.meta && parsed.meta.stages) || undefined,
+                board: (parsed.meta && parsed.meta.board) || undefined }
 
-          var Component = parsed.type === 'mermaid' ? MermaidWidget : DiagramViewer
+          var Component = parsed.type === 'mermaid'
+            ? MermaidWidget
+            : (isBoardPayload(parsed) ? ProgressBoardViewer : DiagramViewer)
 
           try {
             if (_ReactDOM && _ReactDOM.createRoot) {
@@ -1651,7 +2112,11 @@ function StageViewer(props) {
       unescapeStrict: unescapeStrict,
       extractSvg: extractSvg,
       computeStageSvg: computeStageSvg,
-      STAGE_CSS: STAGE_CSS
+      STAGE_CSS: STAGE_CSS,
+      // v7 进度看板（SSR 冒烟测试钩子：真实渲染组件，抓引用/运行时错误）
+      ProgressBoardViewer: ProgressBoardViewer,
+      isBoardPayload: isBoardPayload,
+      mergeBoard: mergeBoard
     }
     return module.exports
   }
