@@ -177,4 +177,49 @@ host API 注册用 host-services registerLocalApi（POST）     ← webServer pr
 
 ---
 
-*本文件由多次会话增量维护。最终更新：2026-09-01。*
+## 7. 主线增补（2026-09-07/08 WorkBuddy 线接续：性能 + 卫生 + 能力）
+
+### 本轮三成果（全部验证闭环）
+
+1. **PERF-6 readZstdPrefix 同步解码**（打开对话真热路径）
+   - 补丁源 patches/bundles/dsh-session-persistence-jsonl-index.js：readZstdPrefix 拆为调度 + fast（同步 generator，NodePrivateZstdFrameDecoder 复用）+ fallback（原逐帧异步）+ finish 四方法；帧间定时 yield 保响应；任何失败自动回退
+   - 部署：patch-apply 引擎（备份+锚点+node --check+原子替换+回读）；marker PATCH(zstd-stream-readprefix；verify-patches PERF-6 项；MANIFEST 7ba881f5/60809B
+   - 修正 registry ROOTS.dev 多拼 node_modules 的 bug；patch-apply self-test 6/6；字节一致性 10 帧逐字节 PASS；重启后生效已确认
+   - 同期 PERF-5 readRaw 流式（导出路径 3.4x）先前已上线
+
+2. **dsh-crashpad-hygiene 插件**（crashpad 崩溃转储堆积治理，Master Plan 三大问题之磁盘面）
+   - plugins/dsh-crashpad-hygiene/：maxKeep=2 / 30d 超龄 / 300MB 配额；回收站删除 + data/events.jsonl 全审计；/crashpad-hygiene/report+status 端点（loopback）；自重调度 6h + 退避
+   - 故障注入抓到 2 真 bug：pwsh7 不自动加载 VisualBasic 程序集 → recycleDelete 静默失败（Add-Type 修复，实测 ok）；maxKeep=0 时最新 dump 未保护（keepFloor=Math.max(1,...) 修复）
+   - 纯函数 17 项 PASS；上线首夜已清理 33.4MB（08-23 最旧 dmp 进回收站实测可恢复）；startup-verify 10/10
+   - 坑位知识：dev_reload_package 在当前 build 报 loader.internal 不可用 → 新代码须重启加载；dev_install_package 会写 runtime bundles，但模板需手工同步（否则 startup-verify V2 掉 9/10）
+
+3. **hub skill 第一批 18 个直装**（能力激活）
+   - ~/.dsh/skills 共 36 目录；catalog 热收录（免重启）+ 15s 持久性验证
+   - 清单/事故/回滚在 _skills-batch1-manifest.json；第二批 24 个观察锚定率 1-2 周后定
+   - 坑位知识：node fs.cpSync 写 ~/.dsh 被沙箱 EIO 拦截 → 用 pwsh Copy-Item；第一轮 13 目录曾离奇消失（复装后稳定，根因未定位，观察项）
+
+### 巡检发现（2026-09-08）
+- plugins/dsh-vision-engine/lib/client.js 有未提交改动（+12/-6，PERF-3 可见性门控，并行会话的正当优化，非事故）——**待提交**，后续会话处理或并入下次提交
+- task-scheduler 报的 INVENTORY.md unsupervised-change 为陈旧记录（实际已在 commit ffc6666 提交），无需处理
+
+### 移交 WorkBuddy 线的待办（按用户分工）
+- 双 build 回滚目标（改 promote-build.ps1 流程）
+- 外部看门狗（kill 主进程 5 分钟自恢复）
+
+### 下次升级时间表（2026-09-08 制定）
+
+| 什么时候 | 做什么 | 触发条件 / 判断标准 |
+|---|---|---|
+| **2026-09-15（观察期中点）** | skill 锚定率中检 | 日常用 skill（补测试→test-generator 触发？提交→git-commit-message 触发？）；好用 → 继续；乱触发/不触发 → 精简描述或换批 |
+| **2026-09-22（观察期满 2 周）** | 决定第二批 24 个 skill 装不装 | 锚定率中检良好 + 无失踪复发 → 装；否则先修第一批 |
+| **同日顺检** | skill 目录失踪观察项关账 | 09-08 后无复发 → 关闭观察项；复发 → 深查（怀疑并行会话与 skills-manager 交互） |
+| **随时（WorkBuddy 线）** | 双 build 回滚 + 外部看门狗 | 已移交 WorkBuddy；若 09-22 仍无进展，本线接手 |
+| **下一次 DSH 上游版本更新时** | 重建后重打补丁（port-user-patches）+ startup-verify + verify-patches 三连 | 任何 dist rebuild；参照本档 §4 命令速查 |
+| **Master Plan 第 2 波（有空时）** | 能力注册表 / 画图 artifact 后备 / outputs 资产目录 | 均低风险；能力注册表建议先做（单一事实源，防"我有哪些能力"再问一遍） |
+| **第 3 波（下个迭代周期）** | /health 聚合、自愈动作化、写锁强制化、配额治理 | 依赖第 2 波；不急 |
+
+**健康基线（每会话开局可 30 秒自检）**：`startup-verify` 10/10 + `patch-apply scan` 0 漂移 + `verify-patches` 49 全 PASS + `scan-dangling` 0 —— 全绿即基线未退化。
+
+*本节由 upgrade-session 于 2026-09-08 增补；Master Plan 状态表同日对账（5 项过时状态已修正，带证据）。*
+
+*本文件由多次会话增量维护。最终更新：2026-09-08。*
