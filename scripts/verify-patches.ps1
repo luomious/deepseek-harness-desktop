@@ -19,6 +19,7 @@ $checks = @(
   @{ n = 'default-browser windowsHide';         f = Join-Path $unpacked 'node_modules\default-browser\windows.js'; p = 'windowsHide: true' },
   @{ n = 'materializer windowsHide (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'windowsHide: true,' },
   @{ n = 'gpu force-disable (lib/main)';        f = Join-Path $unpacked 'lib\main.js'; p = 'DSH_DESKTOP_FORCE_GPU' },
+  @{ n = 'in-process-gpu + disable-gpu-compositing (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'app.commandLine.appendSwitch("in-process-gpu")' },
   @{ n = 'occlusion switches (lib/main)';       f = Join-Path $unpacked 'lib\main.js'; p = 'CalculateNativeWinOcclusion' },
   @{ n = 'zombie cleanup (lib/main)';            f = Join-Path $unpacked 'lib\main.js'; p = 'ZombieCleanup(' },
   @{ n = 'vision-engine runCli windowsHide';    f = Join-Path $root 'plugins\dsh-vision-engine\lib\index.js'; p = 'windowsHide: true' },
@@ -45,6 +46,10 @@ $checks = @(
   @{ n = 'exit-cleanup guard bypass (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh patch exit-cleanup v1' },
   @{ n = 'exit-cleanup relaunch flag (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = '__dsh_relaunch_in_progress__' },
   @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' },
+  # ui-perf patches (2026-09-06: better-sidebar collapse gate + vision-engine input light; targets live outside dist)
+  @{ n = 'ui-perf: better-sidebar collapse gate'; f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-better-sidebar\lib\client.js'; p = 'state && (state.panelOpen || state.bottomOpen)' },
+  @{ n = 'ui-perf: vision-engine render(allowFullScan)'; f = Join-Path $root 'plugins\dsh-vision-engine\lib\client.js'; p = 'function render(allowFullScan)' },
+  @{ n = 'ui-perf: self-maintenance renderer probe'; f = Join-Path $root 'plugins\dsh-self-maintenance\lib\index.js'; p = 'renderer-probe-final' },
   # port-user-patches bundle patches (2026-09-06 audit: were zero-covered; rebuild silently lost them)
   @{ n = 'port: workspace bundle ADD_CHAT';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js'; p = 'const ADD_CHAT' },
   @{ n = 'port: conversation bundle chatOnly';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'const chatOnly' },
@@ -52,7 +57,16 @@ $checks = @(
   @{ n = 'port: frontend-static no-cache';       f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-frontend-static\lib\index.js'; p = 'dsh-desktop patch: no-cache for dev stability' },
   @{ n = 'port: directory-picker native picker'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-directory-picker-browse\lib\client.js'; p = 'window.__DSH_DESKTOP_PICK_DIRECTORY__' },
   @{ n = 'port: session-persistence zstd-async'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-async)' },
-  @{ n = 'port: modlens seamless takeover';      f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\@liustack\modlens\dsh\index.js'; p = 'lowered0' }
+  @{ n = 'port: modlens seamless takeover';      f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\@liustack\modlens\dsh\index.js'; p = 'lowered0' },
+  # startup resilience + decision patches (2026-09-07: PROC-4 / UPD-2 / PROC-5 / exit self-check)
+  @{ n = 'stale-lock 60s (lib/main)';            f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-patch: stale-lock-60s' },
+  @{ n = 'auto-update disabled (updates.js)';    f = Join-Path $unpacked 'lib\updates.js'; p = 'dsh-patch: disable-auto-update' },
+  @{ n = 'port-preflight friendly error (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-patch: port-preflight v1' },
+  @{ n = 'quit lockfile cleanup (lib/main)';     f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-patch: quit-lock-cleanup v1' },
+  # PERF-5: session readRaw streaming multi-frame decode (2026-09-07)
+  @{ n = 'session decode streaming (PERF-5)';    f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'dsh-patch: zstd-stream-readraw v1' },
+  # PERF-6: session readZstdPrefix synchronous generator decode (open-session hot path)
+  @{ n = 'session prefix sync decode (PERF-6)';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-stream-readprefix' }
 )
 
 $fail = 0
@@ -129,5 +143,12 @@ if (Test-Path $vbs) {
 
 Write-Host ''
 if ($fail -eq 0) { Write-Host ('ALL PASS (' + $total + ' checks)') -ForegroundColor Green }
-else { Write-Host ($fail.ToString() + ' FAILED') -ForegroundColor Red }
+else {
+  Write-Host ($fail.ToString() + ' FAILED') -ForegroundColor Red
+  # 2026-09-07: actionable hint on failure - tell operator HOW to re-apply
+  Write-Host 'HINT  re-apply drifted patches:' -ForegroundColor Yellow
+  Write-Host '  - registry patches:   node scripts/patch-apply.mjs apply   (idempotent, backs up first)' -ForegroundColor Yellow
+  Write-Host '  - surgical patches:   rerun the matching scripts/apply-*.mjs for each FAIL item above' -ForegroundColor Yellow
+  Write-Host '  - then rerun this script to confirm all green' -ForegroundColor Yellow
+}
 exit $fail

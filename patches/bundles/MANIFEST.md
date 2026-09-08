@@ -10,7 +10,7 @@
 |------|------|---------|----------|------|
 | `dsh-client-ui-conversation-client.js` | 448,117 B | `199a31e56f9ff78f0786347f41fced82119eba8a4cc114fbeb7045dde27d3265` | 2026-08-22 02:06:47 | 会话 UI 客户端修复 |
 | `dsh-client-ui-directory-picker-browse-client.js` | 55,429 B | `8f0c2944cb87d0efba4c90f625d2078708a3d7af27a1a23090299d805a3a94c3` | 2026-08-24 20:50:39 | 目录选择器浏览客户端修复 |
-| `dsh-session-persistence-jsonl-index.js` | 57,369 B | `A5781B5601DE24CDE6FD355B1AF972DAEE7DE155AA29C078B1BFE779E373A813` | 2026-08-29 02:08:12 | 会话持久化 zstd 异步解压修复（2026-09-06 审计补登） |
+| `dsh-session-persistence-jsonl-index.js` | 60,809 B | `7ba881f57738d48589effe478eb5176d74cd37cd368aed04d025adf7c66a253b` | 2026-09-07 18:5x | 会话持久化 zstd 解压：readRaw 流式（PERF-5）+ readZstdPrefix 同步 generator（PERF-6，打开对话热路径）+ 逐帧异步回退 |
 | `dsh-client-ui-settings-models-client.js` | 135,041 B | `e0a1eb5a7c3e237c2c9bbdc2fdf2a9bafa5bdadf4313b797cf3e4b28850bae0a` | 2026-08-24 11:15:15 | 设置模型客户端修复 |
 | `dsh-client-ui-workspace-client.js` | 116,446 B | `0497d48dbcd7ba2eca93af9de9615e7b716165dfcc2818da9be7237fe5720ee4` | 2026-08-25 22:35:48 | 工作区客户端修复 |
 | `dsh-host-frontend-static-index.js` | 4,187 B | `b188830f03528635dc1850ab83cd6a87aab6d394bb2b245f63c1bab1e14bc935` | 2026-08-25 10:43:15 | 前端静态索引修复 |

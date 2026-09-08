@@ -15,6 +15,7 @@ generator: @dsh-external/dsh-project-brief
 - **重启守则（用户要求，务必遵守）**：代码改动后**不得自动重启桌面应用**——重启会打断用户的其他会话进程。改为：改动提交后告诉用户"已就绪，等你指示再重启"，**仅当用户明确说"重启/生效/测试"时才执行重启**。诊断类临时重启（带调试端口探针）同样需先征得用户同意。
 - 修改代码前先读本文件与 `PROJECT_README.md` / `CHANGELOG.md`，遵循既有插件/补丁模式，不重复造轮子。
 - 对全局/vendor node_modules 的修改必须登记到补丁体系：`patches/bundles/` 补丁 bundle + `scripts/verify-patches.ps1` 校验项 + 对应 `scripts/apply-*.mjs` 重打脚本，否则重建/升级即丢失（旧 `src/lib/patch-manifest.js` 自愈清单已随 `src/` 归档 `legacy/`，参考实现见 `patches/reference/patch-manifest.js`）。
+- **补丁脚本防增量规则（2026-09-07 审计定案）**：新建补丁二选一——① whole-bundle 型走 `scripts/patch-registry.mjs` 登记（id/bundle/anchors/markers/targets），由 `scripts/patch-apply.mjs` 统一获得备份/原子替换/回读校验/回滚/漂移扫描；② 外科手术式（对目标文件定点字符串替换）必须自带原子写（同目录临时文件+`renameSync`）+ 备份。**禁止新增非原子 `apply-*.mjs`**。存量 16 个旧脚本冻结现状（验证过的稳定重打工具），仅当因故修改时顺手原子化，不做全量迁移（whole-bundle 迁移需为每个补丁物化完整 bundle，反而制造新漂移面）。
 - **严禁对 `@liustack/modlens`（服务端插件，adapter 注册只在启动时发生）执行 `dev_reload_package` 热重载**：会丢失 adapter 注册，会话切到 `modlens-*` 报 `no adapter registered for provider "modlens-*"` 并卡死服务；modlens 代码改动必须完全重启桌面应用。
 - 启动自愈（`reconcilePatches` + 原生目录选择器补丁）已移到 `main.js` 端口检查**之前**：无论 43120 是否被占用（网页版/残留进程）都会执行。若某补丁对某版本 dsh 失效，优先更新锚点或登记自动退役（如 `dsh-core-client-bundle-retry` 对 0.1.1-rc.2 的 Vite 前端），不要只删清单项。
 - 长任务用 goal（`create_goal`）自动续跑；跨会话守护用 daemon-loop 插件（如 `dsh-session-watchdog`）。

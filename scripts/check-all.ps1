@@ -125,6 +125,24 @@ if (Test-Path $verifyScript) {
   Write-Host '  SKIP  verify-patches.ps1 not found' -ForegroundColor Yellow
 }
 
+# ---- Step 2.6: patch-apply.mjs scan (registry drift gate, 2026-09-07) ----
+# Read-only: reports registered patches whose bundle is ready but targets
+# lack markers (the PERF-5 silent-drift pattern). Exit 1 on drift = gate.
+Write-Host ''
+Write-Host '=== Step 2.6: patch-apply scan (registry drift) ===' -ForegroundColor Cyan
+$patchApply = Join-Path $PSScriptRoot 'patch-apply.mjs'
+if (Test-Path $patchApply) {
+  & node $patchApply scan
+  $driftCode = $LASTEXITCODE
+  if ($driftCode -ne 0) {
+    Write-Host '  FAIL  patch drift detected (bundle ready, target missing markers)' -ForegroundColor Red
+    Write-Host '  HINT  fix: node scripts/patch-apply.mjs apply  (idempotent, backs up first)' -ForegroundColor Yellow
+    $totalFail++
+  }
+} else {
+  Write-Host '  SKIP  patch-apply.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2.5: diagram-renderer pipeline regression (15 assertions) ----
 # Playwright + local Chrome required; skips gracefully when unavailable.
 Write-Host ''
