@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-07 补丁脚本治理定案（防增量规则 + 重打 HINT + git 三连提交）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **GOV-1 [x]** | AGENTS.md 新增「补丁脚本防增量规则」：新建补丁二选一——whole-bundle 走 `patch-registry.mjs`（统一获得备份/原子替换/回读校验/回滚/漂移扫描）或外科手术式自带原子写+备份；**禁止新增非原子 `apply-*.mjs`**。存量 16 个冻结现状（15/16 实测为外科手术式 `bundle-ref=False, surgical-replace=True`，whole-bundle 迁移反而制造新漂移面——实测推翻上轮"全量迁移"构想） | 实测分类扫描 16 脚本；规则已入 AGENTS.md 协作指南区 | git |
+| **GOV-2 [x]** | `verify-patches.ps1` FAIL 时输出可操作 HINT（registry 型 → `patch-apply.mjs apply`；surgical 型 → 重跑对应 `apply-*.mjs`；重跑后复检）——修复"只报 FAIL 不告知怎么重打"的可观测性缺口（PERF-5 漂移时无指引的教训） | PS ParseFile 0 语法错；全绿路径回归 49/49 PASS；HINT 代码 line 148-153 在位 | git |
+| **GOV-3 [x]** | git 三连提交（54 文件全部入库）：① `b177fa5` feat(patches) 补丁生命周期标准化（9 文件 +772）② `9f2e1c6` fix(verify) V9 假阳性修复（3 文件 +151）③ `5eda763` chore 历史收口（43 文件 +4599/-725）；工作树 54→0。4 个渣文件（.verify-out.txt / _final_cleanup.py / client.js.bak / skills manifest）送回收站未入库 | `git log --oneline -3` + `git status` 0 行 | 回收站可恢复 |
+
+> 均为纯离线改动，无需重启。git commit 长多行 message 在 DSH 沙箱内触发 sh signal-pipe 拦截（Win32 error 5），单行 message 可绕过——已记为环境坑位。
+
 ## 2026-09-07 验证层假阳性修复（V9 三态分类 + SLO inconclusive 语义）
 
 | 项 | 内容 | 证据 | 备份 |
