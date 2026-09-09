@@ -2,12 +2,24 @@
 
 在 DeepSeek Harness 会话流中渲染**可交互的 SVG 图表卡片**（架构图 / 流程图 / 时序图 / 状态图 / ER 图 / 示意图等），开箱支持：**自适应免缩放展示**（宽度铺满、高度随图、右上角「自适应」标记）、**分步交互（stages：上一步/下一步/自动播放/阶段点/播放进度条，WorkBuddy 同款）**、**动态效果**（阶段切换上浮渐入+高光、播放进度条、点脉冲；SVG 内嵌 CSS 动效模板见 SKILL）**、节点 hover 高亮 + 点击详情、复制源码、下载 `.svg` / 导出 PNG、全屏矢量细读；mermaid 引擎本地离线可用；并在设置页提供「图表」管理分区。
 
+## v9 设计系统（2026-09-09 · scene 数据驱动渲染内核）
+
+对标 archify 语义色彩语言，scene 渲染全面重构：
+
+- **语义类型 ×10**：frontend/backend/data/cloud/security/bus/external/person/device/core，每型一色（描边/淡填充/深文字），卡片左侧 3px 类型色条 + 类型色图标 + 可选「核心」徽章
+- **分组分区**：`scene.groups` 渲染为淡色底板（层/边界/泳道），跨组连线走组间沟槽
+- **智能排版**：标题 17→13 逐级缩放绝不截断；卡名 13→11 缩放后才省略；描述词换行 ≤2 行；卡高随内容、行高取行内最大；≥8 节点自动收紧间距
+- **深浅双主题**：CSS 变量 + `prefers-color-scheme`，一份 SVG 亮暗自适应（`svg{}` 作用域不污染宿主页）；`theme:'light'|'dark'` 可强制
+- **流量 5 语义**：data/sensor/control/event/security 各配线型与箭头色；标签 chip 按 y 分组错位防碰撞
+- **向后兼容**：旧 icon-only 参数自动映射 type；`scene.engine:'v8'` 显式回退旧引擎
+
 ## 能力一览
 
 | 面 | 机制 | 位置 |
 |---|---|---|
 | 工具 | `render_diagram`（host 注册，SVG 入参 → 校验清洗 → 原子落盘 → 返回信封） | `lib/index.js` |
 | **进度看板** | `render_diagram({ board })`（**数据入参** → `buildBoardSvg` 内置模板 → 动态交互卡；模型无需手写 SVG） | `lib/index.js` + `lib/client.js` |
+| **应用场景图** | `render_diagram({ scene })`（**数据入参** → **v9 语义渲染内核** `buildSceneSvgV2`：10 类语义配色 + 分组分区 + 智能字号 + 深浅双主题；旧 icon-only 参数全兼容，`engine:'v8'` 逃生门） | `lib/scene-v2.js` + `lib/design.js` + `lib/index.js` |
 | 渲染 | `tool.call.toolview` keyed 渲染器（交互 SVG 卡） | `lib/client.js` |
 | 管理 | `settings.section` id=`diagram-renderer`（设置页「图表」分区） | `lib/client.js` |
 | 触发 | skill `diagram`（对 agent 说「画架构图/用图形化解释…」即触发） | `skill/SKILL.md` |
@@ -31,7 +43,22 @@
 client 渲染器单通道解析（v6.4）：**keyed 工具卡（`tool_call` keyed 槽）在工具节点内完整渲染**（分步交互/统计/说明面板全套），历史消息刷新后经 keyed 重放自动恢复；解析走严格信封匹配（信封缺失一律忽略——防止 read/skill 结果里的文档文本被误判成图，v4 幻影卡根治）。tunTail 通道已退役（事件流不重放导致刷新后卡消失——v6.4 根因修复，见 CHANGELOG）。
 
 - `board`（可选，v7）：**进度看板数据** `{ overall?: {label?,pct}|number, items:[{label,pct,status?,note?}] }`。host 用内置模板 `buildBoardSvg()` 直接生成 SVG —— **模型无需手写 SVG**（token 成本骤降、视觉与 WorkBuddy 规范天然统一）。数据同时写入 meta，client 用 `ProgressBoardViewer` 渲染**真实完成度**进度条；配合 `stages[].board` 快照（按 index 与基线合并，只写变化量）可实现「进度随时间/阶段演进」的动态看板。status 四态：`done` / `active` / `blocked` / `pending`（支持中文别名与英文变体，缺省按 pct 推断）。
+- `scene`（可选，v7.1）：**应用场景图数据** `{ title?, subtitle?, actors:[{id,name,desc?,icon,highlight?}], flows:[{from,to,label?,kind?}], footer? }`。host 用 `buildSceneSvg()` 生成 —— 3 列网格自动布局、内置 12 个内联图标（core/camera/lidar/plc/screen/person/robot/agv/shelf/glass/workpiece/generic）、阶梯折线自动路由 + 箭头 + 标签、底部紫底要点面板。**指向不存在 id 的连线自动剔除**（模型写错不报错）。
 - ⚠️ **两种进度条语义不可混用**：看板（board）= 真实完成度；分步图（stages）= 播放时间轴。
+- ⚠️ **选型路由**：进度/完成度 → `board`；场景/系统组成 → `scene`；时间轴/矩阵/树形/对比分栏 → 手绘 `svg`。
+
+### 交互卡（v7.1）
+
+`ProgressBoardViewer` 的按钮按「合理摆放、好看清晰」原则布局：
+
+| 位置 | 控件 | 说明 |
+|---|---|---|
+| 工具栏右侧 | ⛶ 全屏 / ⋮ 更多 | 更多菜单：复制 JSON、下载 SVG、查看 SVG 源码 |
+| 卡片底部（stages 时） | ◀ / ▶ 播放 / ▶ | 与阶段时间线同一行，左侧集中 |
+| 底部时间线 | 阶段圆点（可点击） | 直接跳阶段；已完成段绿色、当前靛蓝放大 |
+| 键盘 | ← → 切换、空格播放 | 焦点在输入框内不拦截 |
+
+统一按钮规格 30×30 圆角 8、hover 态、disabled 半透明；视觉规格：标题 30px、整体数字 32px、行 label 16px、bar 12px（整体 14px）、徽章 24px。默认展示**最后阶段**（最新进度）。
 
 ## 安全（纵深防御）
 

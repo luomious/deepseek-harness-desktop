@@ -27,6 +27,7 @@ generator: @dsh-external/dsh-project-brief
 - **多对话协作铁律（task-scheduler，2026-08-27）**：改共享文件/install/build/补丁前先 `node scripts/task-scheduler.mjs status`，关键操作 `acquire`、改完 `release --summary`、长任务 `touch`；冲突时低优先级让路。机制与全量规则见全局 `~/.dsh/AGENTS.md`「多对话协作铁律」及 `plugins/dsh-task-scheduler/README.md`。
 - **原子写纪律（2026-08-29 事故）**：写 `plugins/` 运行路径文件（lib/**、入口、client bundle）必须**原子替换**（临时文件 + rename），禁止直接截断覆盖；改完回读 + `node --check` 验证，并跑 `node scripts/startup-verify.mjs`（V9 插件语法预检，挂 check-all Step 1.5）兜底。
 - **插件删除协议（2026-09-02）**：删除/归档 `plugins/<name>/` 必须同步运行态 Profile 3 处引用（`~/.dsh/profiles/desktop/package.json` 的 dependencies link/file 行、`dsh.profile.bundles` 项、node_modules 悬空 junction），否则重启报 `cannot resolve package`（2026-08-31 dsh-tool-visibility 事故）；首选 `dev_uninject_plugin`，CLI/离线兜底用 `scripts/deregister-plugin.mjs --plugin <name> [--yes]`（默认只读预检，`--yes` 才执行：备份+回收站+自动验证）。删后跑 `scripts/startup-verify.mjs`（`--repair` 自动清理）。桌面壳关闭/退出弹窗已内置「配置自检」（`scripts/apply-profile-guard.mjs` 补丁，重建后需重打，verify-patches.ps1 已含校验项）。跨 profile 巡检：`scripts/scan-dangling.mjs --strict`（并入 check-all Step 1.6），`--plan` 只读预演清理动作。
+- **示意图输出规则（2026-09-09，用户要求）**：生成架构图/流程图/时序图/示意图/看板等一律调用 `render_diagram` 在**对话流内显示**（优先 scene/board/mermaid 数据驱动，需像素级控制用 svg 透传），SVG 落盘仅作存档；禁止只写文件而不在对话中显示。
 
 ## 工作流程铁律（read → plan → patch → verify → review，策展 · 2026-08-25 新增）
 

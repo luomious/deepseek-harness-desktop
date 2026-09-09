@@ -6,6 +6,58 @@
 
 ---
 
+## 2026-09-09 设计系统 v9（dsh-diagram-renderer · scene 语义渲染内核，对标 archify）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **V9-1 [x]** | **design.js 设计系统模块**：10 类语义类型色板（frontend/backend/data/cloud/security/bus/external/person/device/core，archify 7 色 + person/device/core 扩展）、5 种流量语义线型（data/sensor/control/event/security）、深浅双主题变量构建（`svg{}` 作用域 + prefers-color-scheme）、逐字测宽（CJK 1.0 / 大写 0.68 / 窄字 0.34 / 其余 0.56）、fitScaled 字号逐级缩放、wrapText 贪心词换行 + 超长硬断 + 末行省略 | `lib/design.js`（新增 225 行）；`node --check` PASS | `_backups/diagram-v9-pre-20260909-154115/` |
+| **V9-2 [x]** | **scene-v2.js 渲染内核**：分组分区（淡色底板 + 名称 + 类型色圆点，未入组自动成末组）、卡片自适应高度（名称 13→11 缩放、描述 ≤2 行换行、行高取行内最大）、dense 模式（≥8 节点收紧间距）、6 类连线路由（同行/同列/相邻行 Z/隔卡 U/多行列沟槽/跨 band）、chip 标签 y 分组错位防碰撞、图标库扩至 20 个（+database/shield/cloud/globe/queue/api/doc/key）、旧 icon 自动映射 type | `lib/scene-v2.js`（新增 ~480 行）；`node --check` PASS | 同上 |
+| **V9-3 [x]** | **index.js 接入 v9**：import scene-v2、默认走 v9（`scene.engine==='v8'` 逃生门回退旧引擎）、scene 参数文档更新（type/groups/theme/kind 5 种）、信封 meta 带 `engine:'v9'` + theme、controls 文案「v9 · 语义色彩 · 自适应排版」 | `lib/index.js` 6 处 edit；`node --check` PASS | 同上 |
+| **V9-4 [x]** | **冒烟 + XML 验证**：3 样例（10 节点 3 分组架构图 18.3KB / 旧 icon 兼容 7.2KB / 深色主题 6.3KB）全 OK：无 undefined/NaN、`<g>`/`<marker>` 配对、viewBox 680 正确、背景 rect 存在；PowerShell `[xml]` UTF-8 显式读取 3/3 XML_OK | `smoke-v9.mjs` ALL PASS + XML_OK ×3 | 同上 |
+| **V9-5 [x]** | **SKILL.md 协议升级**：模式④ 重写（type 语义表 / 20 图标库 / groups / theme / kind 5 种 / desc 换行 ≤2 行 / actor 上限 14）、设计系统 v8→v9 章节（语义色板 10 类、配色纪律、双主题、分组、v8 逃生门） | `skill/SKILL.md` 2 段替换 | 同上 |
+| **V9-6 [x]** | **README + CHANGELOG 记录 + 用户级 skill 同步**：README 能力表/新增 v9 章节；本 CHANGELOG 段；`~/.dsh/skills/diagram/SKILL.md` 已从插件同步（skill 发现根要求） | 三处文件就位 | 同上 |
+| **V9-7 [x]** | **交互卡 contain 修复（client）**：fit-width→fit-contain（`fitScale=min(availW/680, MAX_H/H)`，整图完整可见、绝不卡内滚动）；MAX_H 旧式 `Math.max(900,Math.min(vh*0.78,720))` 恒=900（min/max 写反）→随视口封顶并三轮调优 0.82vh/900→0.88vh/950→**0.92vh/1000**；卡片出血 ±24→**±80px**（maxWidth 100vw-32 兜底，全屏按钮兜底） | `lib/client.js:1188-1192,1499`；`node --check` PASS | 同上 |
+| **V9-8 [x]** | **连线路由/标签修复（host）**：`cardRowHOf` 索引 bug（取错索引→行高恒 0→沟槽 y 落在卡上→连线穿卡、标签被盖）→ layout 存 `L.rowHs` 每行真实卡高；chip 渲染移到卡片之后（永远在最上层可见） | `lib/scene-v2.js` rowGutterY2/chip 段；kernel→session 路径实测验证 | 同上 |
+| **V9-9 [x]** | **排版三轮调优（959→929→814→745px）**：间距收紧（bodyTop 104→72、BAND_GAP 44/54→24/30、ROW_GAP 40/48→22/26、zone pad 22→9、footerGap 40→12、PAD_BOTTOM 24→10）+ 字号整体上调（卡名 13→**15** fitScaled[15,14,13,12]、desc/连线标签 11→**12**、footer 12→**13**、标题 17→**18**、分组标签 11→12）——修复「空白太多/字体小/左右空白」（根因：图高触 MAX_H 缩放瓶颈→宽度没占满） | `lib/scene-v2.js`；三样例 959/306→**745/239**px | 同上 |
+| **V9-10 [x]** | **验收归档**：3 次重启 + 无头 Chrome 截图 light/dark 目检（modlens 视觉核验「文字未受重叠、裁切或压住影响」）+ 用户验收通过；验收产物 `diagrams/…-v9.3-验收-20260909-233029.svg`（680×745） | smoke ALL PASS ×3 轮 + preview-v93-light/dark.png | 同上 |
+
+---
+
+## 2026-09-09 设计系统 v8（dsh-diagram-renderer · 与对话内联图同源）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **DS-1 [x]** | **设计系统常量统一引入**：host 顶部加 `VB_W=680 / SAFE_L=40 / SAFE_R=640 / HAIRLINE=#D3D1C7 / FONT_STACK` 与 9 档色板 RAMP（purple/teal/amber/gray 主用 + blue/red/coral/pink/green 备用）。所有坐标基于 680 画布，与对话内联 `show_widget` 完全同源 | `lib/index.js` 顶部 VISUAL_SPEC 块；`grep -c "VB_W\|RAMP\."` 双命中 | `_backups/fix-diagram-v8-20260909-113216/` |
+| **DS-2 [x]** | **board 模板全重写**：viewBox 680、宽高 600 安全区、标题 15/500、指标数字 24/500、整体条 10px、行 label 13/400、徽章 11/500、0.5px 描边、role=img + title/desc。状态色升级到 c-* 600 档（`#854F0B` amber、`#5F5E5A` gray，告别 `#B45309` / `#888780` 越档）。文字超宽**自动截断**（CJK 1 字宽 = fontSize） | `tests/board-unit.mjs` 75/75 PASS（新增「字重 400/500」「描边 0.5px」「字号层级」设计系统断言） | 同上 |
+| **DS-3 [x]** | **scene 模板全重写**：680 画布、自适应列数（≤4 节点用 2 列卡片更宽，否则 3 列）、卡片 60px（名称 13/500 + 描述 11/400 + 24px 图标）、行/列沟槽 24-40px、连线改用标准 SVG `<marker>` chevron 箭头（按 kind 各生成一份 `arrow-data/sensor/control`，**放弃手写三角**） | `tests/board-unit.mjs` scene 段 23/23 PASS（新增「标准 chevron marker」「字重 400/500」「2 列模式宽 288」） | 同上 |
+| **DS-4 [x]** | **client `ProgressBoardViewer` 视觉对齐 v8**：标题 14/500、整体数字 24/500、行 label 13/400、徽章 11/500、bar 10px、整体条 10px、按钮边框 0.5px、P 调色板外卡白底 + `#D3D1C7` 发丝线、`ctlBtn` 维持 30×30 圆角 8。状态色同步升级到 c-* 600 档。`AnimatedPct` 内部字重 700 → 500（**全文件唯一一次 700→500 全局替改**：PB 渲染、SVG 源码 标题、ctlBtn 内文全部归位） | `tests/board-ssr.mjs` 34/34 PASS（更新「24px/500」「13/400」「c-* 600 档」断言） | 同上 |
+| **DS-5 [x]** | **mermaid 主题对齐**：themeVariables 字号 14px → 13px（与正文 13px 统一），其余 purple/teal/gray 50/600/800 配色不变 | `lib/client.js` mermaid palette；`scripts/startup-verify.mjs` 10/10 PASS | 同上 |
+| **DS-6 [x]** | **SKILL 协议重写视觉规范章节**：「WorkBuddy 视觉规范」「自适应出图原则」「SVG 编写规范」三节整体替换为 Visualizer 设计系统（680 画布、双字重、字号层级、0.5px、9 档色板、≤2 ramps、chevron marker、DSH 渲染偏差白底 + 显式宽高）。旧规范（28px/700 标题、720-1050 画布、3 族色板、weight 700 主字）全部淘汰 | `skill/SKILL.md` 「设计系统 v8」段 | 同上 |
+| **DS-7 [x]** | **rank400 同步**：`~/.dsh/skills/diagram/SKILL.md` 已 cp（**重要**：插件内 `skill/SKILL.md` 不在 DSH 发现根内，必须手动同步到用户级才生效） | `ls -la ~/.dsh/skills/diagram/SKILL.md` + `grep -c "设计系统 v8" = 1` | 同上 |
+| **DS-8 [x]** | **回归 + 肉眼验收**：host 75/75、client 34/34、startup-verify 10/10 全绿；Chrome 无头截图 `tests/preview/board.png` + `tests/preview/scene.png`（680 画布）肉眼确认效果 | 测试输出 + PNG 视觉 | 同上 |
+| **DS-9 [x]** | **备份 + CHANGELOG**：`_backups/fix-diagram-v8-20260909-113216/`（index.js / client.js / SKILL.md / 两个测试）+ CHANGELOG DS-1~DS-9 | 备份目录存在 | 同上 |
+
+---
+
+## 2026-09-09 设计系统 v8.1（消除底部图注 + 阶段说明默认收起）
+
+> 起因：用户反馈 DSH 示意图「上下左右都拥挤」「底部总有小字说明」。拥挤在 v8（680 画布 + 40px 安全区 + 大沟槽）已解决；本批只针对「底部小字」做默认收起。
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **DS-10 [x]** | **scene footer 默认隐藏**：`normalizeScene` 新增 `showFooter` 字段；`buildSceneSvg` 的 `footerH` 改为 `(s.footer.length>0 && s.showFooter)` 才计算高度并渲染紫底要点面板。模型不显式传 `showFooter:true` 时，图底纯净、无小字 | `lib/index.js` 450/457/479 行；单测新增「footer 默认隐藏（无 showFooter 不渲染）」PASS | `_backups/fix-diagram-v81-20260909-114802/` |
+| **DS-11 [x]** | **board 阶段说明默认收起（两处组件）**：`ProgressBoardViewer`（进度看板卡，用户实际看到的阶段说明）与 `StageViewer`（多步交互图）均加 `descOpen` 状态（默认 false）+ `useEffect` 切阶段自动收起；面板只留「标题（阶段 n/N）」+「展开 ▾」按钮，点击才显示描述 | `lib/client.js`：ProgressBoardViewer 折叠面板（原 743-747 行）、StageViewer 折叠面板（原 1019-1028 行）；SSR 断言更新为「描述隐藏 + 出现展开按钮」PASS | 同上 |
+| **DS-12 [x]** | **工具 schema + SKILL 同步**：`render_diagram` 的 `scene` 参数补 `showFooter?`（footer 默认不渲染，需显式 `showFooter:true`）；SKILL.md 模式④ footer 改为「默认不渲染，须 showFooter:true」并示例补 `showFooter:true`；已 cp 到 `~/.dsh/skills/diagram/SKILL.md`（rank400） | `lib/index.js:802` schema；`skill/SKILL.md` 181/193 行；rank400 文件已同步 | 同上 |
+| **DS-13 [x]** | **回归 + 演示产物**：host 单测 76/76（原 75 + 1 新增）、client SSR 34/34（更新阶段说明断言）、startup-verify 10/10 全绿；demo 重跑确认 `showFooter:true` 时 scene footer 正常渲染 | 测试输出 + `diagrams/application-scene-20260909034743.svg`（含「节拍」） | 同上 |
+
+| **DS-14 [x]** | **board 时间线端点 label 溢出修复**（验收时肉眼发现）：旧算法 `stepX = SAFE_W/(ns-1)` 把 cx 算到画布边 40/640，配合 `text-anchor:middle` 导致「第 1 周 · 硬件到位」左半被切到画布外。引入 `TL_INSET=90`（cover 最长 14 字 CJK 标签半宽 77px + 10px padding），cx 改为 `[SAFE_L+90, SAFE_R-90]`；单阶段 cx 居中于 340；绿进度线也跟着从 firstCx 画到 lastCx | `lib/index.js` 时间线段；单测新增 5 条断言（左端 cx≥130、右端 cx≤550、中点居中 340、单阶段居中 340）81/81 PASS | `_backups/fix-diagram-v81b-20260909-121015/` |
+
+> **需要重启生效**：`lib/index.js`（host，DS-10/DS-12 的 showFooter 门控与 schema + DS-14 的时间线内缩）在打包壳下无法热重载 —— scene footer 默认隐藏、`showFooter` 开关、board 时间线端点内缩必须重启桌面应用才生效。`lib/client.js`（client，DS-11）刷新浏览器即生效。按重启守则，**未自动重启，等你指示**。
+
+> **需要重启生效**：`lib/index.js`（host，DS-10/DS-12 的 showFooter 门控与 schema）在打包壳下无法热重载 —— scene footer 默认隐藏与 `showFooter` 开关必须重启桌面应用才生效。`lib/client.js`（client，DS-11）刷新浏览器即生效。按重启守则，**未自动重启，等你指示**。
+
+---
+
 ## 2026-09-08 修复 dsh-diagram-renderer 插件树加载失败（additionalProperties 缺失）
 
 | 项 | 内容 | 证据 |
@@ -27,6 +79,12 @@
 | **PB-3 [x]** | 修复「看板被防幻影闸门误杀」：新增 `isBoardPayload()`，让 `looksLikeRealSvg` 门槛对 board 载荷豁免（board 是数据驱动，不靠 SVG 文本判定合法性） | `grep -c isBoardPayload` = 4（1 定义 + 3 使用） | 同上 |
 | **PB-4 [x]** | **根因修复：skill 从未安装** —— `~/.dsh/skills/diagram/` 不存在（插件内 `skill/SKILL.md` 不在 DSH 任何发现根内），模型端无协议可循，「自动判断」名存实亡。已安装至 `~/.dsh/skills/diagram/SKILL.md`（rank400，`trigger: auto`） | `ls ~/.dsh/skills/diagram/` + frontmatter 回读 | 同上 |
 | **PB-5 [x]** | SKILL 协议补「模式 ③ 进度看板」章节 + 布局选型表新增「进度/完成度 → 进度看板」行 + description/whenToUse 增加进度类触发词；并明确两种进度条语义不可混用 | `skill/SKILL.md` 回读 | 同上 |
+| **PB-6 [x]** | host 新增**应用场景图（scene）**数据通道：`normalizeScene()` + `buildSceneSvg()` + `renderSceneIcon()`。3 列网格自动布局、内置 12 个内联 SVG 图标（core/camera/lidar/plc/screen/person/robot/agv/shelf/glass/workpiece/generic）、阶梯折线自动路由 + 箭头 + 标签、底部紫底要点面板。execute 优先级 mermaid > scene > board > svg | `tests/board-unit.mjs` scene 段落 21 项 PASS | 同上 |
+| **PB-7 [x]** | **真 bug：`buildSceneSvg` 索引变量写错** —— actor 卡循环里 `var act = s.actors[i]` 用的是上一轮循环残留的 `i`（循环结束后 `i === actors.length`），`act` 恒为 `undefined`，`act.highlight` 直接抛 TypeError，**scene 通道 100% 不可用**。修正为 `s.actors[ai]` | 修正前该分支必崩（无任何用例覆盖）；修正后 `buildSceneSvg` 首例 SSR 断言「渲染不抛异常」PASS | 同上 |
+| **PB-8 [x]** | `normalizeScene` 智能化：flow 端点白名单校验 —— `from`/`to` 必须引用真实存在的 actor id，指向不存在节点的悬空连线**自动剔除**（模型写错 id 不报错、不画悬空线）；未知 `icon` 回落 `generic`、未知 `kind` 回落 `data`、空 name actor 丢弃、actors 上限 12、footer 兼容字符串 | 断言「非法 flow 被剔除」= 2 条（原始 4 条含 1 条悬空 + 1 条缺 to） | 同上 |
+| **PB-9 [x]** | client `ProgressBoardViewer` v7.1 —— 按「合理添加、好看清晰」重排按钮：**工具栏右侧** ⛶全屏 / ⋮更多（复制 JSON、下载 SVG、看源码）；**底部一行** ◀ / ▶播放 / ▶ 与阶段时间线并列；**时间线圆点可点击**跳阶段；键盘 ←→/空格。统一按钮规格 30×30 圆角 8 + hover + disabled 半透明。视觉升级：标题 30px、整体数字 32px、行 label 16px、bar 12px（整体 14px）、徽章 24px。默认展示**最后阶段**（最新进度） | `tests/board-ssr.mjs` 34/34 PASS（真实 React `renderToStaticMarkup`） | `_backups/fix-diagram-v71-20260909-110111/` |
+| **PB-10 [x]** | SKILL 补「模式 ④ 应用场景图（scene）」章节 + 布局选型表新增「场景/应用/系统组成 → scene」行 + 强约束「场景类一律 scene，不要手绘 SVG 摆矩形」；README 补 scene 接口契约与交互卡布局表；**已同步 `~/.dsh/skills/diagram/SKILL.md`（rank400）** | `grep -c "模式 ④"` = 1（两处文件一致） | 同上 |
+| **PB-11 [x]** | 回归：`tests/board-unit.mjs` 67/67、`tests/board-ssr.mjs` 34/34、`scripts/startup-verify.mjs` 10/10；`node --check` index.js / client.js 双通过。**schema 复检**：`board`/`scene` 两个 object 参数均已显式 `additionalProperties: true`（防 2026-09-08 插件树加载失败事故重演） | 三条命令输出全绿 | 同上 |
 
 > **需要重启生效**：`lib/index.js`（host）改动在打包壳下无法热重载（`dev_reload_package` 报 loader.internal 不可用），**必须重启桌面应用**；`lib/client.js` 改动刷新页面即生效。重启后问「项目进度怎么样」即应自动出看板。
 

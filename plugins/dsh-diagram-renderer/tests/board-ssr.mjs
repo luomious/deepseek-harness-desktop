@@ -90,7 +90,7 @@ const BOARD = {
 }
 const STAGES = [
   { id: 'w1', title: '第 1 周 · 硬件到位', description: '核心板到货。', board: { overall: { pct: 22 }, items: [{ pct: 100 }, { pct: 40 }] } },
-  { id: 'w2', title: '第 2 周 · 驱动攻坚', board: { overall: { pct: 33 }, items: [{}, { pct: 65 }] } }
+  { id: 'w2', title: '第 2 周 · 驱动攻坚', description: 'PCIe 带宽调优中。', board: { overall: { pct: 33 }, items: [{}, { pct: 65 }] } }
 ]
 
 console.log('\n== 真实渲染（单阶段：无 stages）==')
@@ -107,11 +107,16 @@ ok('含标题', html.includes('RK3588 边缘部署进度'))
 ok('含整体进度标签', html.includes('整体进度'))
 ok('含每行 label', BOARD.items.every((i) => html.includes(i.label)))
 ok('含四种状态徽章文案', ['完成', '进行中', '阻塞', '未开始'].every((s) => html.includes(s)))
-ok('状态色正确落地', ['#0F6E56', '#534AB7', '#B45309', '#888780'].every((c) => html.includes(c)))
+ok('状态色正确落地（c-* 600 档）', ['#0F6E56', '#534AB7', '#854F0B', '#5F5E5A'].every((c) => html.includes(c)))
 ok('bar 初始 width=0%（等待挂载后过渡）', html.includes('width:0%'))
 ok('note 走 title 提示', html.includes('等相机到货'))
 ok('无 undefined 泄漏', !html.includes('undefined'))
 ok('无 stages 时不渲染控制条', !html.includes('1 / '))
+ok('工具栏含全屏+更多按钮（v7.1 合理摆放）', html.includes('⛶') && html.includes('⋮'))
+ok('按钮尺寸 30×30（统一规格）', html.includes('min-width:30px;height:30px') && html.includes('width:30px;height:30px'))
+ok('整体数字 24px/500（设计系统）', html.includes('font-size:24px') && html.includes('font-weight:500'))
+ok('行 label 13px/400（设计系统）', /font-size:13px[^;"]*;font-weight:400/.test(html))
+ok('徽章文案与色带齐全', ['完成', '进行中', '阻塞', '未开始'].every((s) => html.includes(s)))
 
 console.log('\n== 真实渲染（多阶段演进）==')
 let html2 = ''
@@ -122,13 +127,14 @@ try {
   )
 } catch (e) { err2 = e }
 ok('多阶段渲染无异常', !err2, err2 && err2.message)
-ok('含阶段标题', html2.includes('第 1 周 · 硬件到位'))
-ok('含阶段计数 1 / 2', html2.includes('1 / 2'))
+ok('时间线渲染出全部阶段标题', html2.includes('第 1 周 · 硬件到位') && html2.includes('第 2 周 · 驱动攻坚'))
+ok('默认落在最后阶段（计数 2 / 2）', html2.includes('2 / 2'))
 ok('含播放/导航按钮', html2.includes('▶') && html2.includes('◀'))
 ok('首阶段 BSP 栏仍在（合并正确）', html2.includes('BSP'))
 ok('SSR 首帧 bar 宽 0%（正确：客户端 hydrate 后才过渡到真实值）', html2.includes('width:0%'))
 ok('未变化项继承基线（产线联调仍 0%）', html2.includes('产线联调'))
-ok('含阶段说明', html2.includes('核心板到货'))
+ok('阶段说明默认收起（描述隐藏、不常驻底部，出现展开按钮）', !html2.includes('PCIe 带宽调优中') && !html2.includes('核心板到货') && html2.includes('展开'))
+ok('时间线点是可点击 button', /aria-label="跳到阶段 1"/.test(html2) && /aria-label="跳到阶段 2"/.test(html2))
 
 console.log('\n== 纯函数 ==')
 ok('isBoardPayload 识别合法 board', isBoardPayload({ meta: { board: { items: [{ label: 'a', pct: 1 }] } } }) === true)

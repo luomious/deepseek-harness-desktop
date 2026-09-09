@@ -284,8 +284,8 @@ window.__ModuleLoader__.load({
     // "paper" card (like an embedded image in WorkBuddy) — independent of the
     // app theme; replaces the old dark/checkered viewport.
     var P = {
-      card: '#F7F6F2', line: 'rgba(136,135,128,0.38)', ink: '#2C2C2A',
-      ink2: '#5F5E5A', ink3: '#888780', canvas: '#FFFFFF', hover: '#ECEAE2',
+      card: '#FFFFFF', line: '#D3D1C7', ink: '#2C2C2A',
+      ink2: '#5F5E5A', ink3: '#888780', canvas: '#FFFFFF', hover: '#F1EFE8',
       accent: '#534AB7', soft: '#EEEDFE', ok: '#0F6E56', codeBg: '#FAF9F5'
     }
 
@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
         'aria-label': titleText,
         onClick: onClick,
         style: {
-          border: '1px solid ' + P.line, background: 'transparent', color: P.ink2,
+          border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2,
           borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px',
           fontSize: '15px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
@@ -354,8 +354,8 @@ window.__ModuleLoader__.load({
     var PB_STATUS = {
       done: { label: '完成', fill: '#0F6E56', soft: '#E1F5EE', ink: '#04342C' },
       active: { label: '进行中', fill: '#534AB7', soft: '#EEEDFE', ink: '#26215C' },
-      blocked: { label: '阻塞', fill: '#B45309', soft: '#FAEEDA', ink: '#633806' },
-      pending: { label: '未开始', fill: '#888780', soft: '#F1EFE8', ink: '#2C2C2A' }
+      blocked: { label: '阻塞', fill: '#854F0B', soft: '#FAEEDA', ink: '#633806' },
+      pending: { label: '未开始', fill: '#5F5E5A', soft: '#F1EFE8', ink: '#2C2C2A' }
     }
 
     var PB_CSS = '@keyframes dsh-pb-pulse{0%{opacity:.35}50%{opacity:1}100%{opacity:.35}}' +
@@ -436,12 +436,17 @@ window.__ModuleLoader__.load({
         style: {
           flex: 'none', width: props.width || 44, textAlign: 'right',
           fontSize: props.size ? props.size + 'px' : '13px',
-          fontWeight: 700, color: props.color || P.ink,
+          fontWeight: 500, color: props.color || P.ink,
           fontVariantNumeric: 'tabular-nums', lineHeight: 1.1
         }
       }, Math.round(v) + '%')
     }
 
+    // v7.1 进度看板 · 智能交互（按钮合理摆放：底部控制条融入时间线、工具栏精简）
+    // 视觉：32px 整体数字 / 16px 行 label / 12px bar / 24px 徽章 / 14px 整体条
+    // 交互：阶段控制条居底（◀ ▶ 播放 + 时间线点可点 + 计数）、工具栏右侧（⛶ ⋮）
+    // 按键：← → 切换、空格播放
+    // 默认展示**最后阶段**（最新进度），进场后自动过渡到真实百分比。
     function ProgressBoardViewer(props) {
       var base = props.board
       var stages = Array.isArray(props.stages) ? props.stages : []
@@ -449,54 +454,48 @@ window.__ModuleLoader__.load({
       var svgText = props.svg || ''
       var fileBase = props.fileBase || ''
       var total = stages.length
+
+      // 默认显示**最后阶段**（最新进度）
+      var pairIdx = useState(Math.max(0, total - 1))
+      var idx = pairIdx[0]; var setIdx = pairIdx[1]
+      var pairPlay = useState(false)
+      var playing = pairPlay[0]; var setPlaying = pairPlay[1]
+      var pairMount = useState(false)
+      var mounted = pairMount[0]; var setMounted = pairMount[1]
+      var pairMenu = useState(false)
+      var menuOpen = pairMenu[0]; var setMenuOpen = pairMenu[1]
+      var pairCode = useState(false)
+      var codeOpen = pairCode[0]; var setCodeOpen = pairCode[1]
+      var pairMsg = useState('')
+      var actionMsg = pairMsg[0]; var setActionMsg = pairMsg[1]
+      var pairFull = useState(false)
+      var isFull = pairFull[0]; var setIsFull = pairFull[1]
+      var pairDesc = useState(false)
+      var descOpen = pairDesc[0]; var setDescOpen = pairDesc[1]
       var rootRef = useRef(null)
       var timerRef = useRef(null)
-      var pairIdx = useState(0)
-      var idx = pairIdx[0]
-      var setIdx = pairIdx[1]
-      var pairPlay = useState(false)
-      var playing = pairPlay[0]
-      var setPlaying = pairPlay[1]
-      var pairMount = useState(false)
-      var mounted = pairMount[0]
-      var setMounted = pairMount[1]
-      var pairMenu = useState(false)
-      var menuOpen = pairMenu[0]
-      var setMenuOpen = pairMenu[1]
-      var pairCode = useState(false)
-      var codeOpen = pairCode[0]
-      var setCodeOpen = pairCode[1]
-      var pairMsg = useState('')
-      var actionMsg = pairMsg[0]
-      var setActionMsg = pairMsg[1]
-      var pairFull = useState(false)
-      var isFull = pairFull[0]
-      var setIsFull = pairFull[1]
 
       var activeStage = total > 0 ? (stages[Math.min(idx, total - 1)] || stages[0]) : null
-      var board = useMemo(function () {
+      var effectiveBoard = useMemo(function () {
         return activeStage && activeStage.board ? mergeBoard(base, activeStage.board) : base
       }, [base, activeStage])
-      var items = (board && board.items) || []
-      var overall = (board && board.overall) || { label: '整体进度', pct: 0 }
+      var items = (effectiveBoard && effectiveBoard.items) || []
+      var overall = (effectiveBoard && effectiveBoard.overall) || { label: '整体进度', pct: 0 }
       var ovColor = overall.pct >= 100 ? '#0F6E56' : '#534AB7'
       var barTransition = reduceMotion() ? 'none' : 'width 700ms cubic-bezier(.22,.61,.36,1)'
 
       useEffect(function () { ensurePbStyles() }, [])
-      // 首帧 width=0，下一帧跳到真实值 → 触发 CSS transition 的生长动画
       useEffect(function () {
         var r = requestAnimationFrame(function () { setMounted(true) })
         return function () { cancelAnimationFrame(r) }
       }, [])
+      // v8.1: collapse the stage-description panel when switching stages (default-collapsed UX)
+      useEffect(function () { setDescOpen(false) }, [idx])
 
-      function flash(msg) {
-        setActionMsg(msg)
-        setTimeout(function () { setActionMsg('') }, 1600)
-      }
+      function flash(msg) { setActionMsg(msg); setTimeout(function () { setActionMsg('') }, 1600) }
       function go(n) { setIdx(Math.max(0, Math.min(total - 1, n))); setPlaying(false) }
       function togglePlay() { setPlaying(function (v) { return !v }) }
 
-      // 自动播放：2.5s/阶段（比分步图慢，留出看进度演进的时间）
       useEffect(function () {
         if (!playing || total === 0) return
         timerRef.current = setInterval(function () {
@@ -514,7 +513,6 @@ window.__ModuleLoader__.load({
         return function () { document.removeEventListener('fullscreenchange', onFs) }
       }, [])
 
-      // 键盘 ← → 切换阶段，空格播放/暂停
       useEffect(function () {
         if (total === 0) return
         function onKey(e) {
@@ -555,29 +553,47 @@ window.__ModuleLoader__.load({
           var a = document.createElement('a')
           a.href = url
           a.download = fileBase || 'progress-board.svg'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
+          document.body.appendChild(a); a.click(); document.body.removeChild(a)
           setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
           flash('SVG 已下载')
         } catch (e) { flash('下载失败') }
       }
 
-      function toolBtn(label, tip, onClick, disabled) {
+      // 统一按钮（v7.1 风格：30×30 圆角 8、hover 态、主次分明、含 disabled）
+      function ctlBtn(content, tip, onClick, disabled, primary) {
         return React.createElement('button', {
           type: 'button', title: tip, 'aria-label': tip, onClick: onClick, disabled: !!disabled,
           style: {
-            border: '1px solid ' + P.line, background: 'transparent', color: disabled ? P.ink3 : P.ink2,
-            borderRadius: '8px', cursor: disabled ? 'default' : 'pointer', minWidth: '26px', height: '26px',
-            fontSize: '13px', lineHeight: '1', fontFamily: 'inherit', padding: '0 6px',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+            border: '0.5px solid ' + (primary ? 'transparent' : P.line),
+            background: primary ? P.accent : 'transparent',
+            color: primary ? '#FFFFFF' : (disabled ? P.ink3 : P.ink2),
+            borderRadius: '8px', cursor: disabled ? 'default' : 'pointer',
+            minWidth: '30px', height: '30px', padding: '0 10px',
+            fontSize: '12px', lineHeight: '1', fontFamily: 'inherit',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+            opacity: disabled ? 0.4 : 1,
+            transition: reduceMotion() ? 'none' : 'background 180ms ease, color 180ms ease, opacity 180ms ease'
           },
-          onMouseEnter: function (e) { if (!disabled) e.currentTarget.style.background = P.hover },
+          onMouseEnter: function (e) {
+            if (disabled) return
+            e.currentTarget.style.background = primary ? '#3D3489' : P.hover
+          },
+          onMouseLeave: function (e) {
+            e.currentTarget.style.background = primary ? P.accent : 'transparent'
+          }
+        }, content)
+      }
+
+      function pbMenuItem(label, onClick) {
+        return React.createElement('div', {
+          onClick: onClick,
+          style: { padding: '9px 14px', fontSize: '13px', color: P.ink, cursor: 'pointer', whiteSpace: 'nowrap' },
+          onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
           onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
         }, label)
       }
 
-      // ---- 行 ------------------------------------------------------------
+      // ---- 行（视觉升级：16 / 12 / 24）-------------------------------------
       var rows = items.map(function (it, i) {
         var st = PB_STATUS[it.status] || PB_STATUS.pending
         return React.createElement('div', {
@@ -587,14 +603,14 @@ window.__ModuleLoader__.load({
           React.createElement('span', {
             title: it.note ? it.label + ' — ' + it.note : it.label,
             style: {
-              flex: '1 1 24%', minWidth: 0, fontSize: '14px', fontWeight: 500, color: P.ink,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+              flex: '1 1 22%', minWidth: 0, fontSize: '13px', fontWeight: 400, color: P.ink,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3
             }
           }, it.label),
           React.createElement('div', {
             style: {
               flex: '1 1 auto', minWidth: 56, height: 10, borderRadius: 5,
-              background: '#FFFFFF', border: '1px solid #E3E1D8', overflow: 'hidden'
+              background: '#FFFFFF', border: '0.5px solid #D3D1C7', overflow: 'hidden'
             }
           },
             React.createElement('div', {
@@ -605,114 +621,174 @@ window.__ModuleLoader__.load({
               }
             })
           ),
-          React.createElement(AnimatedPct, { value: it.pct, color: st.fill, width: 44 }),
+          React.createElement(AnimatedPct, { value: it.pct, color: st.fill, width: 44, size: 13 }),
           React.createElement('span', {
             style: {
-              flex: 'none', width: 58, textAlign: 'center', fontSize: '11px', fontWeight: 500,
-              color: st.ink, background: st.soft, border: '1px solid ' + st.fill,
+              flex: 'none', width: 56, textAlign: 'center', fontSize: '11px', fontWeight: 500,
+              color: st.ink, background: st.soft, border: '0.5px solid ' + st.fill,
               borderRadius: 6, padding: '3px 0', whiteSpace: 'nowrap'
             }
           }, st.label)
         )
       })
 
-      // ---- 整体进度 ------------------------------------------------------
+      // ---- 整体进度（指标卡式：13px 弱标签 + 24px/500 数字）-------------
       var overallBlock = React.createElement('div', { style: { padding: '2px 0 12px' } },
         React.createElement('div', {
           style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }
         },
-          React.createElement('span', { style: { fontSize: '13px', color: P.ink2 } }, overall.label),
-          React.createElement(AnimatedPct, { value: overall.pct, color: ovColor, size: 26, width: 'auto' })
+          React.createElement('span', { style: { fontSize: '13px', fontWeight: 400, color: P.ink2 } }, overall.label),
+          React.createElement(AnimatedPct, { value: overall.pct, color: ovColor, size: 24, width: 'auto' })
         ),
         React.createElement('div', {
           style: {
-            height: 14, borderRadius: 7, background: '#FFFFFF',
-            border: '1px solid #E3E1D8', overflow: 'hidden'
+            height: 10, borderRadius: 5, background: '#FFFFFF',
+            border: '0.5px solid #D3D1C7', overflow: 'hidden'
           }
         },
           React.createElement('div', {
             className: 'dsh-pb-anim',
             style: {
               width: mounted ? overall.pct + '%' : '0%', height: '100%',
-              borderRadius: 7, background: ovColor, transition: barTransition
+              borderRadius: 5, background: ovColor, transition: barTransition
             }
           })
         )
       )
 
-      // ---- 阶段控制条（仅多阶段）-----------------------------------------
+      // ---- 时间线（点可点击）+ 控制条（v7.1 合理摆放）-------------------
       var stageBar = null
+      var stageDesc = null
       if (total > 0) {
         var dots = []
-        for (var d = 0; d < total; d++) {
-          (function (di) {
+        for (var di = 0; di < total; di++) {
+          (function (i) {
+            var isCur = (i === idx)
+            var isPast = (i < idx)
+            var ringFill = isCur ? '#534AB7' : (isPast ? '#0F6E56' : '#FFFFFF')
+            var ringStroke = isCur ? '#534AB7' : (isPast ? '#0F6E56' : '#888780')
+            var labelColor = isCur ? '#26215C' : (isPast ? '#04342C' : '#888780')
+            var labelWeight = isCur ? 500 : 400
             dots.push(React.createElement('button', {
-              key: 'dot' + di,
-              type: 'button', title: (stages[di] && stages[di].title) || ('阶段 ' + (di + 1)),
-              'aria-label': '跳到阶段 ' + (di + 1),
-              onClick: function () { go(di) },
-              className: di === Math.min(idx, total - 1) && playing ? 'dsh-pb-anim' : undefined,
+              key: 'tl-' + i,
+              type: 'button',
+              title: (stages[i] && stages[i].title) || ('阶段 ' + (i + 1)),
+              'aria-label': '跳到阶段 ' + (i + 1),
+              onClick: function () { go(i) },
               style: {
-                width: di === Math.min(idx, total - 1) ? '16px' : '7px', height: '7px',
-                borderRadius: '4px', border: 'none', padding: 0, cursor: 'pointer',
-                background: di === Math.min(idx, total - 1) ? P.accent : 'rgba(136,135,128,0.45)',
-                transition: reduceMotion() ? 'none' : 'width 260ms ease, background 260ms ease',
-                animation: di === Math.min(idx, total - 1) && playing ? 'dsh-pb-pulse 1.8s ease-in-out infinite' : undefined
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                flex: '1 1 0%', minWidth: 0, padding: 0,
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                position: 'relative', zIndex: 1
               }
-            }))
-          })(d)
+            },
+              React.createElement('div', {
+                className: isCur && playing ? 'dsh-pb-anim' : undefined,
+                style: {
+                  width: 18, height: 18, borderRadius: 9,
+                  background: ringFill, border: '2px solid ' + ringStroke,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxSizing: 'border-box',
+                  transition: reduceMotion() ? 'none' : 'transform 200ms ease',
+                  transform: isCur ? 'scale(1.15)' : 'scale(1)',
+                  animation: isCur && playing ? 'dsh-pb-pulse 1.8s ease-in-out infinite' : undefined
+                }
+              },
+                isCur ? React.createElement('div', {
+                  style: { width: 6, height: 6, borderRadius: 3, background: '#FFFFFF' }
+                }) : null
+              ),
+              React.createElement('span', {
+                style: {
+                  fontSize: 12, fontWeight: labelWeight, color: labelColor,
+                  marginTop: 8, textAlign: 'center', lineHeight: 1.3,
+                  maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                }
+              }, (stages[i] && stages[i].title) || ('阶段 ' + (i + 1)))
+            ))
+          })(di)
         }
+        var nav = React.createElement('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }
+        },
+          ctlBtn('\u25c0', '上一阶段（←）', function () { go(idx - 1) }, idx <= 0),
+          ctlBtn(playing ? '\u2759\u2759 暂停' : '\u25b6 播放', playing ? '暂停（空格）' : '自动播放（空格）', togglePlay, false, playing),
+          ctlBtn('\u25b6', '下一阶段（→）', function () { go(idx + 1) }, idx >= total - 1)
+        )
+        var trackLeft = total > 1 ? (idx / (total - 1) * 100) + '%' : '0%'
         stageBar = React.createElement('div', {
           style: {
-            display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
-            paddingTop: 12, marginTop: 4, borderTop: '1px solid ' + P.line
+            display: 'flex', alignItems: 'center', gap: '20px',
+            paddingTop: 16, marginTop: 8, borderTop: '0.5px solid ' + P.line
           }
         },
-          toolBtn('\u25c0', '上一阶段', function () { go(idx - 1) }, idx <= 0),
-          toolBtn(playing ? '\u2759\u2759' : '\u25b6', playing ? '暂停' : '自动播放', togglePlay),
-          toolBtn('\u25b6\uFE0E', '下一阶段', function () { go(idx + 1) }, idx >= total - 1),
-          React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, dots),
+          nav,
+          React.createElement('div', {
+            style: { position: 'relative', flex: '1 1 auto', padding: '8px 4px 22px', minWidth: 0 }
+          },
+            total > 1 ? React.createElement('div', {
+              style: { position: 'absolute', left: 0, right: 0, top: 14, height: 2, background: '#E3E1D8', borderRadius: 1 }
+            }) : null,
+            total > 1 ? React.createElement('div', {
+              style: {
+                position: 'absolute', left: 0, top: 14, height: 2,
+                width: trackLeft, background: '#0F6E56', borderRadius: 1,
+                transition: reduceMotion() ? 'none' : 'width 600ms cubic-bezier(.22,.61,.36,1)'
+              }
+            }) : null,
+            React.createElement('div', {
+              style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }
+            }, dots)
+          ),
           React.createElement('span', {
-            style: {
-              fontSize: '13px', fontWeight: 600, color: P.ink,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '46%'
-            }
-          }, (activeStage && activeStage.title) || ''),
-          React.createElement('span', { style: { fontSize: '11px', color: P.ink3, marginLeft: 'auto' } },
-            (Math.min(idx, total - 1) + 1) + ' / ' + total)
+            style: { fontSize: '11px', color: P.ink3, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }
+          }, (idx + 1) + ' / ' + total)
         )
+        stageDesc = (activeStage && activeStage.description)
+          ? React.createElement('div', {
+              style: { borderTop: '0.5px solid ' + P.line, marginTop: 8, paddingTop: 8 }
+            },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+              React.createElement('div', {
+                style: { fontSize: '13px', fontWeight: 500, color: P.ink, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+              }, (activeStage.title || ('阶段 ' + (idx + 1))) + '（阶段 ' + (idx + 1) + '/' + total + '）'),
+              React.createElement('button', {
+                type: 'button', title: descOpen ? '收起说明' : '展开说明',
+                onClick: function () { setDescOpen(function (v) { return !v }) },
+                style: { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11px', padding: '2px 9px', fontFamily: 'inherit', flex: 'none' }
+              }, descOpen ? '收起 ▴' : '展开 ▾')
+            ),
+            descOpen ? React.createElement('div', { style: { fontSize: '12px', color: P.ink2, lineHeight: 1.6, paddingTop: 8 } }, activeStage.description) : null
+          )
+          : null
       }
-      var stageDesc = (activeStage && activeStage.description)
-        ? React.createElement('div', {
-            style: { fontSize: '12px', color: P.ink2, lineHeight: 1.6, paddingTop: 8 }
-          }, activeStage.description)
-        : null
 
-      // ---- 工具栏 --------------------------------------------------------
+      // ---- 工具栏（v7.1：合理摆放——标题 + 标签 + 全屏 + 更多）-------------
       var bar = React.createElement('div', {
         style: {
-          display: 'flex', alignItems: 'center', gap: '6px',
-          padding: '8px 12px', borderBottom: '1px solid ' + P.line
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '10px 14px', borderBottom: '0.5px solid ' + P.line
         }
       },
         React.createElement('span', {
           style: {
-            fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis',
+            fontWeight: 500, fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis',
             whiteSpace: 'nowrap', flex: '1 1 auto', minWidth: 0, color: P.ink
           }
         }, title),
         actionMsg
           ? React.createElement('span', { style: { fontSize: '11px', color: P.ok, whiteSpace: 'nowrap', flex: 'none' } }, actionMsg)
           : React.createElement('span', { style: { fontSize: '11px', color: P.ink3, whiteSpace: 'nowrap', flex: 'none' } }, '进度看板'),
-        toolBtn('\u26f6', isFull ? '退出全屏' : '全屏查看', toggleFull),
+        ctlBtn('\u26f6', isFull ? '退出全屏' : '全屏查看', toggleFull),
         React.createElement('button', {
           type: 'button', title: '更多操作', 'aria-label': '更多操作',
           onClick: function () { setMenuOpen(function (v) { return !v }) },
           style: {
-            border: '1px solid ' + P.line, background: 'transparent', color: P.ink2,
-            borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px',
+            border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2,
+            borderRadius: '8px', cursor: 'pointer', width: '30px', height: '30px',
             fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            transition: reduceMotion() ? 'none' : 'background 180ms ease'
           },
           onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
           onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
@@ -721,14 +797,14 @@ window.__ModuleLoader__.load({
 
       var menu = menuOpen ? React.createElement('div', {
         style: {
-          position: 'absolute', top: '40px', right: '12px', zIndex: 20,
-          background: P.card, border: '1px solid ' + P.line, borderRadius: '10px',
-          boxShadow: '0 6px 24px rgba(44,44,42,0.16)', overflow: 'hidden', minWidth: '168px'
+          position: 'absolute', top: '46px', right: '14px', zIndex: 20,
+          background: P.card, border: '0.5px solid ' + P.line, borderRadius: '10px',
+          boxShadow: '0 6px 24px rgba(44,44,42,0.16)', overflow: 'hidden', minWidth: '180px'
         }
       },
-        menuItem('复制看板数据 (JSON)', function () { doCopy(JSON.stringify(board, null, 2), '数据已复制'); setMenuOpen(false) }),
-        menuItem('下载 SVG', function () { downloadSvg(); setMenuOpen(false) }),
-        menuItem('查看 SVG 源码', function () { setCodeOpen(true); setMenuOpen(false) })
+        pbMenuItem('复制看板数据 (JSON)', function () { doCopy(JSON.stringify(effectiveBoard, null, 2), '数据已复制'); setMenuOpen(false) }),
+        pbMenuItem('下载 SVG', function () { downloadSvg(); setMenuOpen(false) }),
+        pbMenuItem('查看 SVG 源码', function () { setCodeOpen(true); setMenuOpen(false) })
       ) : null
 
       var codeOverlay = codeOpen ? React.createElement('div', {
@@ -740,12 +816,12 @@ window.__ModuleLoader__.load({
         React.createElement('div', {
           style: {
             display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '8px 12px', borderBottom: '1px solid ' + P.line
+            padding: '10px 14px', borderBottom: '0.5px solid ' + P.line
           }
         },
-          React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: P.ink, flex: '1 1 auto' } }, 'SVG 源码'),
-          toolBtn('复制', '复制源码', function () { doCopy(svgText, '源码已复制') }),
-          toolBtn('\u2715', '关闭', function () { setCodeOpen(false) })
+          React.createElement('span', { style: { fontWeight: 500, fontSize: '13px', color: P.ink, flex: '1 1 auto' } }, 'SVG 源码'),
+          ctlBtn('复制', '复制源码', function () { doCopy(svgText, '源码已复制') }),
+          ctlBtn('\u2715', '关闭', function () { setCodeOpen(false) })
         ),
         React.createElement('pre', {
           style: {
@@ -759,34 +835,22 @@ window.__ModuleLoader__.load({
       return React.createElement('div', {
         ref: rootRef,
         style: {
-          position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
-          margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
+          position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
+          margin: '8px -24px 8px -24px', width: 'calc(100% + 48px)',
           background: P.card, overflow: 'hidden',
           boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
         }
       },
         bar,
-        React.createElement('div', { style: { padding: '14px 20px 18px' } },
+        React.createElement('div', { style: { padding: '20px 24px 24px' } },
           overallBlock,
-          React.createElement('div', { style: { borderTop: '1px solid ' + P.line, paddingTop: 4 } }, rows),
+          React.createElement('div', { style: { borderTop: '0.5px solid ' + P.line, paddingTop: 4 } }, rows),
           stageBar,
           stageDesc
         ),
         menu,
         codeOverlay
       )
-    }
-
-    // 菜单项（进度看板与 DiagramViewer 共用样式的小工具）
-    function menuItem(label, onClick) {
-      return React.createElement('div', {
-        onClick: onClick,
-        style: {
-          padding: '9px 14px', fontSize: '13px', color: P.ink, cursor: 'pointer', whiteSpace: 'nowrap'
-        },
-        onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
-        onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
-      }, label)
     }
 
 // StageViewer component: multi-step interactive diagram viewer.
@@ -850,11 +914,15 @@ function StageViewer(props) {
   var [codeOpen, setCodeOpen] = useState(false)
   var [actionMsg, setActionMsg] = useState('')
   var [isFull, setIsFull] = useState(false)
+  var [descOpen, setDescOpen] = useState(false)
   var timerRef = useRef(null)
   var active = stages[Math.min(idx, total - 1)] || stages[0]
 
   // Mount: inject shared stage-animation keyframes once per page.
   useEffect(function () { ensureStageStyles() }, [])
+
+  // v8.1: collapse the stage-description panel when switching stages (default-collapsed UX)
+  useEffect(function () { setDescOpen(false) }, [idx])
 
   // Hide layers not in current stage: data-stage="all" always visible,
   // others shown only when listed in active.layers.
@@ -946,7 +1014,7 @@ function StageViewer(props) {
       onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
     }, label)
   }
-  function menuBtnStyle() { return { border: '1px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px', fontFamily: 'inherit' } }
+  function menuBtnStyle() { return { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px', fontFamily: 'inherit' } }
 
   var toggleFull = useCallback(function () {
     try { var el = bodyRef.current; if (!el) return; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen() } catch (e) {}
@@ -961,23 +1029,35 @@ function StageViewer(props) {
     statsRows = React.createElement('div', { style: { display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' } },
       active.stats.slice(0, 6).map(function (s, si) {
         return React.createElement('div', { key: si, style: {
-          flex: '1 1 120px', background: P.canvas, border: '1px solid ' + P.line,
+          flex: '1 1 120px', background: P.canvas, border: '0.5px solid ' + P.line,
           borderRadius: '8px', padding: '8px 12px'
         } },
           React.createElement('div', { style: { fontSize: '11px', color: P.ink3 } }, s.label || ''),
           React.createElement('div', { style: { fontSize: '19px', fontWeight: 700, color: P.ink, marginTop: '2px' } }, s.value || ''))
       }))
   }
+  var hasDetail = !!(active.description || statsRows)
   var descPanel = React.createElement('div', { style: {
-    borderTop: '1px solid ' + P.line, background: P.card,
-    padding: '10px 14px 12px 14px', borderRadius: '0 0 12px 12px'
+    borderTop: '0.5px solid ' + P.line, background: P.card,
+    padding: '9px 14px 11px 14px', borderRadius: '0 0 12px 12px'
   } },
-    React.createElement('div', { style: { fontSize: '13px', fontWeight: 700, color: P.ink, marginBottom: '3px' } },
-      (active.title || '阶段 ' + (idx + 1)) + '（阶段 ' + (idx + 1) + '/' + total + '）'),
-    active.description
-      ? React.createElement('div', { style: { fontSize: '12.5px', color: P.ink2, lineHeight: 1.55 } }, active.description)
-      : null,
-    statsRows)
+    React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+      React.createElement('div', { style: { fontSize: '13px', fontWeight: 500, color: P.ink, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+        (active.title || '阶段 ' + (idx + 1)) + '（阶段 ' + (idx + 1) + '/' + total + '）'),
+      hasDetail
+        ? React.createElement('button', {
+            type: 'button', title: descOpen ? '收起说明' : '展开说明',
+            onClick: function () { setDescOpen(function (v) { return !v }) },
+            style: { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11px', padding: '2px 9px', fontFamily: 'inherit', flex: 'none' }
+          }, descOpen ? '收起 ▴' : '展开 ▾')
+        : null),
+    descOpen && hasDetail
+      ? React.createElement('div', { style: { marginTop: '7px' } },
+          active.description
+            ? React.createElement('div', { style: { fontSize: '12.5px', color: P.ink2, lineHeight: 1.55 } }, active.description)
+            : null,
+          statsRows)
+      : null)
 
   var fullHint = isFull ? React.createElement('div', { style: {
     position: 'absolute', top: '12px', right: '16px', zIndex: 30,
@@ -986,7 +1066,7 @@ function StageViewer(props) {
   }}, '← → 切换阶段 · 空格播放 · ESC 退出') : null
 
   var menu = menuOpen
-    ? React.createElement('div', { style: { position: 'absolute', top: '40px', right: '8px', zIndex: 20, background: P.canvas, border: '1px solid ' + P.line, borderRadius: '10px', boxShadow: '0 8px 28px rgba(44,44,42,0.16)', minWidth: '170px', overflow: 'hidden' } },
+    ? React.createElement('div', { style: { position: 'absolute', top: '40px', right: '8px', zIndex: 20, background: P.canvas, border: '0.5px solid ' + P.line, borderRadius: '10px', boxShadow: '0 8px 28px rgba(44,44,42,0.16)', minWidth: '170px', overflow: 'hidden' } },
         menuItem('下载 .svg', downloadSvg, function () { setMenuOpen(false) }),
         menuItem('保存为图片 (PNG)', savePng, function () { setMenuOpen(false) }),
         menuItem('复制代码', function () { copySvg(); setMenuOpen(false) }),
@@ -995,7 +1075,7 @@ function StageViewer(props) {
 
   var codeOverlay = codeOpen
     ? React.createElement('div', { style: { position: 'absolute', inset: '0 0 0 0', zIndex: 15, background: P.codeBg, borderRadius: isFull ? '0' : '0 0 12px 12px', display: 'flex', flexDirection: 'column' } },
-        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderBottom: '1px solid ' + P.line, flex: 'none' } },
+        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderBottom: '0.5px solid ' + P.line, flex: 'none' } },
           React.createElement('span', { style: { fontWeight: 600, fontSize: '12px', color: P.ink, flex: '1' } }, 'SVG 源码（阶段 ' + (idx + 1) + '）'),
           React.createElement('button', { type: 'button', onClick: copySvg, style: menuBtnStyle() }, '复制代码'),
           React.createElement('button', { type: 'button', onClick: function () { setCodeOpen(false) }, style: menuBtnStyle() }, '关闭')),
@@ -1015,7 +1095,7 @@ function StageViewer(props) {
 
   var bar = React.createElement('div', { style: {
     display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
-    padding: '8px 12px', borderBottom: '1px solid ' + P.line, background: P.card,
+    padding: '8px 12px', borderBottom: '0.5px solid ' + P.line, background: P.card,
     borderRadius: '12px 12px 0 0', position: 'relative'
   }},
     // Autoplay progress bar: fills the 2s per-stage interval
@@ -1057,13 +1137,13 @@ function StageViewer(props) {
     iconButton('\u26f6', '全屏查看', toggleFull),
     // Menu
     React.createElement('button', { type: 'button', title: '更多操作', 'aria-label': '更多操作', onClick: function () { setMenuOpen(function (v) { return !v }) },
-      style: { border: '1px solid ' + P.line, background: 'transparent', color: P.ink2, borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
+      style: { border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2, borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px', fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
       onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
       onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
     }, '\u22ee'))
 
   return React.createElement('div', { style: {
-    position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
+    position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
     margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
     background: P.card, overflow: 'hidden',
     boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
@@ -1106,12 +1186,15 @@ function StageViewer(props) {
       }, [])
 
       var vh = (typeof window !== 'undefined' && window.innerHeight) || 800
-      var MAX_H = isFull ? vh : Math.max(900, Math.min(Math.round(vh * 0.78), 720))
+      // v9.1 修复「图受对话框限制要滑动」：① MAX_H 旧式 Math.max(900,Math.min(vh*0.78,720)) 恒=900（min/max 写反，与注释 min(78vh,720) 矛盾），改为随视口封顶；② fit-width 改 fit-contain——按宽/高较小缩放比适配，整图完整可见、绝不卡内滚动。
+      // v9.2 修复「左右空白」：高度瓶颈（box.h > MAX_H）时图被迫缩小、宽度没占满 → 两侧露纸色。MAX_H 系数 0.82→0.92、上限 900→1000，普通窗口下宽度成为瓶颈、图横向铺满。
+      var MAX_H = isFull ? vh : Math.min(Math.round(vh * 0.92), 1000)
       var MIN_H = 260
       var availW = Math.max(120, bodyW - 24)
-      var drawW = availW
-      var drawH = Math.max(1, Math.round(box.h * (availW / box.w)))
-      var scrollMode = drawH > MAX_H
+      var fitScale = Math.min(availW / Math.max(1, box.w), MAX_H / Math.max(1, box.h))
+      var drawW = Math.max(1, Math.round(box.w * fitScale))
+      var drawH = Math.max(1, Math.round(box.h * fitScale))
+      var scrollMode = false
       var shownH = Math.max(MIN_H, Math.min(drawH, MAX_H))
 
       var sizedSvg = useMemo(function () {
@@ -1240,7 +1323,7 @@ function StageViewer(props) {
 
       function menuBtnStyle() {
         return {
-          border: '1px solid ' + P.line, background: P.canvas, color: P.ink2,
+          border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2,
           borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px',
           fontFamily: 'inherit'
         }
@@ -1251,7 +1334,7 @@ function StageViewer(props) {
         ? React.createElement('div', {
             style: {
               position: 'absolute', top: '40px', right: '8px', zIndex: 20,
-              background: P.canvas, border: '1px solid ' + P.line, borderRadius: '10px',
+              background: P.canvas, border: '0.5px solid ' + P.line, borderRadius: '10px',
               boxShadow: '0 8px 28px rgba(44,44,42,0.16)', minWidth: '170px', overflow: 'hidden'
             }
           },
@@ -1270,7 +1353,7 @@ function StageViewer(props) {
             }
           },
           React.createElement('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderBottom: '1px solid ' + P.line, flex: 'none' }
+            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', borderBottom: '0.5px solid ' + P.line, flex: 'none' }
           },
             React.createElement('span', { style: { fontWeight: 600, fontSize: '12px', color: P.ink, flex: '1' } }, 'SVG 源码'),
             React.createElement('button', {
@@ -1342,7 +1425,7 @@ function StageViewer(props) {
         ? React.createElement('div', {
             style: {
               position: 'absolute', left: picked.x + 'px', top: picked.y + 'px', zIndex: 25,
-              background: P.canvas, border: '1px solid ' + P.line, borderRadius: '8px',
+              background: P.canvas, border: '0.5px solid ' + P.line, borderRadius: '8px',
               boxShadow: '0 6px 18px rgba(44,44,42,0.18)', padding: '8px 10px',
               maxWidth: '260px', pointerEvents: 'none'
             }
@@ -1377,7 +1460,7 @@ function StageViewer(props) {
       var bar = React.createElement('div', {
         style: {
           display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'nowrap',
-          padding: '8px 12px', borderBottom: '1px solid ' + P.line, background: P.card,
+          padding: '8px 12px', borderBottom: '0.5px solid ' + P.line, background: P.card,
           borderRadius: '12px 12px 0 0'
         }
       },
@@ -1394,7 +1477,7 @@ function StageViewer(props) {
           'aria-label': '更多操作',
           onClick: function () { setMenuOpen(function (v) { return !v }) },
           style: {
-            border: '1px solid ' + P.line, background: 'transparent', color: P.ink2,
+            border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2,
             borderRadius: '8px', cursor: 'pointer', width: '26px', height: '26px',
             fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
@@ -1412,8 +1495,8 @@ function StageViewer(props) {
       // Wider than the message column: negative-margin bleed (graceful).
       return React.createElement('div', {
         style: {
-          position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
-          margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
+          position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
+          margin: '6px -80px 6px -80px', width: 'calc(100% + 160px)', maxWidth: 'calc(100vw - 32px)',
           background: P.card, overflow: 'hidden',
           boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
         }
@@ -1505,7 +1588,7 @@ function StageViewer(props) {
               actorLineColor: '#888780', signalColor: '#2C2C2A', signalTextColor: '#2C2C2A',
               labelBoxBkgColor: '#CECBF6', labelBoxBorderColor: '#534AB7',
               noteBkgColor: '#F1EFE8', noteBorderColor: '#888780',
-              fontSize: '14px',
+              fontSize: '13px',
               fontFamily: "'Segoe UI','Microsoft YaHei',system-ui,sans-serif"
             }
             mm.initialize({
@@ -1617,11 +1700,11 @@ function StageViewer(props) {
           else if (el.requestFullscreen) { el.requestFullscreen() }
         } catch (e) { /* noop */ }
       }, [])
-      var smallBtn = { border: '1px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px', fontFamily: 'inherit' }
+      var smallBtn = { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px', fontFamily: 'inherit' }
       var bar = React.createElement('div', {
         style: {
           display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
-          borderBottom: '1px solid ' + P.line, background: P.card, borderRadius: '12px 12px 0 0'
+          borderBottom: '0.5px solid ' + P.line, background: P.card, borderRadius: '12px 12px 0 0'
         }
       },
         React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: P.ink, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, title || 'Mermaid Diagram'),
@@ -1639,14 +1722,14 @@ function StageViewer(props) {
               margin: 0, padding: '10px 14px', fontSize: '11.5px', lineHeight: '1.5',
               color: P.ink, fontFamily: 'var(--ds-font-family-code, monospace)',
               whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '260px', overflow: 'auto',
-              borderTop: '1px solid ' + P.line
+              borderTop: '0.5px solid ' + P.line
             }
           }, code)
         : null
       return React.createElement('div', {
         ref: rootRef,
         style: {
-          position: 'relative', border: '1px solid ' + P.line, borderRadius: '12px',
+          position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
           margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
           background: P.card, overflow: 'hidden'
         }
