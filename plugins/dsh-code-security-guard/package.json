@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-external/dsh-code-security-guard",
+  "version": "0.1.0",
+  "description": "代码安全模式警告：监听 tool/call 检查 write_file/edit 写入内容中的危险代码模式（eval/os.system/pickle.load/verify=False 等），非阻塞——不阻止写入、不修改结果，仅记录 JSONL 审计 + 经 agent/pre-step 注入安全提醒供模型自修正（参考 Hermes Agent security-guidance，DSH 零风险改进 #1）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

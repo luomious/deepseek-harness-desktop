@@ -1,0 +1,8 @@
+# dsh-health-dashboard bundle patch: 系统健康仪表盘端点（DSH 零风险改进 #4）。
+# 装配形态与 dsh-self-maintenance 一致：insert + 单文件 + inject ['timer'] + registerRouteWithRetry。
+# 本插件为纯只读聚合：不修改任何插件状态，全部 best-effort。
+- insert:
+    - id: dsh-health-dashboard
+      name: '@dsh-external/dsh-health-dashboard'
+      config:
+        enabled: true

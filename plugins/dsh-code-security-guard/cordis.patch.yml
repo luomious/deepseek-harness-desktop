@@ -1,0 +1,8 @@
+# dsh-code-security-guard bundle patch: 代码安全模式警告（DSH 零风险改进 #1）。
+# 装配形态与 dsh-command-guard 一致：insert + 单文件 + inject ['timer']（已验证形态）。
+# 本插件为纯观察者：不阻止写入、不修改工具结果，仅审计 + agent/pre-step 注入提醒。
+- insert:
+    - id: dsh-code-security-guard
+      name: '@dsh-external/dsh-code-security-guard'
+      config:
+        enabled: true

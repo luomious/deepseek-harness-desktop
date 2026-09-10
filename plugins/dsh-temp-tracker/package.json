@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-external/dsh-temp-tracker",
+  "version": "0.1.0",
+  "description": "临时文件追踪器：监听 tools/post-execute 检查 write/edit/patch 写入的文件路径，匹配 test/temp 模式（test_/tmp_ 前缀、.test.* 后缀、cache 目录）记录到 JSONL（~/.dsh/temp-tracker/tracked.jsonl，1MB 轮转）。只追踪不清理——零删除风险（DSH 零风险改进 #3，参考 Hermes disk-cleanup 的 guess_category）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

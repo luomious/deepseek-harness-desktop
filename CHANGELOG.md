@@ -6,6 +6,119 @@
 
 ---
 
+## 2026-09-10 ZR-01 · 零风险改进四件套（代码安全 / 工具审计 / 临时追踪 / 健康仪表盘）
+
+> 基于 Hermes Agent CN Desktop 分析筛选的 4 个**零风险**改进（详见 `docs/ZERO-RISK-IMPROVEMENTS-PLAN.md`）。
+> 全部为**纯新增插件**（不改现有插件、不删文件、不阻止操作、失败静默、`enabled:false` 可禁用），**无需重建**，已实测生效。
+
+| 插件 | 功能 | 实现路径 | 实测证据 |
+|---|---|---|---|
+| `dsh-code-security-guard` | 写入危险代码模式（os.system/eval/pickle.loads/verify=False/XSS 等 12 条）→ 工具结果**追加警告** + JSONL 审计 | `tools/post-execute`（`accept+content` 替换，等价 Hermes transform_tool_result） | write 危险文件 → 返回结果直接带 ⚠️ 警告 + `~/.dsh/code-security-guard/alerts.jsonl` |
+| `dsh-tool-audit` | 每次工具调用元数据（工具名/参数摘要/耗时/成败/结果大小）→ JSONL | `tools/pre-execute` + `tools/post-execute` 配对 | `~/.dsh/tool-audit/audit.jsonl` 94 条记录 |
+| `dsh-temp-tracker` | 追踪 `test_`/`tmp_`/`.test.*`/cache 临时文件路径（**只记录不清理**） | `tools/post-execute` + `guessCategory`（参考 Hermes disk-cleanup） | test 文件 → `~/.dsh/temp-tracker/tracked.jsonl`（category/sizeBytes） |
+| `dsh-health-dashboard` | `/health/dashboard` 聚合磁盘剩余 + 各插件 JSONL 统计 | `registerRouteWithRetry` + `statfsSync`（复用 self-maintenance 模式） | HTTP 实测返回磁盘 30.2GB + 4 插件统计 |
+
+**关键平台限制发现（实测，已写入计划文档）**：
+- `session/event` 事件对 `@dsh-external/*` 插件**不可用**（sessions emitCtx 分发链不含 loader fiber ctx；command-guard v1 审计 3 次启动零告警交叉验证一致）→ 统一改用 `dsh-tools` 工具流水线（`tools/pre-execute`/`tools/post-execute`/`tools/result`，已验证可用）。
+- DSH 内核文件工具名是 `write`（非 Hermes 风格 `write_file`）。
+- 热重载 `dev_reload_package` 依赖 `ctx.loader.internal`（当前桌面壳不可用）→ 插件代码修改需重启生效（junction 指向源目录）。
+
+**验证**：`startup-verify` 9/10 PASS（42 bundles，V1/V2/V4 全过，V9 沙箱 WARN 为环境限制）；handler 冒烟 17/17 PASS；规则冒烟 12/12 命中 0/9 误报；四个插件均经故障注入实测。
+**生效**：已注入生效（temp-tracker / health-dashboard 注入即生效；code-security-guard / tool-audit 经两次重启后生效）。回滚 = 从 git 还原插件目录 + 移除 profile 三处引用（`deregister-plugin.mjs`）。
+
+---
+
+## 2026-09-10 F17 修复 · check-all 污染 SLO 采样（并纠正方案文档的错误建议）
+
+> 本次为**纯脚本改动**（`scripts/` 两个文件），不涉及插件与 dist，**无需重启**。
+> 备份：`_backups/f17-slo-record-fix-20260910-180018/`（两个改前文件 + `_prep.log` + `VERIFY.log`）。
+
+**先纠正一个错误结论**
+方案文档原记 F17 为"SLO 口径污染"，并建议「Step 1.5 改用 `--summary` 只读模式」。**深挖源码后确认该建议不可用**：
+`health-check.mjs` 的退出码是 `process.exit(record && record.ok === false ? 1 : 0)`（改前 `:176`），而 `--summary` 下 `record` 恒为 `null`（改前 `:130` 的 `if (!summaryOnly)` 守卫）→ **恒退出 0** → `check-all.ps1:66` 的 `$LASTEXITCODE` 门禁**被静默废掉**，等于制造一个新的"假成功"（与 O14 同类）。**照原建议改会新增 bug。**
+
+**真因（读源码 + 实测）**
+
+| 事实 | 证据 |
+|---|---|
+| `startup-history.jsonl` 的**唯一写入者就是 `health-check.mjs`**（记录 `source='health-check'`） | 全仓 grep + `:135` |
+| **应用真实启动不写该文件** | `electron-runtime.ts` 的同名 grep 命中实为**渲染进程故障计数**（`:436-449`），与 SLO 无关 |
+| 设计上的采样方是**每日计划任务**（09:05） | `health-task-run.ps1:23` 注释 "SLO history append (same engine as check-all Step 1.5)"，`:26` 用 `--json` |
+| `summarize()` **不按 `source` 过滤**，任何失败都进连续失败链 | `:93-110`；`CONSECUTIVE_FAIL_LIMIT=3` |
+| 实测后果 | 17:18、17:19 各跑一次 check-all（当时并行会话 V2 漂移）→ 连录 2 条 FAIL → **连续失败 2/3，再跑一次即误告警** |
+
+即：check-all 是**门禁**，却被当成**采样器**；「成功率」被"谁跑了门禁"驱动，与实际启动无关。
+
+**改动（2 处，最小侵入）**
+
+| 文件 | 改动 |
+|---|---|
+| `scripts/health-check.mjs` | 新增 `--no-record`：**仍运行 startup-verify 并计算 `record`**（退出码与默认模式**完全一致** → 门禁语义不变），仅跳过 `appendHistory`。另：看板标签「启动成功率」→「**预检成功率**」（诚实化；**JSON 键 `passRate` 不动**，计划任务契约不变），新增「采样源」说明行 |
+| `scripts/check-all.ps1` | Step 1.5 `& node $healthCheck` → `& node $healthCheck --no-record`；注释与标题同步 |
+
+**验证证据（全部实测）**
+- 语法：`node --check health-check.mjs` **exit 0**；`check-all.ps1` PowerShell AST 解析 **0 error**
+- T1 `--no-record`：exit=0、**历史 18→18 不增长** ✅
+- T2 `--summary`：exit=0、历史不增长 ✅
+- T3 默认模式：exit=0、**历史 18→19**（回归守卫：追加能力未被破坏）✅，随后按字节还原并 SHA-256 校验一致 ✅
+- **T4 退出码等价性（关键门禁属性）**：default=0 vs `--no-record`=0 **完全一致** ✅
+- T5 `--json`（计划任务契约）：exit=0、**仍追加**、输出为合法 JSON 且保留 `passRate` 键 ✅
+- 历史文件最终**逐字节回到基线**（`sha=E19B1CEF…`）✅
+- 运行时输出确认：`预检成功率: 89% (16 PASS / 2 FAIL)` + `采样源: 每日计划任务 09:05 …` + `本次: PASS (total=10, pass=10, fail=0)`
+- **旁证（顺带）**：复核时 `startup-verify` 已回到 **10/10 PASS**（bundles=40）、调度器 **active locks=0** → 并行会话 `tool-audit` 已收工，此前 V2/V4 双 FAIL 属其**在途态**，如预判自愈
+
+**残留（未擅自处理，待用户决定）**：历史里仍有那 2 条由 check-all 写入的 FAIL 记录（17:18 / 17:19），看板现显示「已连续 2 次失败（阈值 3）」。不动的理由：① 它们当时是**真实的预检失败**（V2 确实坏了），保留是诚实的；② 下一次真实采样（明日 09:05 计划任务）现在会 PASS，链条自动归零。若要清掉这 2 条"错采样器写的"记录，需先备份再删并留档。
+
+**生效/回滚**：脚本改动即时生效，**无需重启**。回滚 = 用备份目录内两个改前文件覆盖回去。
+
+---
+
+## 2026-09-10 SL-9 · Skill catalog 瘦身（D1：低价值 skill 移出模型 catalog，-41.8%）
+
+> 依据 `docs/DSH-CAPABILITY-AUDIT-AND-PLAN-2026-09-10.md` D1。**零风险杠杆**：只加 frontmatter 开关，不删任何文件。
+> 备份与清单见 `_backups/skill-catalog-prune-20260910-181500/`（17 份改前 `SKILL.md` + `MANIFEST.json`）。
+>
+> ⚠️ **备份目录事故 + 闭环（2026-09-10）**：首次备份目录名由 `toISOString().slice(0,15)` 生成、**以 `.` 结尾**（`…093808.`）。Windows 对尾点路径的规范化在 **Node 与 PowerShell 两层表现不一致**，后续整理操作导致该目录**内容丢失**（`orig/`、`MANIFEST.json`、`RESULT.log`、`diag/` 全失，只剩空目录）。
+> 已按逆变换**确定性重建**：`orig/` 由当前文件移除插入行反推，并用「把该行插回去」做**往返校验 —— 17/17 逐字节一致**。重建结果另有两个独立交叉验证：① 每个文件恰好 **−31 B**（插入行 `\ndisable-model-invocation: true` = 31 B，17 个全中）；② 重建字节数与改动**前** `.skill-inventory.json` 的记录**逐一吻合**（`academy-guide` 7229B、`claude-api` 75126B、`doc-coauthoring` 15815B …）。
+> → **回滚能力已完整恢复**，且比原备份多了一层可验证依据。空的尾点目录已先改名为合法名再清除（`_backups` 下已无尾点目录）。
+>
+> **教训（已同步 memory）**：脚本生成目录名/文件名时**必须先剥掉结尾的 `.` 与空格**；Windows 尾点路径跨 API 层行为不可预测，属高危，禁止使用。
+
+**问题（实测）**
+61 个用户 skill 的 catalog（`name` + `description`）实测 **11,686 字符**，加渲染框架约 **12.3 KB**，远超既有 9 KB 危险线（历史实测：catalog 达 9 KB 时锚定率 81% → 0%）。且 61 个 skill **无一**设置调用策略开关。
+
+**机制（读内核源码确证，非推测）**
+`dsh-skill-filesystem@0.1.1-rc.2` `parseInvocationPolicy()`（`lib/index.js:841-851`）：
+```
+modelInvocable: disableModelInvocation !== true
+userInvocable:  userInvocable !== false
+```
+`dsh-tool-skill`（`lib/index.js:195` / `:161`）：catalog 取 `filter(isModelInvocable)`，用户菜单取 `isUserInvocable`。
+→ `disable-model-invocation: true` **只把 skill 移出模型 catalog，保留在用户菜单**（仍可 `/name` 调用）。
+→ `frontmatterBoolean` 接受布尔字面量 `true`；camelCase 遗留键会被 `rejectLegacyInvocationKey` **throw → 该 skill 静默死亡**（爆炸半径 1 个 skill），故必须用 kebab 扁平键。
+
+**改动**：17 个 skill 追加 `disable-model-invocation: true`（原子写：同目录临时文件 + `renameSync`）。按三类判定：
+
+| 类别 | 数量 | 依据 |
+|---|---|---|
+| A Anthropic 生态残留 | 12 | academy-guide / claude-api / claude-paper-{study,summary,webui} / algorithmic-art / brand-guidelines / canvas-design / slack-gif-creator / internal-comms / web-artifacts-builder / theme-factory —— 与本工作区零交集 |
+| B 自述「不要自动触发」 | 2 | chinese-code-review / chinese-documentation —— 其 description 本就写明「仅在用户显式 /xxx 时调用」，补 flag 与自述一致 |
+| C 与本地机制重叠 / 缺外部依赖 | 3 | discernment-nudge（与 falsification-check + evidence-driven-audit 重叠）/ doc-coauthoring（与 WorkBuddy tencent-docx 重叠）/ firecrawl-usage（需 Firecrawl 凭证，本地无） |
+
+**未触碰 hub 已安装的 12 个 skill**（`diagram-design` / `docx` / `pptx` / `xlsx` / `pdf` / `security-audit` / `dep-auditor` / `zh-docgen` / `dispatching-parallel-agents` / `verification-before-completion` / `systematic-debugging` / `test-driven-development`）—— 避免破坏 `.hub-install-manifest.json` 的 SHA-256。脚本内含重叠断言，重叠即 abort。
+
+**验证证据**
+- 目录无损：`~/.dsh/skills` **61 → 61** 个目录（无 fail-closed 丢弃）
+- 断言：屏蔽名单 **17/17** 生效；**0** 个被屏蔽者丢失 `userInvocable`（用户菜单完整保留）；legacy / snake_case 键 **0**；BOM **0**
+- 门禁：`node scripts/lint-skills.mjs` → **TOTAL 146 PASS / 0 FAIL / 140 WARN / 0 SEC-FAIL**，与改动前基线**逐项一致**（无新增告警）
+- 体积（按内核 `catalogSourceEntries` + `renderCatalogEntries` 同款公式计算）：
+  catalog 行 **11,686 → 6,804 字符（-4,882 / -41.8%）**，条目 **61 → 44**；含框架 **12,326 → 7,444**，回到 9 KB 危险线之下
+
+**生效条件**：frontmatter 变更改变 catalog digest（`digestCatalogEntries`）→ **热生效，无需重启**（`dsh-skills-manager` README 亦确认「写后由文件 watcher 更新注册表」）。
+**回滚**：删除这 17 个文件的 `disable-model-invocation: true` 行即可；改前原文存于备份目录 `orig/`。
+
+---
+
 ## 2026-09-10 F13 修复 · 回收站删除「退出码误判」（跨 3 处生产代码）
 
 > 起因：W1 记录 F13 时把 `deregister-plugin --yes` 的失败归因为「genie-trash / 回收站通道失效」。

@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-external/dsh-health-dashboard",
+  "version": "0.1.0",
+  "description": "系统健康仪表盘端点：注册 /health/dashboard 聚合磁盘剩余 + 各监控插件 JSONL 统计（command-guard / code-security-guard / tool-audit / temp-tracker / session-hygiene）。纯只读聚合——不修改任何插件状态，全部 best-effort（DSH 零风险改进 #4）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

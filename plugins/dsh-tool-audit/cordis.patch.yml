@@ -1,0 +1,8 @@
+# dsh-tool-audit bundle patch: 工具调用审计日志（DSH 零风险改进 #2）。
+# 装配形态与 dsh-command-guard / dsh-code-security-guard 一致：insert + 单文件 + inject ['timer']。
+# 本插件为纯观察者：不修改任何工具行为，仅配对 tool/call+tool/result 写 JSONL 审计。
+- insert:
+    - id: dsh-tool-audit
+      name: '@dsh-external/dsh-tool-audit'
+      config:
+        enabled: true

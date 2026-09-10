@@ -1,0 +1,8 @@
+# dsh-temp-tracker bundle patch: 临时文件追踪（DSH 零风险改进 #3）。
+# 装配形态与 dsh-command-guard / dsh-code-security-guard 一致：insert + 单文件 + inject ['timer']。
+# 本插件为纯观察者：只记录临时文件路径，绝不删除任何文件。
+- insert:
+    - id: dsh-temp-tracker
+      name: '@dsh-external/dsh-temp-tracker'
+      config:
+        enabled: true
