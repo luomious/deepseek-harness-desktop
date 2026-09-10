@@ -18,7 +18,8 @@
 
 import {
   FONT_STACK, measureText, ellipsize, fitScaled, wrapText,
-  SCENE_TYPES, ICON_TYPE, FLOW_KINDS, THEMES, buildCssVars, typeHue
+  SCENE_TYPES, ICON_TYPE, FLOW_KINDS, THEMES, buildCssVars, typeHue,
+  PRESET_META, presetKey
 } from './design.js'
 
 /* ---------------- 画布常量（v8 继承：680 恒定 / 安全区 40..640） ------- */
@@ -27,6 +28,7 @@ var SAFE_L = 40
 var SAFE_R = 640
 var SAFE_W = SAFE_R - SAFE_L
 var PAD_BOTTOM = 10
+var COL_GAP = 46 /* v9.4 horizontal 泳道列间距（3 布局共用常量） */
 var MAX_ACTORS = 14
 var MAX_FLOWS = 28
 var MAX_GROUPS = 6
@@ -155,11 +157,19 @@ export function normalizeSceneV2(scene) {
   var theme = String(scene.theme || '')
   if (theme !== 'light' && theme !== 'dark') theme = 'auto'
 
+  // v9.4 布局与视觉身份（缺省 auto：渲染前推断；非法值回落）
+  var layout = String(scene.layout || 'auto')
+  if (['auto', 'vertical', 'horizontal', 'radial'].indexOf(layout) < 0) layout = 'auto'
+  var preset = String(scene.preset || 'auto')
+  if (['auto', 'paper', 'blueprint', 'editorial', 'signal'].indexOf(preset) < 0) preset = 'auto'
+
   return {
     engine: 'v9',
     title: String(scene.title || '应用场景').slice(0, 80),
     subtitle: scene.subtitle ? String(scene.subtitle).slice(0, 200) : '',
     theme: theme,
+    layout: layout,
+    preset: preset,
     actors: actors,
     flows: flows,
     groups: groups,
@@ -170,6 +180,109 @@ export function normalizeSceneV2(scene) {
 }
 
 /* ---------------- 布局与渲染 ----------------------------------------- */
+
+/**
+ * v9.4 布局推断：显式值直通；auto 按拓扑保守判定（无强特征 → vertical 兜底）。
+ * @returns {'vertical'|'horizontal'|'radial'}
+ */
+function resolveLayout(s) {
+  if (s.layout === 'vertical' || s.layout === 'horizontal' || s.layout === 'radial') return s.layout
+  // 防御：节点过少没有拓扑信号
+  if (s.actors.length < 4 || s.actors.length > 11) return 'vertical'
+  var bands = buildBands(s)
+  // ① hub 检测：某节点度数占连线总数比例高 → 辐射
+  var deg = {}
+  var total = 0
+  for (var i = 0; i < s.flows.length; i++) {
+    var f = s.flows[i]
+    deg[f.from] = (deg[f.from] || 0) + 1
+    deg[f.to] = (deg[f.to] || 0) + 1
+    total++
+  }
+  var maxDeg = 0
+  for (var k in deg) if (deg[k] > maxDeg) maxDeg = deg[k]
+  if (total >= 4 && maxDeg >= Math.max(4, Math.ceil(total * 0.75))) return 'radial'
+  // ② 水平推进检测：组间连线中「向前一列」占比 ≥60% 且组数 ≤4 → 泳道
+  if (bands.length >= 2 && bands.length <= 4 && total >= 3) {
+    var fwd = 0
+    var cross = 0
+    for (var j = 0; j < s.flows.length; j++) {
+      var fl = s.flows[j]
+      var ba = -1
+      var bb = -1
+      for (var bi = 0; bi < bands.length; bi++) {
+        if (bands[bi].members.indexOf(idxOf(s, fl.from)) >= 0) ba = bi
+        if (bands[bi].members.indexOf(idxOf(s, fl.to)) >= 0) bb = bi
+      }
+      if (ba >= 0 && bb >= 0 && ba !== bb) {
+        cross++
+        if (bb === ba + 1) fwd++
+      }
+    }
+    if (cross >= 2 && fwd / cross >= 0.6) return 'horizontal'
+  }
+  return 'vertical'
+}
+
+function idxOf(s, id) {
+  for (var i = 0; i < s.actors.length; i++) if (s.actors[i].id === id) return i
+  return -1
+}
+
+/**
+ * v9.4 视觉身份推断：显式值直通；auto 按类型分布保守判定。
+ * @returns {'paper'|'blueprint'|'editorial'|'signal'}
+ */
+function resolvePresetAuto(s) {
+  if (s.preset === 'paper' || s.preset === 'blueprint' || s.preset === 'editorial' || s.preset === 'signal') return s.preset
+  var n = s.actors.length
+  if (!n) return 'paper'
+  var cloudData = 0
+  var narrative = 0
+  for (var i = 0; i < n; i++) {
+    var t = s.actors[i].type
+    if (t === 'cloud' || t === 'data') cloudData++
+    if (t === 'person' || t === 'external') narrative++
+  }
+  if (cloudData / n >= 0.4) return 'blueprint'
+  if (narrative / n >= 0.5) return 'editorial'
+  if (s.flows.length >= 8) return 'signal'
+  return 'paper'
+}
+
+/** chip 错位防碰撞（三布局共用）：按 y 排序后逐个下移避让。 */
+function packChips(chips, safeL, safeR) {
+  chips.sort(function (x, y) { return x.ly - y.ly || x.lx - y.lx })
+  var placed = []
+  for (var ci = 0; ci < chips.length; ci++) {
+    var c = chips[ci]
+    var cw = measureText(c.label, 12) + 16
+    var lx = Math.max(safeL + cw / 2, Math.min(safeR - cw / 2, c.lx))
+    var ly = c.ly
+    for (var pi = 0; pi < placed.length; pi++) {
+      var p = placed[pi]
+      if (Math.abs(p.ly - ly) < 13 && Math.abs(p.lx - lx) < (p.cw + cw) / 2 + 8) {
+        ly += 20
+        pi = -1
+      }
+    }
+    placed.push({ lx: lx, ly: ly, cw: cw })
+    c.lx = lx
+    c.ly = ly
+    c.cw = cw
+  }
+  return chips
+}
+
+/** footer 面板绘制（三布局共用）。 */
+function footerPush(o, s, footY) {
+  var footH = 18 + s.footer.length * 19 + 16
+  o.push('<rect x="' + SAFE_L + '" y="' + footY + '" width="' + SAFE_W + '" height="' + footH + '" rx="12" style="fill:var(--dsh9-dz);stroke:var(--dsh9-dl)" stroke-width="1"/>')
+  for (var fj = 0; fj < s.footer.length; fj++) {
+    o.push('<circle cx="' + (SAFE_L + 16) + '" cy="' + (footY + 28 + fj * 19) + '" r="3" style="fill:var(--dsh9-t-core)"/>')
+    o.push('<text x="' + (SAFE_L + 28) + '" y="' + (footY + 28 + fj * 19) + '" font-size="13" font-weight="400" fill="var(--dsh9-di2)" dominant-baseline="central">' + escXml(ellipsize(s.footer[fj], SAFE_W - 44, 13)) + '</text>')
+  }
+}
 
 /** 每个 band：{ label, color, members:[actorIdx], rows:[[idx...]], cols, cardW, top, ... } */
 function buildBands(s) {
@@ -291,6 +404,62 @@ function cardHeightOf(s, band, actorIdx) {
   return Math.max(52, Math.round(11 + block + 11))
 }
 
+/**
+ * 画一张卡（三布局共用）：按 preset 的 cardStyle 画装饰，
+ * 名称 15/描述 12 智能缩放 + 核心徽章。新增 preset 只需在此加分支。
+ */
+function drawCard(o, s, ai, p, preset) {
+  var pmeta = PRESET_META[presetKey(preset)]
+  var act = s.actors[ai]
+  var tv = 'var(--dsh9-t-' + act.type + ')'
+  var showBadge = p.cardW >= 200 && act.highlight
+  var textW = Math.max(40, p.cardW - 64 - (showBadge ? 44 : 0))
+  var nameFit = fitScaled(act.name, textW, [15, 14, 13, 12])
+  var descLines = act.desc ? wrapText(act.desc.replace(/[/\\\n]/g, ' '), textW, 12, 2) : []
+  var blockH = Math.max(nameFit.size, 18) + 6 + descLines.length * 15
+  var blockTop = p.top + 11
+  var nameCY = blockTop + Math.max(nameFit.size, 18) / 2
+  var cs = pmeta.cardStyle
+  var idxNum = ('0' + (ai + 1)).slice(-2)
+  var textX = p.left + 52
+  o.push('<g id="sc-' + escXml(act.id) + '" data-name="' + escXml(act.name) + '">')
+  if (cs === 'editorial') {
+    // 杂志编排：无底卡，mono 序号 + 类型色点 + 底部分隔线
+    textX = p.left + 16
+    o.push('<text x="' + (p.left + p.cardW - 2) + '" y="' + (p.top + 13) + '" font-size="10" font-weight="500" fill="var(--dsh9-di3)" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">' + idxNum + '</text>')
+    o.push('<circle cx="' + (p.left + 5) + '" cy="' + Math.round(nameCY) + '" r="3" style="fill:' + tv + '"/>')
+    o.push('<line x1="' + p.left + '" y1="' + (p.top + p.cardH - 0.5) + '" x2="' + (p.left + p.cardW) + '" y2="' + (p.top + p.cardH - 0.5) + '" style="stroke:' + (act.highlight ? tv : 'var(--dsh9-dl)') + '" stroke-width="' + (act.highlight ? 2 : 1) + '"/>')
+  } else if (cs === 'blueprint') {
+    // 工程蓝图：双细线框 + mono 角标 + 类型色条
+    o.push('<rect x="' + p.left + '" y="' + p.top + '" width="' + p.cardW + '" height="' + p.cardH + '" rx="6" style="fill:' + (act.highlight ? 'var(--dsh9-t-' + act.type + '-z)' : 'var(--dsh9-dc)') + ';stroke:var(--dsh9-dl)" stroke-width="1.25"/>')
+    o.push('<rect x="' + (p.left + 3) + '" y="' + (p.top + 3) + '" width="' + (p.cardW - 6) + '" height="' + (p.cardH - 6) + '" rx="4" style="fill:none;stroke:' + (act.highlight ? tv : 'var(--dsh9-dl)') + '" stroke-width="0.5" opacity="0.7"/>')
+    o.push('<text x="' + (p.left + p.cardW - 6) + '" y="' + (p.top + 14) + '" font-size="10" font-weight="500" fill="var(--dsh9-di3)" text-anchor="end" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">' + idxNum + '</text>')
+    o.push('<rect x="' + (p.left + 9) + '" y="' + (p.top + 9) + '" width="3" height="' + (p.cardH - 18) + '" rx="1.5" style="fill:' + tv + '"/>')
+    o.push('<g transform="translate(' + (p.left + 20) + ',' + Math.round(blockTop + (blockH - 22) / 2) + ')">' + renderIcon(act.icon, tv) + '</g>')
+  } else if (cs === 'solid') {
+    // 信号流：实底类型色 10% + 类型色粗边
+    o.push('<rect x="' + p.left + '" y="' + p.top + '" width="' + p.cardW + '" height="' + p.cardH + '" rx="10" style="fill:var(--dsh9-t-' + act.type + '-f);stroke:' + tv + '" stroke-width="' + (act.highlight ? 2.5 : 1.5) + '"/>')
+    o.push('<g transform="translate(' + (p.left + 20) + ',' + Math.round(blockTop + (blockH - 22) / 2) + ')">' + renderIcon(act.icon, tv) + '</g>')
+  } else {
+    // paper：白卡描边 + 左色条（v9 原生）
+    o.push('<rect x="' + p.left + '" y="' + p.top + '" width="' + p.cardW + '" height="' + p.cardH + '" rx="10" style="fill:' + (act.highlight ? 'var(--dsh9-t-' + act.type + '-f)' : 'var(--dsh9-dc)') + ';stroke:' + (act.highlight ? tv : 'var(--dsh9-dl)') + '" stroke-width="' + (act.highlight ? 1.5 : 1) + '"/>')
+    o.push('<rect x="' + (p.left + 9) + '" y="' + (p.top + 9) + '" width="3" height="' + (p.cardH - 18) + '" rx="1.5" style="fill:' + tv + '"/>')
+    o.push('<g transform="translate(' + (p.left + 20) + ',' + Math.round(blockTop + (blockH - 22) / 2) + ')">' + renderIcon(act.icon, tv) + '</g>')
+  }
+  // 名称（智能缩放）
+  o.push('<text x="' + textX + '" y="' + nameCY + '" font-size="' + nameFit.size + '" font-weight="500" fill="var(--dsh9-di)" dominant-baseline="central">' + escXml(nameFit.text) + '</text>')
+  // 描述（≤2 行）
+  for (var dl = 0; dl < descLines.length; dl++) {
+    o.push('<text x="' + textX + '" y="' + (blockTop + Math.max(nameFit.size, 18) + 6 + dl * 15 + 7.5) + '" font-size="12" font-weight="400" fill="var(--dsh9-di2)" dominant-baseline="central">' + escXml(descLines[dl]) + '</text>')
+  }
+  // 核心徽章
+  if (showBadge) {
+    o.push('<rect x="' + (p.left + p.cardW - 42) + '" y="' + (p.top + 10) + '" width="32" height="17" rx="4" style="fill:' + tv + '"/>')
+    o.push('<text x="' + (p.left + p.cardW - 26) + '" y="' + (p.top + 10 + 8.5) + '" font-size="11" font-weight="500" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">核心</text>')
+  }
+  o.push('</g>')
+}
+
 /** 行间沟槽（band 内）：row 与 row+1 之间；最后一行返回 band 底部 padding 区。 */
 function rowGutterY(bandGeom, band, row, rowsLen, ROW_GAP) {
   if (row < rowsLen - 1) {
@@ -308,6 +477,17 @@ function cardRowH(band, row, ROW_GAP) {
 /* ---------------- 主构建 --------------------------------------------- */
 
 export function buildSceneSvgV2(s) {
+  // v9.4：布局（vertical/horizontal/radial）与视觉身份（preset）分发
+  var layoutName = resolveLayout(s)
+  var preset = resolvePresetAuto(s)
+  if (layoutName === 'horizontal') return buildSceneSvgH(s, preset)
+  if (layoutName === 'radial') return buildSceneSvgR(s, preset)
+  return buildSceneSvgV(s, preset)
+}
+
+/** vertical 分层布局（v9 原生路径，paper 兼容默认）。 */
+function buildSceneSvgV(s, preset) {
+  var pmeta = PRESET_META[presetKey(preset)]
   var bands = buildBands(s)
   var L = layout(s, bands)
   var o = []
@@ -321,7 +501,7 @@ export function buildSceneSvgV2(s) {
   o.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + VB_W + ' ' + L.H + '" width="' + VB_W + '" height="' + L.H + '" role="img" font-family="' + FONT_STACK + '">')
   o.push('<title>' + escXml(s.title) + '</title>')
   o.push('<desc>应用场景图：' + s.actors.length + ' 个节点，' + s.flows.length + ' 条关系（v9 语义排版）</desc>')
-  o.push('<style>' + buildCssVars({ theme: s.theme }, usedTypes, usedKinds) + '</style>')
+  o.push('<style>' + buildCssVars({ theme: s.theme, preset: preset }, usedTypes, usedKinds) + '</style>')
   o.push('<rect x="0" y="0" width="100%" height="100%" style="fill:var(--dsh9-dp)"/>')
 
   // 箭头 markers（每 kind 一个，stroke 用 CSS 变量）
@@ -372,29 +552,11 @@ export function buildSceneSvgV2(s) {
   for (var si = 0; si < flowShapes.length; si++) {
     var fs = flowShapes[si]
     var dashAttr = FLOW_KINDS[fs.kind].dash ? ' stroke-dasharray="' + FLOW_KINDS[fs.kind].dash + '"' : ''
-    o.push('<path d="' + fs.d + '" fill="none" style="stroke:var(--dsh9-f-' + fs.kind + ')" stroke-width="1.5" stroke-linejoin="round"' + dashAttr + ' marker-end="url(#arrow-' + fs.kind + ')"/>')
+    o.push('<path d="' + fs.d + '" fill="none" style="stroke:var(--dsh9-f-' + fs.kind + ')" stroke-width="' + pmeta.edgeW + '" stroke-linejoin="round"' + dashAttr + ' marker-end="url(#arrow-' + fs.kind + ')"/>')
   }
 
-  // ---- 连线标签 chip（按 y 分组错位防碰撞）----
-  var chips = flowShapes.filter(function (c) { return c.label })
-  chips.sort(function (x, y) { return x.ly - y.ly || x.lx - y.lx })
-  var chipOut = []
-  var placed = []
-  for (var ci = 0; ci < chips.length; ci++) {
-    var c = chips[ci]
-    var cw = measureText(c.label, 12) + 16
-    var lx = Math.max(SAFE_L + cw / 2, Math.min(SAFE_R - cw / 2, c.lx))
-    var ly = c.ly
-    for (var pi = 0; pi < placed.length; pi++) {
-      var p = placed[pi]
-      if (Math.abs(p.ly - ly) < 13 && Math.abs(p.lx - lx) < (p.cw + cw) / 2 + 8) {
-        ly += 20
-        pi = -1 // 重新检查
-      }
-    }
-    placed.push({ lx: lx, ly: ly, cw: cw })
-    chipOut.push({ label: c.label, kind: c.kind, lx: lx, ly: ly, cw: cw })
-  }
+  // ---- 连线标签 chip（错位防碰撞，三布局共用 packChips）----
+  var chipOut = packChips(flowShapes.filter(function (c) { return c.label }), SAFE_L, SAFE_R)
   // ---- 卡片 ----
   for (var bi2 = 0; bi2 < L.bands.length; bi2++) {
     var band2 = L.bands[bi2]
@@ -403,37 +565,7 @@ export function buildSceneSvgV2(s) {
         var ai2 = band2.rows[r3][c3]
         var act = s.actors[ai2]
         var p = L.pos[act.id]
-        var tv = 'var(--dsh9-t-' + act.type + ')'
-        var showBadge = p.cardW >= 200 && act.highlight
-        var textX = p.left + 52
-        var textW = Math.max(40, p.cardW - 64 - (showBadge ? 44 : 0))
-        var nameFit = fitScaled(act.name, textW, [15, 14, 13, 12])
-        var descLines = act.desc ? wrapText(act.desc.replace(/[/\\\n]/g, ' '), textW, 12, 2) : []
-        var blockH = Math.max(nameFit.size, 18) + 6 + descLines.length * 15
-        var blockTop = p.top + 11
-        var nameCY = blockTop + Math.max(nameFit.size, 18) / 2
-        // 卡片底
-        var fillS = act.highlight ? 'var(--dsh9-t-' + act.type + '-f)' : 'var(--dsh9-dc)'
-        var strokeS = act.highlight ? tv : 'var(--dsh9-dl)'
-        var strokeW = act.highlight ? 1.5 : 1
-        o.push('<g id="sc-' + escXml(act.id) + '" data-name="' + escXml(act.name) + '">')
-        o.push('<rect x="' + p.left + '" y="' + p.top + '" width="' + p.cardW + '" height="' + p.cardH + '" rx="10" style="fill:' + fillS + ';stroke:' + strokeS + '" stroke-width="' + strokeW + '"/>')
-        // 类型色条
-        o.push('<rect x="' + (p.left + 9) + '" y="' + (p.top + 9) + '" width="3" height="' + (p.cardH - 18) + '" rx="1.5" style="fill:' + tv + '"/>')
-        // 图标（类型色）
-        o.push('<g transform="translate(' + (p.left + 20) + ',' + Math.round(blockTop + (blockH - 22) / 2) + ')">' + renderIcon(act.icon, tv) + '</g>')
-        // 名称（智能缩放）
-        o.push('<text x="' + textX + '" y="' + nameCY + '" font-size="' + nameFit.size + '" font-weight="500" fill="var(--dsh9-di)" dominant-baseline="central">' + escXml(nameFit.text) + '</text>')
-        // 描述（≤2 行）
-        for (var dl = 0; dl < descLines.length; dl++) {
-          o.push('<text x="' + textX + '" y="' + (blockTop + Math.max(nameFit.size, 18) + 6 + dl * 15 + 7.5) + '" font-size="12" font-weight="400" fill="var(--dsh9-di2)" dominant-baseline="central">' + escXml(descLines[dl]) + '</text>')
-        }
-        // 核心徽章
-        if (showBadge) {
-          o.push('<rect x="' + (p.left + p.cardW - 42) + '" y="' + (p.top + 10) + '" width="32" height="17" rx="4" style="fill:' + tv + '"/>')
-          o.push('<text x="' + (p.left + p.cardW - 26) + '" y="' + (p.top + 10 + 8.5) + '" font-size="11" font-weight="500" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">核心</text>')
-        }
-        o.push('</g>')
+        drawCard(o, s, ai2, p, preset)
       }
     }
   }
@@ -441,19 +573,13 @@ export function buildSceneSvgV2(s) {
   // ---- 连线标签 chip（画在卡片之上，保证永远可见）----
   for (var cj = 0; cj < chipOut.length; cj++) {
     var ch = chipOut[cj]
-    o.push('<rect x="' + (ch.lx - ch.cw / 2) + '" y="' + (ch.ly - 10) + '" width="' + ch.cw + '" height="20" rx="5" style="fill:var(--dsh9-dc);stroke:var(--dsh9-f-' + ch.kind + ')" stroke-width="0.5"/>')
+    o.push('<rect x="' + (ch.lx - ch.cw / 2) + '" y="' + (ch.ly - 10) + '" width="' + ch.cw + '" height="20" rx="5" style="fill:var(--dsh9-dp);stroke:var(--dsh9-f-' + ch.kind + ')" stroke-width="0.5"/>')
     o.push('<text x="' + ch.lx + '" y="' + ch.ly + '" font-size="12" font-weight="500" fill="var(--dsh9-f-' + ch.kind + ')" text-anchor="middle" dominant-baseline="central">' + escXml(ch.label) + '</text>')
   }
 
   // ---- footer 要点面板 ----
   if (s.footer.length > 0 && s.showFooter) {
-    var footY = L.bandGeom[L.bandGeom.length - 1].zoneBottom + 12
-    var footH = 18 + s.footer.length * 19 + 16
-    o.push('<rect x="' + SAFE_L + '" y="' + footY + '" width="' + SAFE_W + '" height="' + footH + '" rx="12" style="fill:var(--dsh9-dz);stroke:var(--dsh9-dl)" stroke-width="1"/>')
-    for (var fj = 0; fj < s.footer.length; fj++) {
-      o.push('<circle cx="' + (SAFE_L + 16) + '" cy="' + (footY + 28 + fj * 19) + '" r="3" style="fill:var(--dsh9-t-core)"/>')
-      o.push('<text x="' + (SAFE_L + 28) + '" y="' + (footY + 28 + fj * 19) + '" font-size="13" font-weight="400" fill="var(--dsh9-di2)" dominant-baseline="central">' + escXml(ellipsize(s.footer[fj], SAFE_W - 44, 13)) + '</text>')
-    }
+    footerPush(o, s, L.bandGeom[L.bandGeom.length - 1].zoneBottom + 12)
   }
 
   o.push('</svg>')
@@ -548,4 +674,265 @@ function colGutterX(L, a, right) {
 function bandGapY(L, band) {
   var ge = L.bandGeom[band]
   return ge.zoneBottom + L.BAND_GAP / 2
+}
+
+/* ================================================================
+   v9.4 新布局：horizontal（泳道）/ radial（hub-spoke 辐射）
+   与 vertical 共用 drawCard / packChips / footerPush / escXml 等辅助。
+   ================================================================ */
+
+/**
+ * horizontal 泳道布局（v9.4）：每组一列左→右推进，列间沟槽走线。
+ * 适用：流程/管道（组间连线以前进方向为主）。
+ */
+function buildSceneSvgH(s, preset) {
+  var pmeta = PRESET_META[presetKey(preset)]
+  var bands = buildBands(s)
+  var n = bands.length
+  var usedTypes = []
+  var usedKinds = []
+  for (var t = 0; t < s.actors.length; t++) if (usedTypes.indexOf(s.actors[t].type) < 0) usedTypes.push(s.actors[t].type)
+  for (var g = 0; g < s.groups.length; g++) if (s.groups[g].color && usedTypes.indexOf(s.groups[g].color) < 0) usedTypes.push(s.groups[g].color)
+  for (var f = 0; f < s.flows.length; f++) if (usedKinds.indexOf(s.flows[f].kind) < 0) usedKinds.push(s.flows[f].kind)
+
+  var colW = Math.floor((SAFE_W - (n - 1) * COL_GAP) / n)
+  var bodyTop = s.subtitle ? 90 : 78
+  var pos = {}
+  var colGeom = []
+  for (var bi = 0; bi < n; bi++) {
+    var band = bands[bi]
+    var colX = SAFE_L + bi * (colW + COL_GAP)
+    var y = bodyTop + (band.label ? 42 : 14)
+    for (var ai = 0; ai < band.members.length; ai++) {
+      var actorIdx = band.members[ai]
+      var act = s.actors[actorIdx]
+      var ch = cardHeightOf(s, { cardW: colW }, actorIdx)
+      pos[act.id] = { x: colX + colW / 2, y: y + ch / 2, top: y, bottom: y + ch, left: colX, right: colX + colW, col: bi, row: ai, band: bi, cardW: colW, cardH: ch }
+      y += ch + 28
+    }
+    colGeom.push({ colX: colX, colW: colW, top: bodyTop, bottom: y - 28 + 14, label: band.label, color: band.color })
+  }
+  var H = 0
+  for (var cg = 0; cg < colGeom.length; cg++) if (colGeom[cg].bottom > H) H = colGeom[cg].bottom
+  var footerH = (s.footer.length > 0 && s.showFooter) ? (18 + s.footer.length * 19 + 16) : 0
+  var footY = H + (footerH > 0 ? 12 : 0)
+  var totalH = H + (footerH > 0 ? 12 + footerH : 0) + PAD_BOTTOM
+
+  var o = []
+  o.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + VB_W + ' ' + Math.round(totalH) + '" width="' + VB_W + '" height="' + Math.round(totalH) + '" role="img" font-family="' + FONT_STACK + '">')
+  o.push('<title>' + escXml(s.title) + '</title>')
+  o.push('<desc>应用场景图（泳道）：' + s.actors.length + ' 个节点，' + s.flows.length + ' 条关系（v9.4 horizontal）</desc>')
+  o.push('<style>' + buildCssVars({ theme: s.theme, preset: preset }, usedTypes, usedKinds) + '</style>')
+  o.push('<rect x="0" y="0" width="100%" height="100%" style="fill:var(--dsh9-dp)"/>')
+  for (var mk = 0; mk < usedKinds.length; mk++) {
+    o.push('<defs><marker id="arrow-' + usedKinds[mk] + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" style="stroke:var(--dsh9-f-' + usedKinds[mk] + ')" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>')
+  }
+  var titleFit = fitScaled(s.title, SAFE_W, [18, 16, 15, 14])
+  o.push('<text x="' + SAFE_L + '" y="' + (titleFit.size >= 16 ? 36 : 38) + '" font-size="' + titleFit.size + '" font-weight="500" fill="var(--dsh9-di)">' + escXml(titleFit.text) + '</text>')
+  if (s.subtitle) {
+    o.push('<text x="' + SAFE_L + '" y="' + 56 + '" font-size="14" font-weight="400" fill="var(--dsh9-di2)">' + escXml(s.subtitle) + '</text>')
+  }
+  for (var zg = 0; zg < colGeom.length; zg++) {
+    var cg2 = colGeom[zg]
+    var zFill = 'var(--dsh9-dz)'
+    var zDot = 'var(--dsh9-di3)'
+    if (cg2.color && SCENE_TYPES[cg2.color]) {
+      zFill = 'var(--dsh9-t-' + cg2.color + '-z)'
+      zDot = 'var(--dsh9-t-' + cg2.color + ')'
+    }
+    if (s.groups.length > 0) {
+      o.push('<rect x="' + (cg2.colX - 10) + '" y="' + cg2.top + '" width="' + (cg2.colW + 20) + '" height="' + (cg2.bottom - cg2.top) + '" rx="12" style="fill:' + zFill + ';stroke:var(--dsh9-dl)" stroke-width="1"/>')
+      if (cg2.label) {
+        o.push('<circle cx="' + (cg2.colX - 1) + '" cy="' + (cg2.top + 18) + '" r="3.5" style="fill:' + zDot + '"/>')
+        o.push('<text x="' + (cg2.colX + 8) + '" y="' + (cg2.top + 18) + '" font-size="12" font-weight="500" fill="var(--dsh9-di2)" dominant-baseline="central" letter-spacing="0.02em">' + escXml(ellipsize(cg2.label, colW - 16, 12)) + '</text>')
+      }
+    }
+  }
+  var flowShapes = []
+  for (var fi = 0; fi < s.flows.length; fi++) {
+    var fl = s.flows[fi]
+    var a = pos[fl.from]
+    var b = pos[fl.to]
+    if (!a || !b) continue
+    var shape = routeEdgeH(a, b, fl.kind, colGeom)
+    if (shape) { shape.label = fl.label; flowShapes.push(shape) }
+  }
+  for (var si = 0; si < flowShapes.length; si++) {
+    var fs = flowShapes[si]
+    var dashAttr = FLOW_KINDS[fs.kind].dash ? ' stroke-dasharray="' + FLOW_KINDS[fs.kind].dash + '"' : ''
+    o.push('<path d="' + fs.d + '" fill="none" style="stroke:var(--dsh9-f-' + fs.kind + ')" stroke-width="' + pmeta.edgeW + '" stroke-linejoin="round"' + dashAttr + ' marker-end="url(#arrow-' + fs.kind + ')"/>')
+  }
+  for (var bi2 = 0; bi2 < n; bi2++) {
+    var band2 = bands[bi2]
+    for (var ai2 = 0; ai2 < band2.members.length; ai2++) {
+      drawCard(o, s, band2.members[ai2], pos[s.actors[band2.members[ai2]].id], preset)
+    }
+  }
+  var chipOut = packChips(flowShapes.filter(function (c) { return c && c.label }), SAFE_L, SAFE_R)
+  for (var cj = 0; cj < chipOut.length; cj++) {
+    var ch2 = chipOut[cj]
+    o.push('<rect x="' + (ch2.lx - ch2.cw / 2) + '" y="' + (ch2.ly - 10) + '" width="' + ch2.cw + '" height="20" rx="5" style="fill:var(--dsh9-dp);stroke:var(--dsh9-f-' + ch2.kind + ')" stroke-width="0.5"/>')
+    o.push('<text x="' + ch2.lx + '" y="' + ch2.ly + '" font-size="12" font-weight="500" fill="var(--dsh9-f-' + ch2.kind + ')" text-anchor="middle" dominant-baseline="central">' + escXml(ch2.label) + '</text>')
+  }
+  if (footerH > 0) footerPush(o, s, footY)
+  o.push('</svg>')
+  return o.join('')
+}
+
+/** horizontal 连线路由：同列竖直 / 相邻跨列沟槽 / 隔列中沟槽。 */
+function routeEdgeH(a, b, kind, colGeom) {
+  var dCol = b.col - a.col
+  if (dCol === 0) {
+    var down = b.row > a.row
+    var ay = a.y + (down ? a.cardH / 2 : -a.cardH / 2)
+    var by = b.y + (down ? -b.cardH / 2 : b.cardH / 2)
+    return { d: 'M ' + a.x + ' ' + ay + ' L ' + b.x + ' ' + by, kind: kind, lx: a.x + 26, ly: (ay + by) / 2 }
+  }
+  var rightward = dCol > 0
+  var ax = a.x + (rightward ? a.cardW / 2 : -a.cardW / 2)
+  var bx = b.x + (rightward ? -b.cardW / 2 : b.cardW / 2)
+  var lo = Math.min(a.col, b.col)
+  var hi = Math.max(a.col, b.col)
+  var gapIdx = Math.floor((lo + hi) / 2)
+  var gx = colGeom[gapIdx].colX + (gapIdx === lo ? colGeom[gapIdx].colW + COL_GAP / 2 : -COL_GAP / 2)
+  var ay2 = a.y
+  var by2 = b.y
+  return { d: 'M ' + ax + ' ' + ay2 + ' L ' + gx + ' ' + ay2 + ' L ' + gx + ' ' + by2 + ' L ' + bx + ' ' + by2, kind: kind, lx: gx, ly: (ay2 + by2) / 2 }
+}
+
+/**
+ * radial hub-spoke 布局（v9.4）：度数最高节点居中，辐条上下环绕。
+ * 不画组底板（组语义弱化为卡上类型色）。
+ */
+function buildSceneSvgR(s, preset) {
+  var pmeta = PRESET_META[presetKey(preset)]
+  var usedTypes = []
+  var usedKinds = []
+  for (var t = 0; t < s.actors.length; t++) if (usedTypes.indexOf(s.actors[t].type) < 0) usedTypes.push(s.actors[t].type)
+  for (var g = 0; g < s.groups.length; g++) if (s.groups[g].color && usedTypes.indexOf(s.groups[g].color) < 0) usedTypes.push(s.groups[g].color)
+  for (var f = 0; f < s.flows.length; f++) if (usedKinds.indexOf(s.flows[f].kind) < 0) usedKinds.push(s.flows[f].kind)
+
+  var deg = {}
+  for (var i = 0; i < s.flows.length; i++) {
+    deg[s.flows[i].from] = (deg[s.flows[i].from] || 0) + 1
+    deg[s.flows[i].to] = (deg[s.flows[i].to] || 0) + 1
+  }
+  var hubIdx = 0
+  var maxDeg = -1
+  for (var a2 = 0; a2 < s.actors.length; a2++) {
+    var d2 = deg[s.actors[a2].id] || 0
+    if (d2 > maxDeg) { maxDeg = d2; hubIdx = a2 }
+  }
+  var others = []
+  for (var a3 = 0; a3 < s.actors.length; a3++) if (a3 !== hubIdx) others.push(a3)
+  var half = Math.ceil(others.length / 2)
+  var upWing = others.slice(0, half)
+  var downWing = others.slice(half)
+
+  var bodyTop = s.subtitle ? 72 : 64
+  var COLS = 3
+  var pos = {}
+
+  function layoutWing(wing, startY, bandTag) {
+    var cols = wing.length <= 2 ? wing.length : 3
+    var cardW2 = Math.floor((SAFE_W - (cols - 1) * 18) / cols)
+    var y = startY
+    for (var ri = 0; ri < Math.ceil(wing.length / cols); ri++) {
+      var rowH2 = 0
+      for (var ci = 0; ci < cols; ci++) {
+        var idx = ri * cols + ci
+        if (idx >= wing.length) break
+        var ch = cardHeightOf(s, { cardW: cardW2 }, wing[idx])
+        if (ch > rowH2) rowH2 = ch
+      }
+      for (var ci2 = 0; ci2 < cols; ci2++) {
+        var idx2 = ri * cols + ci2
+        if (idx2 >= wing.length) break
+        var actIdx = wing[idx2]
+        var cx = SAFE_L + ci2 * (cardW2 + 18)
+        var ch2 = cardHeightOf(s, { cardW: cardW2 }, actIdx)
+        pos[s.actors[actIdx].id] = { x: cx + cardW2 / 2, y: y + ch2 / 2, top: y, bottom: y + ch2, left: cx, right: cx + cardW2, col: ci2, row: ri, band: bandTag, cardW: cardW2, cardH: ch2 }
+      }
+      y += rowH2 + 22
+    }
+    return y - 22
+  }
+
+  var upBottom = upWing.length > 0 ? layoutWing(upWing, bodyTop, -1) : bodyTop
+  var hubW = Math.min(260, SAFE_W)
+  var hubH = cardHeightOf(s, { cardW: hubW }, hubIdx)
+  var hubY = upBottom + (upWing.length > 0 ? 60 : 14)
+  pos[s.actors[hubIdx].id] = { x: VB_W / 2, y: hubY + hubH / 2, top: hubY, bottom: hubY + hubH, left: (VB_W - hubW) / 2, right: (VB_W + hubW) / 2, col: 1, row: 0, band: -2, cardW: hubW, cardH: hubH }
+  var downStart = hubY + hubH + 60
+  var downBottom = downWing.length > 0 ? layoutWing(downWing, downStart, -3) : downStart
+  var H = downBottom + PAD_BOTTOM
+  var footerH = (s.footer.length > 0 && s.showFooter) ? (18 + s.footer.length * 19 + 16) : 0
+  var footY = H + (footerH > 0 ? 12 : 0)
+  H += (footerH > 0 ? 12 + footerH : 0) + PAD_BOTTOM
+
+  var o = []
+  o.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + VB_W + ' ' + Math.round(H) + '" width="' + VB_W + '" height="' + Math.round(H) + '" role="img" font-family="' + FONT_STACK + '">')
+  o.push('<title>' + escXml(s.title) + '</title>')
+  o.push('<desc>应用场景图（辐射）：' + s.actors.length + ' 个节点，' + s.flows.length + ' 条关系（v9.4 radial）</desc>')
+  o.push('<style>' + buildCssVars({ theme: s.theme, preset: preset }, usedTypes, usedKinds) + '</style>')
+  o.push('<rect x="0" y="0" width="100%" height="100%" style="fill:var(--dsh9-dp)"/>')
+  for (var mk = 0; mk < usedKinds.length; mk++) {
+    o.push('<defs><marker id="arrow-' + usedKinds[mk] + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" style="stroke:var(--dsh9-f-' + usedKinds[mk] + ')" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>')
+  }
+  var titleFit = fitScaled(s.title, SAFE_W, [18, 16, 15, 14])
+  o.push('<text x="' + SAFE_L + '" y="' + (titleFit.size >= 16 ? 36 : 38) + '" font-size="' + titleFit.size + '" font-weight="500" fill="var(--dsh9-di)">' + escXml(titleFit.text) + '</text>')
+  if (s.subtitle) o.push('<text x="' + SAFE_L + '" y="' + 56 + '" font-size="14" font-weight="400" fill="var(--dsh9-di2)">' + escXml(s.subtitle) + '</text>')
+  var hubId = s.actors[hubIdx].id
+  var upCount = 0
+  var dnCount = 0
+  for (var a4 = 0; a4 < others.length; a4++) {
+    if (upWing.indexOf(others[a4]) >= 0) upCount++
+    else dnCount++
+  }
+  var upUsed = 0
+  var dnUsed = 0
+  var flowShapes = []
+  for (var fi = 0; fi < s.flows.length; fi++) {
+    var fl = s.flows[fi]
+    var a = pos[fl.from]
+    var b = pos[fl.to]
+    if (!a || !b) continue
+    var isHub = fl.from === hubId || fl.to === hubId
+    if (isHub) {
+      var spoke = fl.from === hubId ? b : a
+      var hub = fl.from === hubId ? a : b
+      var hubEdge = spoke.y < hub.y ? hub.top : hub.bottom
+      var wIdx = others.indexOf(fl.from === hubId ? idxOf(s, fl.to) : idxOf(s, fl.from))
+      var wTotal = wIdx < half ? upCount : dnCount
+      var wUsed2 = wIdx < half ? upUsed++ : dnUsed++
+      var hx = hub.left + hub.cardW * (wUsed2 + 1) / (wTotal + 1)
+      var tx = spoke.x
+      var ty = spoke.y < hub.y ? spoke.bottom : spoke.top
+      flowShapes.push({ d: 'M ' + tx + ' ' + ty + ' L ' + hx + ' ' + hubEdge, kind: fl.kind, lx: (tx + hx) / 2, ly: (ty + hubEdge) / 2, label: fl.label })
+    } else {
+      var ay2 = a.y
+      var by2 = b.y
+      flowShapes.push({ d: 'M ' + a.x + ' ' + ay2 + ' L ' + b.x + ' ' + by2, kind: fl.kind, lx: (a.x + b.x) / 2, ly: (ay2 + by2) / 2, label: fl.label })
+    }
+  }
+  for (var si = 0; si < flowShapes.length; si++) {
+    var fs = flowShapes[si]
+    if (!fs) continue
+    var dashAttr = FLOW_KINDS[fs.kind].dash ? ' stroke-dasharray="' + FLOW_KINDS[fs.kind].dash + '"' : ''
+    o.push('<path d="' + fs.d + '" fill="none" style="stroke:var(--dsh9-f-' + fs.kind + ')" stroke-width="' + pmeta.edgeW + '" stroke-linejoin="round"' + dashAttr + ' marker-end="url(#arrow-' + fs.kind + ')"/>')
+  }
+  for (var bi = 0; bi < s.actors.length; bi++) {
+    var p = pos[s.actors[bi].id]
+    if (!p) continue
+    drawCard(o, s, bi, p, preset)
+  }
+  var chipOut = packChips(flowShapes.filter(function (c) { return c && c.label }), SAFE_L, SAFE_R)
+  for (var cj = 0; cj < chipOut.length; cj++) {
+    var ch3 = chipOut[cj]
+    o.push('<rect x="' + (ch3.lx - ch3.cw / 2) + '" y="' + (ch3.ly - 10) + '" width="' + ch3.cw + '" height="20" rx="5" style="fill:var(--dsh9-dp);stroke:var(--dsh9-f-' + ch3.kind + ')" stroke-width="0.5"/>')
+    o.push('<text x="' + ch3.lx + '" y="' + ch3.ly + '" font-size="12" font-weight="500" fill="var(--dsh9-f-' + ch3.kind + ')" text-anchor="middle" dominant-baseline="central">' + escXml(ch3.label) + '</text>')
+  }
+  if (footerH > 0) footerPush(o, s, footY)
+  o.push('</svg>')
+  return o.join('')
 }

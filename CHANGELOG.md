@@ -6,6 +6,94 @@
 
 ---
 
+## 2026-09-10 F13 修复 · 回收站删除「退出码误判」（跨 3 处生产代码）
+
+> 起因：W1 记录 F13 时把 `deregister-plugin --yes` 的失败归因为「genie-trash / 回收站通道失效」。
+> 本次以**对照实验实证推翻该归因**并定位真因。核心教训：**永远不要用 PowerShell 退出码判断回收站删除成败。**
+> 全过程、4 组诊断脚本与日志见 `_backups/f13-recycle-fix-20260910-165009/`。
+
+**根因（对照实验定案）**
+`[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile/DeleteDirectory(path,'OnlyErrorDialogs','SendToRecycleBin')`
+在本机**操作完全成功**（回收站枚举可见条目、原始路径可追溯恢复），但**事后仍抛 `FileNotFoundException`**
+（对已移走的源路径再做一次后置检查），因此 `powershell.exe` **退出码恒为 1**。
+补充实测：`try { … } catch { }` **也无效**——catch 为空时 `$?` 仍为 false，进程依旧以 1 退出
+（probe3 场景 4 之所以为 0，是因为其 catch 内有一条 `Write-Output` 成功语句）。
+
+| 实测场景 | 退出码 | 路径消失 | 真进回收站 |
+|---|---|---|---|
+| `DeleteFile`（裸调用） | 1 | ✅ | ✅ |
+| `DeleteDirectory`（空目录 / 含内容，裸调用） | 1 | ✅ | ✅ |
+| `DeleteDirectory`（`try/catch` 且 catch 内有语句） | 0 | ✅ | — |
+
+**受影响的 3 处生产代码（同一缺陷）**
+
+| 站点 | 原判据 | 后果 | 修复 |
+|---|---|---|---|
+| `patches/bundles/safe-delete-shim.cjs`（**运行时**） | `execFileSync` 非 0 退出即抛 | **每次删除**都误入 quarantine 分支、并向调用方回报虚假 `ENOENT`（文件其实已在回收站）；且白跑一次注定失败的 PowerShell | `execFileSync`→`spawnSync`（不读退出码）+ `lstat` 事实判据；对"本就缺失的路径"重新抛 `ENOENT` 以保持 stock 语义 |
+| `scripts/deregister-plugin.mjs` | `r.status === 0` | junction 已成功回收却报"删除失败" → exit 2（即 F13 现象） | `spawnSync` + `lstat` 事实判据 |
+| `scripts/ensure-recovery-profile.mjs` | `execFileSync` 非 0 退出即抛 | 超龄 safe-mode profile 已回收却报失败、`failed++`、返回 1 | `spawnSync` + `existsSync` 事实判据 |
+| `plugins/dsh-crashpad-hygiene/lib/index.js` | PS 内 `try/catch` + `Write-Output 'ok'/'fail'` | —（原本就正确，作为正确范式参照） | 无需改动 |
+
+**验证证据（全部本机实测）**
+- 语法：3 个改动文件 `node --check` **3/3 OK**
+- shim 行为：`unlinkSync` / `rmSync` **不再抛错** + 条目确入回收站 + `_quarantine` 为空
+- stock 语义回归：删**不存在**路径仍抛 `ENOENT`；`rmSync(不存在,{force:true})` 不抛；
+  **悬空 junction**（目标已删）能被干净移除且**不误抛 ENOENT**（存在性判定必须用 `lstat`——`existsSync` 对悬空 junction 返回 false，会假通过）
+- 兜底仍有效：`DSH_SAFE_DELETE_FAIL_RECYCLE=1` → 落 quarantine（`q=1`），**不永久删除**
+- **既有测试**：`tests/plugins/safe-delete-shim.test.mjs` **9/9**、`tests/plugins/deregister-plugin.test.mjs` **5/5**（其中 `--yes 清理 junction` 用例即 F13 回归守卫：改前失败、改后通过）
+- dist 同步：`apply-safe-delete-shim.mjs` 重打 → dist 与 source **字节一致**（15,217 B / `278dfb24…`）、asar 未重打包、`node --check` OK、**以 dist 文件实跑行为正确**
+- 补丁门禁：`verify-patches.ps1` **ALL PASS (49 checks)**；`verify-bundle-manifest.mjs` 校准后 **11/11 ok**
+- 全量单测：**9/10 通过**，唯一失败为既有 F14（隐性依赖，与本次无关）
+
+**⚠️ 生效条件**：shim 改动需**重启桌面应用**才生效（当前运行实例仍加载旧 shim）。本次**未**代为重启。
+**回滚**：`_backups/f13-recycle-fix-20260910-165009/`（3 处改动前源码 + dist 旧 shim + 全部诊断脚本与日志）。
+
+---
+
+## 2026-09-10 W1 治理止血（skill 治理 / 补丁基线 / 门禁反假成功）
+
+> 执行依据 `docs/DSH-CAPABILITY-AUDIT-AND-PLAN-2026-09-10.md` §6 W1。**全程未触碰插件 `lib/index.js` 与 dist，无需重启。**
+> 操作与错误全过程见 `_backups/w1-governance-20260910-152046/W1-OPERATION-LOG.md`（含 6 起事故复盘）。
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **W1-1 [x]** | **新建 `scripts/skill-inventory.mjs`**（只读盘点）：顶层 skill 数 / SKILL.md 完整性 / hub manifest 登记覆盖 / 嵌套污染 / 重叠组 / metadata 缺失 / body 超长；结果落台账 `~/.dsh/skills/.skill-inventory.json`，可重复运行。实测：**61 顶层、61 有 SKILL.md、manifest 仅登记 12、49 未登记、name≠dir 0** | 脚本 + 台账 | 纯新增，无需备份 |
+| **W1-2 [x]** | **清理 12 层嵌套副本链**：`~/.dsh/skills/test-generator/code-review/…`（10 个经 Move-Item 移出 + 2 个长路径残留经专用脚本清除），清理后 `nested=0`、顶层 61 完好 | 盘点复跑 nested=0 | `nested-copies/`(10) + `nested-copies-longpath/`(2) |
+| **W1-3 [x]** | **文档口径统一**：`CAPABILITY-REGISTRY.md` 加"实测 61、旧写 18 为时点数、查数以 `skill-inventory.mjs` 为准 + catalog 膨胀待确认"警示；`docs/README.md` 补录 2026-09-06 之后未收录的 9 篇权威文档（含升级执行计划/总纲/能力注册表/事故复盘/本次体检），"关键事实"新增"能力基数以实测为准"条目 | 两文件回读 | `CAPABILITY-REGISTRY.md` / `docs-README.md` |
+| **W1-4 [x]** | **`verify-patches.ps1` 消除假成功（4 处）**：① `$ErrorActionPreference` 由 `SilentlyContinue` → `Continue`（不再吞错）；② dist integrity 退出码在管道前捕获（修 PATCH-5 组合误报）；③ 始终输出校验项计数（防门禁静默缩水）；④ **新增前置断言**——`$unpacked` 未解析或 `$checks.Count < 40` 直接 FAIL | PSParser OK；正常路径 exit 0 ALL PASS(49)；**故障注入 A（环境）exit 5 正确报错、B（内容）exit 1 精确定位、C（回归）exit 0** | `verify-patches.ps1` |
+| **W1-5 [x]** | **补丁基线哈希校准**：MANIFEST 2 条 DRIFT（`settings-models` 135,041→135,397 B / `safe-delete-shim.cjs` 5,314→12,542 B，均有 CHANGELOG 对应合法更新）+ 1 处占位符时间戳 `18:5x` → 修为实际 mtime；**3 个 `.orig-*` 回滚基线实测完好** | `verify-bundle-manifest.mjs` 复查 **11/11 ok / 0 problem** | `MANIFEST.md` |
+| **W1-6 [x]** | **新建 `scripts/verify-bundle-manifest.mjs`**：对比 MANIFEST.md 与实际文件 SHA-256+大小，覆盖 bundle(5 列) 与 `.orig-*` 基线(4 列) 两种表形；`--fix` 原子重写、`--json` 机器可读。把"改补丁必须更新哈希"的手工纪律变成可重复校验 | 脚本 + 实跑 | 纯新增 |
+| **W1-7 [x]** | **新建 `scripts/cleanup-nested-skills.mjs`**：**默认 dry-run**，`--apply` 才执行；逐文件先备份再删 + 自底向上删空目录 + `\\?\` 长路径前缀 + 逐项 try/catch | dry-run 拦截了一起重大误删（见 F7） | 纯新增 |
+| **W1-8 [x]** | 两个新审计挂入 `check-all.ps1` **Step 1.9 / 1.10**（均为 advisory：默认 exit 0，`--strict` 才破门禁） | PSParser OK + 全链运行 | `check-all.ps1`（改动可由备份目录回滚） |
+
+**记录（F 系列 · 本次事故，供后续会话参考）**
+- **F6**：`Move-Item` 对**超长路径静默失败**——移动 12 层嵌套链只成功 10 层，命令返回成功但源目录仍在；链尾 233/246 字符。→ 长路径目录操作**必须事后复查**，不能信返回码。
+- **F7**：`cleanup-nested-skills.mjs` 首版起始深度传错（`findNested(root,1)` 应为 `0`），dry-run 把 61 个顶层 skill 全判为嵌套；**若直接 `--apply` 会删除整个 skill 库**。→ 破坏性脚本必须默认 dry-run，本次正是该设计拦下事故。
+- **F8**：**`verify-patches.ps1` 严重假成功（本次最重要发现）**——dist 解析失败时 `Join-Path $unpacked` 抛错 → `$checks` 为空 → 循环不执行 → `$fail=0` → 打印 **ALL PASS**。即 dist 未构建/损坏/node 不可用时门禁全绿。已加前置断言修复（见 W1-4 ④）。
+- **F9**：故障注入副本放在 `scripts/` 外会导致 `$PSScriptRoot` 错误、node 报 `Cannot find module`，**注入结果不可信**；内容故障副本必须放 `scripts/` 内。
+- **F10**：`safe-delete-shim` 对 `~/.dsh` 下任意 `Remove-Item` **fail-closed**（本次具体原因 `genie-trash failed; refusing fallback delete`）——写入正常、**删除被拦**，需用 `Move-Item` 移出。与 F5 同源（F5 表现为路径访问被拒）。
+  ⚠️ **2026-09-10 归因更正**：`genie-trash` **并非 DSH 自身机制**——全仓 grep 仅命中本次 CHANGELOG 与备份文档，它来自 **WorkBuddy 执行环境**的删除拦截。故 F10 是「执行环境拦截」而非 DSH 缺陷；真正被修的 DSH 侧问题是 F13（退出码误判）。
+- **F11**：node `readdirSync` 在长嵌套链上会中途静默失败（catch 吞掉），需加 `\\?\` 前缀；`catch { return }` 仍吞真实错误，登记为改进项。
+- **F12**：**DSH 运行期间不要跑完整 `check-all.ps1`**——默认 Step 4 `smoke-test.ps1` 会启动 DSH 桌面应用，实测挂起 12 分 44 秒未结束（且可能干扰运行中的实例）。改用 `check-all.ps1 -SkipSmoke`（脚本自带 `-SkipTests` / `-SkipSmoke`）；smoke 留到 DSH 关闭后单独跑。
+- **F13**：**回收站删除已实际阻断 `deregister-plugin`**——`check-all -SkipSmoke` Step 3 单测 `deregister-plugin --yes` 失败：`[执行] desktop: junction 回收站删除失败`，断言 `2 !== 0`。
+  ✅ **2026-09-10 已修复（真因见本文档上方 F13 章节）**：先前归因「与 F5/F10 同源、genie-trash 通道失效」**经实证推翻**——
+  真因是 `deregister-plugin.mjs` 用 PowerShell 退出码判成败，而回收站 API 成功时退出码仍为 1。同一缺陷共影响 3 处生产代码（含运行时 shim）。
+- **F14**：**隐性依赖**——`plugins/dsh-session-hygiene/lib/index.js` 引用 `@dsh-external/dsh-host-services`，但该插件 `package.json` **未声明此依赖**（QUAL-2 shared-utils 收敛时引入）。测试直跑 `ERR_MODULE_NOT_FOUND`；运行时靠 profile node_modules 向上解析碰巧可用。host-services 一旦卸载/清理，session-hygiene 即崩。建议补声明或内联 shared-utils。
+- **F15**：`check-all -SkipSmoke` 完整结果 = exit 1，其中**本次新增 Step 1.9 / 1.10 全绿**；2 项失败（F13/F14）均在 Step 3 单测，**与 W1 改动无关**（W1 未触碰 `plugins/` 与 `tests/`）。其余步骤：Step 1 语法 68/68、Step 1.5 SLO 10/10、Step 1.6 DANGLING=0、Step 1.8 lint TOTAL 146 PASS/0 FAIL、Step 2 补丁 49 checks ALL PASS、Step 2.5 diagram 15/15、Step 2.6 registry 无漂移。
+- **F16 · N5 实测定案（catalog 膨胀是真的）**：preset `standard` 定义在
+  `dist/.../node_modules/@deepseek-ai/dsh/config/agent-presets/standard/agent.cordis.yml:76-87`，
+  其中装配 `@deepseek-ai/dsh-tool-skill`，注释明写 **"gives them the catalog and loader"**
+  → **catalog 进入每次请求**（不是纯 skill_search 按需）。
+  实测 61 个 skill 的 `name + description` 合计 **7,337 字符**（平均 120 字符/个）——
+  **逼近本工作区实测过的 9KB 危险线（9KB catalog 曾使锚定率 81% → 0%）**。
+  结论：**61 个必须裁剪**，建议裁到 25-30 个（catalog ≈3.0-3.6KB 回到安全区）。此结论解锁决策 D1。
+
+**待用户决策（原 D1-D5 收敛后）**
+- D1′：preset `standard` 是 skill_search 按需还是 catalog 注入**未实测** → 决定 61 个 skill 是否触发 catalog 膨胀（工作区已实测 9KB catalog 使锚定率 81%→0%）。
+- N2：市场页"东西少"根因已定位——本地 hub ~70 个 skill 但选单只勾 12 个，且市场契约**无默认源**（`skill-catalog-contract.md:10`）、社区源仅 4 个。建议把本地 hub 生成 index 作为**本地源**接入市场页（离线可用 + 全部可登记）。
+
+---
+
 ## 2026-09-10 能力缺口与优化全景方案（方案稿，未执行改动）
 
 | 项 | 内容 | 证据 | 备份 |
@@ -56,6 +144,10 @@
 | **V9-8 [x]** | **连线路由/标签修复（host）**：`cardRowHOf` 索引 bug（取错索引→行高恒 0→沟槽 y 落在卡上→连线穿卡、标签被盖）→ layout 存 `L.rowHs` 每行真实卡高；chip 渲染移到卡片之后（永远在最上层可见） | `lib/scene-v2.js` rowGutterY2/chip 段；kernel→session 路径实测验证 | 同上 |
 | **V9-9 [x]** | **排版三轮调优（959→929→814→745px）**：间距收紧（bodyTop 104→72、BAND_GAP 44/54→24/30、ROW_GAP 40/48→22/26、zone pad 22→9、footerGap 40→12、PAD_BOTTOM 24→10）+ 字号整体上调（卡名 13→**15** fitScaled[15,14,13,12]、desc/连线标签 11→**12**、footer 12→**13**、标题 17→**18**、分组标签 11→12）——修复「空白太多/字体小/左右空白」（根因：图高触 MAX_H 缩放瓶颈→宽度没占满） | `lib/scene-v2.js`；三样例 959/306→**745/239**px | 同上 |
 | **V9-10 [x]** | **验收归档**：3 次重启 + 无头 Chrome 截图 light/dark 目检（modlens 视觉核验「文字未受重叠、裁切或压住影响」）+ 用户验收通过；验收产物 `diagrams/…-v9.3-验收-20260909-233029.svg`（680×745） | smoke ALL PASS ×3 轮 + preview-v93-light/dark.png | 同上 |
+| **V9-11 [x]** | **布局三向（scene 新参数 `layout`）**：`auto`（默认，引擎按拓扑推断）/ `vertical`（分层，现有默认兜底）/ `horizontal`（泳道：每组一列左→右推进、列间沟槽走线，适流程/管道）/ `radial`（辐射：度数最高节点 hub 居中、辐条上下环绕、直线辐射，适中心服务）；auto 推断规则：hub 度数占比 ≥75% → radial；组间前进连线 ≥60% → horizontal；其余 vertical | `lib/scene-v2.js` buildSceneSvgH/R + resolveLayout；v94-smoke 21 组合 ALL PASS | `_backups/diagram-v94-pre-20260910-161513/` |
+| **V9-12 [x]** | **四套视觉身份（scene 新参数 `preset`）**：`auto`（默认）/ `paper`（暖纸描边色条）/ `blueprint`（深蓝图纸底+双线框+mono 角标）/ `editorial`（米白无底卡+底部分隔线+序号）/ `signal`（冷白实底粗边高对比）；PRESETS 变量表（4 套×light/dark）+ PRESET_META（cardStyle/edgeW）；auto 按类型分布推断（cloud/data≥40%→blueprint；person/external≥50%→editorial；flows≥8→signal） | `lib/design.js` PRESETS/PRESET_META/buildCssVars；4 preset × vertical smoke OK | 同上 |
+| **V9-13 [x]** | **重构（可维护性）**：三布局共用 `drawCard`/`footerPush`/`packChips`（DRY，新增 preset 只需在 drawCard 加卡片形态分支）；`COL_GAP` 常量提取；`buildCssVars` 接受 preset 参数从 PRESETS 取色；index.js schema 透传 layout/preset | `lib/scene-v2.js` drawCard/footerPush/packChips；`lib/index.js` scene description | 同上 |
+| **V9-14 [x]** | **验收（v9.4）**：v94-smoke 21 组合 ALL PASS（vertical/horizontal/radial × paper/blueprint/editorial/signal，含 3 数据集）；Chrome 截图 4 张代表性组合 modlens OCR 通过（horizontal-signal 三泳道清晰 / radial-blueprint 8 卡完整 hub 居中 / vertical-paper 回归一致 / pipe-editorial 流程紧凑）；SKILL.md 更新（布局/视觉身份选型指引表 + layout/preset 参数说明）+ 用户级同步 | v94-smoke ALL PASS + 4 PNG + SKILL.md 已同步 | 同上 |
 
 ---
 

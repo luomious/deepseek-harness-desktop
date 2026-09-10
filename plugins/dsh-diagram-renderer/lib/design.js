@@ -193,15 +193,72 @@ export var THEMES = {
 }
 
 /**
+ * v9.4 视觉身份（preset）：同一几何契约下的四套表面语言。
+ * 类型色/流量色（SCENE_TYPES/FLOW_KINDS）全局共享，preset 只换：
+ * 底色系（paper/card/line/zone/ink*）+ 卡片形态（cardStyle）+ 线宽（edgeW）。
+ * 新增 preset = 在本表加一条 + 渲染层 cardStyle 分支，无需动布局。
+ */
+export var PRESETS = {
+  paper: {
+    light: THEMES.light,
+    dark: THEMES.dark
+  },
+  blueprint: {
+    light: {
+      paper: '#0B1E33', card: 'rgba(255,255,255,0.035)', line: 'rgba(148,190,220,0.35)',
+      zone: 'rgba(94,148,190,0.08)', ink: '#DCEAF5', ink2: '#8FB0C8', ink3: '#5E7E96'
+    },
+    dark: {
+      paper: '#081422', card: 'rgba(255,255,255,0.045)', line: 'rgba(148,190,220,0.28)',
+      zone: 'rgba(94,148,190,0.06)', ink: '#D5E4F0', ink2: '#8AA9C0', ink3: '#5A788E'
+    }
+  },
+  editorial: {
+    light: {
+      paper: '#FAF8F4', card: '#FAF8F4', line: '#D8D2C6',
+      zone: '#F2EEE6', ink: '#23201B', ink2: '#5C564C', ink3: '#98917F'
+    },
+    dark: {
+      paper: '#171512', card: '#171512', line: 'rgba(220,210,190,0.16)',
+      zone: '#1C1915', ink: '#E8E2D4', ink2: '#A39B88', ink3: '#6E675A'
+    }
+  },
+  signal: {
+    light: {
+      paper: '#F6F8FA', card: '#FFFFFF', line: '#C6CDD6',
+      zone: '#EEF1F5', ink: '#0F141A', ink2: '#3D4650', ink3: '#7A848F'
+    },
+    dark: {
+      paper: '#0C0F13', card: '#141920', line: 'rgba(210,225,240,0.18)',
+      zone: '#10151B', ink: '#EDF2F7', ink2: '#A8B4C0', ink3: '#6B7683'
+    }
+  }
+}
+
+/** preset 渲染元数据：卡片形态与连线宽（渲染层按 cardStyle 分支）。 */
+export var PRESET_META = {
+  paper:     { cardStyle: 'outline',   edgeW: 1.5  },
+  blueprint: { cardStyle: 'blueprint', edgeW: 1.25 },
+  editorial: { cardStyle: 'editorial', edgeW: 1.25 },
+  signal:    { cardStyle: 'solid',     edgeW: 2    }
+}
+
+/** 合法 preset key（未知回落 paper）。 */
+export function presetKey(p) {
+  return PRESETS[p] ? p : 'paper'
+}
+
+/**
  * 生成 SVG 内嵌 <style> 内容：css 变量（svg 作用域）+ 可选深色 media query。
  * 只输出用到的类型/流量变量，控制体积。
- * @param {{theme:'auto'|'light'|'dark'}} opts
+ * @param {{theme:'auto'|'light'|'dark', preset?:string}} opts
  * @param {string[]} usedTypes 实际用到的 type key
  * @param {string[]} usedKinds 实际用到的 flow kind
  */
 export function buildCssVars(opts, usedTypes, usedKinds) {
   var mode = (opts && opts.theme) === 'dark' ? 'dark'
     : (opts && opts.theme) === 'light' ? 'light' : 'auto'
+  var P = PRESETS[presetKey(opts && opts.preset)]
 
   function varBlock(T) {
     var v = '--dsh9-dp:' + T.paper + ';--dsh9-dc:' + T.card + ';--dsh9-dl:' + T.line + ';'
@@ -225,10 +282,10 @@ export function buildCssVars(opts, usedTypes, usedKinds) {
   }
 
   if (mode === 'auto') {
-    return varBlock(THEMES.light) +
-      '@media (prefers-color-scheme:dark){' + varBlock(THEMES.dark) + '}'
+    return varBlock(P.light) +
+      '@media (prefers-color-scheme:dark){' + varBlock(P.dark) + '}'
   }
-  return varBlock(THEMES[mode])
+  return varBlock(P[mode])
 }
 
 /** 快捷取主题无关的类型基色。 */

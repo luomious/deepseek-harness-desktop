@@ -73,6 +73,7 @@ generator: @dsh-external/dsh-project-brief
 ## 常见坑位（策展）
 
 - `run-all.js` 在沙箱内因 `spawnSync` 管道被 EPERM 全红，属环境限制，单独跑各测试文件为准。
+- **回收站删除不要看 PowerShell 退出码（2026-09-10 F13 定案）**：`[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile/DeleteDirectory(path,'OnlyErrorDialogs','SendToRecycleBin')` 在本机**成功移入回收站后仍会抛 `FileNotFoundException`**（对已移走的源路径做后置检查），故 `powershell.exe` **退出码恒为 1**；`try{…}catch{}` 也修不好——catch 为空时 `$?` 仍为 false，依旧退出 1。**判成败一律用文件系统事实判据**（`lstatSync` 消失＝成功；查 junction 残留须用 `lstat` 而非 `existsSync`，后者对悬空 junction 返回 false 会假通过），并改用 `spawnSync` 而非 `execFileSync`（后者非 0 退出即抛）。本仓 3 处已按此修：`patches/bundles/safe-delete-shim.cjs`（SELF-2c）、`scripts/deregister-plugin.mjs`、`scripts/ensure-recovery-profile.mjs`；`plugins/dsh-crashpad-hygiene` 的"PS 内 try/catch + `Write-Output`"写法是正确范式。详见 `_backups/f13-recycle-fix-20260910-165009/F13-OPERATION-LOG.md`。
 - **打包壳下 `shell` 工具曾静默假成功（2026-08-25 定案，补丁 #15；2026-08-26 重启后实测生效）**：根因 = `dsh-sandbox-local` 的 windows-acl 运行器把 `process.execPath`（打包后=应用 exe）当 node 用，每次 `shell` 调用拉起重复实例被守卫劝退（退出码 0 但命令未执行）。修复已登记 `apply-winhide-patches.mjs`（marker `nodeForWindowsAclRunner`），验证：`Write-Output` 有真实输出。**重建会覆盖该补丁 → 重建后跑 `verify-patches.ps1`（第 15 项）校验/重打。**
 
 
