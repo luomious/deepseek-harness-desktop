@@ -22,7 +22,8 @@
 import { statfsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils'
+// Relative path on purpose (not a bare specifier): see scripts/verify-plugin-imports.mjs (F14).
+import { registerRouteWithRetry } from '../../dsh-host-services/lib/shared-utils.js'
 
 export const name = '@dsh-external/dsh-health-dashboard'
 
