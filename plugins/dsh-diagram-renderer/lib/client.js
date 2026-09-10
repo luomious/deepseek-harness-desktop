@@ -1469,7 +1469,7 @@ function StageViewer(props) {
         }, title || 'Diagram'),
         actionMsg
           ? React.createElement('span', { style: { fontSize: '11px', color: P.ok, whiteSpace: 'nowrap', flex: 'none' } }, actionMsg)
-          : React.createElement('span', { style: { fontSize: '11px', color: P.ink3, whiteSpace: 'nowrap', flex: 'none' } }, '自适应'),
+          : React.createElement('button', { type: 'button', onClick: function () { flash('✓ 视图已适配') }, style: { fontSize: '11px', color: P.ink3, whiteSpace: 'nowrap', flex: 'none', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0, fontFamily: 'inherit' } }, '自适应'),
         iconButton('\u26f6', '全屏查看（矢量细读）', toggleFull),
         React.createElement('button', {
           type: 'button',
@@ -1496,7 +1496,7 @@ function StageViewer(props) {
       return React.createElement('div', {
         style: {
           position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
-          margin: '6px -80px 6px -80px', width: 'calc(100% + 160px)', maxWidth: 'calc(100vw - 32px)',
+          margin: '6px -100px 6px -100px', width: 'calc(100% + 200px)', maxWidth: 'calc(100vw - 32px)',
           background: P.card, overflow: 'hidden',
           boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
         }
