@@ -38,6 +38,7 @@
 - F2：PowerShell 控制台显示 UTF-8 中文为 `�?`（GBK 控制台），不影响脚本正确性；后续验证输出以文件为准。
 - F6：PowerShell 5.1 经 `-Command` 传参时中文/引号/`\n` 转义不可靠（`.Contains('阅读指南')` 对 UTF-8 文件返回 False、`node -e` 脚本被吃引号）——**涉及中文/多行内容的验证一律用 node 原生或写文件后由 node 读**，不用 PowerShell 内联字符串比较。
 - F3：内核契约支持扁平 `<name>.md` 形态（dsh-skill-filesystem 契约），当前 4 根实测 0 个，lint 只扫 `<name>/SKILL.md`；未来若引入扁平形态需补扫描。
+- F7：git push 走本机 127.0.0.1:7897 代理报 `TLS connect error: unexpected eof`（重试无效），**直连可推**（`git -c http.proxy= -c https.proxy= push`，一次性参数不改全局配置）——代理对 github TLS 握手有问题，推送受阻时先试直连。
 
 ---
 
