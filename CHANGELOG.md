@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-09-10 ZR-02 修复 · command-guard v1 审计失效（session/event → tools/result 迁移）
+
+> 同类平台限制修复：`session/event` 对 `@dsh-external/*` 插件不可用（ZR-01 实测发现），
+> 导致 command-guard 的 v1 高危命令审计日志（alerts.jsonl）自上线以来从未产出（3 次启动零告警交叉验证）。
+> 本次把 v1 审计监听从 `session/event` 切到 `dsh-tools` 流水线的 `tools/result` 观察事件（已验证对自定义插件可用），
+> **v2 `tools/pre-execute` 拦截逻辑完全不动**。
+
+**验证**：`node --check` OK；冒烟测试 7/7 PASS（高危 rm -rf → high 记录、中危 force push → medium 记录、低危/非命令工具跳过、JSONL 落盘）。
+**生效**：需重启（热重载 `ctx.loader.internal` 不可用，junction 指向源目录自动加载）。回滚 = git 还原 `plugins/dsh-command-guard/lib/index.js`。
+
+---
+
 ## 2026-09-10 ZR-01 · 零风险改进四件套（代码安全 / 工具审计 / 临时追踪 / 健康仪表盘）
 
 > 基于 Hermes Agent CN Desktop 分析筛选的 4 个**零风险**改进（详见 `docs/ZERO-RISK-IMPROVEMENTS-PLAN.md`）。

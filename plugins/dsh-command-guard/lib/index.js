@@ -3,9 +3,10 @@
  *
  * Command risk detection (P2-A-5 of the DSH upgrade plan v3).
  *
- * v1: read-only observer. Listens to `tool/call` on the kernel
- * `session/event` bus, extracts the command from shell/exec-like tools, scores
- * it with the inline `risk-rules`, and:
+ * v1: read-only observer. Listens to `tools/result` on the dsh-tools
+ * execution pipeline (2026-09-10 migrated from `session/event` — that bus is
+ * unavailable to @dsh-external plugins), extracts the command from shell/exec-like
+ * tools, scores it with the inline `risk-rules`, and:
  *   - keeps a bounded ring of alerts (high/medium only),
  *   - appends alerts to a JSONL log (`~/.dsh/command-guard/alerts.jsonl`, 1MB rotated),
  *   - exposes two loopback routes:
@@ -14,7 +15,7 @@
  *
  * v2: registers `tools/pre-execute` waterfall to gate high-risk commands through
  * `approval.request` BEFORE execution (fail-closed: no approval service = deny).
- * v1 session/event listener retained as audit trail.
+ * v1 tools/result listener retained as audit trail.
  *
  * Design rules (identical to dsh-tool-visibility):
  *   1. Read-only observer; never mutates sessions/agents/events.
@@ -195,21 +196,22 @@ export function apply(ctx, rawConfig) {
     })
   } catch (e) { safeWarn(`pre-execute handler failed: ${String(e)}`) }
 
-  // ── v1 审计：session/event 监听（保留为审计日志） ──────────
-  const onEvent = (subject, event) => {
+  // ── v1 审计：tools/result 监听（审计日志；2026-09-10 从 session/event 迁移） ──
+  // 平台限制实测：session/event 对 @dsh-external 插件不可用（sessions emitCtx 分发链
+  // 不含 loader fiber ctx，3 次启动零告警交叉验证），tools/result 为 dsh-tools 流水线
+  // 观察事件（exec, result）=> undefined，对 @dsh-external 已验证可用。
+  const onEvent = (exec, result) => {
     try {
-      if (event?.type !== 'tool/call') return
-      const data = event?.data
-      const toolName = data?.name ?? ''
+      const toolName = exec?.name ?? ''
       // 只评估命令执行类工具
       const isCommandTool = /(?:shell|exec|terminal|bash|pwsh|command)/i.test(toolName)
-      const command = extractCommand(data?.arguments ?? data)
+      const command = extractCommand(exec?.arguments)
       if (!isCommandTool || command === null) return
       const { level, reasons } = scoreCommand(command, { allowlist: config.allowlist })
       if (level === 'low') return
       const record = {
         ts: Date.now(),
-        callId: data?.callId ?? null,
+        callId: exec?.callId ?? null,
         toolName,
         level,
         reasons,
@@ -222,7 +224,7 @@ export function apply(ctx, rawConfig) {
       safeLog(`[${level}] ${toolName}: ${reasons.join('; ')}`)
     } catch { /* drop silently */ }
   }
-  try { ctx.on('session/event', onEvent) } catch (e) { safeWarn(`subscribe failed: ${String(e)}`) }
+  try { ctx.on('tools/result', onEvent) } catch (e) { safeWarn(`subscribe failed: ${String(e)}`) }
 
   // ── 路由（惰性 + 退避） ────────────────────────────────
   let routeRegistered = false
