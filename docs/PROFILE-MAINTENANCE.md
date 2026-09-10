@@ -28,7 +28,7 @@
 |---|---|---|
 | **startup-verify** | `node scripts/startup-verify.mjs` | 10 项启动预检：V1 bundle 可解析、V2 模板==运行时、V3 补丁、**V4 无孤儿 @dsh-external**、V5 dist junction、V6 核心文件、V8 补丁锚点、V9 插件语法、V10 bundle patch 声明。`--repair` 自动清悬空引用（先备份两份）；`--yes` 才删孤儿 junction |
 | **scan-dangling** | `node scripts/scan-dangling.mjs` | 跨 profile 只读扫描：**DANGLING**（启动风险）/ STALE-DECL / ORPHAN / NOT-INSTALLED / INFO。`--strict` 有 DANGLING 才退出 1；`--plan` 输出修复预演（只读不执行）；`--json` 机器可读 |
-| **check-all** | `powershell -File scripts\check-all.ps1` | 一键全检（Step 1.5 含 startup-verify / SLO 健康记录、**Step 1.6 scan-dangling --strict**、Step 2 verify-patches 23 项…）。`-SkipSmoke -SkipTests` 跳过重步骤 |
+| **check-all** | `powershell -File scripts\check-all.ps1` | 一键全检（Step 1.5 含 startup-verify / SLO 健康记录、**Step 1.6 scan-dangling --strict**、**Step 1.8 lint-skills 门禁**、Step 2 verify-patches 23 项…）。`-SkipSmoke -SkipTests` 跳过重步骤 |
 | **dsh-maintenance** | `powershell -File scripts\dsh-maintenance.ps1` | 离线兜底：zombie 清理 / 大会话告警 / 陈旧锁 / 补丁健康 / **第 6 段 profile 悬空只读扫描** |
 
 巡检判定：`scan-dangling --strict` 输出 `DANGLING=0 STALE-DECL=0 ORPHAN=0` 即为干净；

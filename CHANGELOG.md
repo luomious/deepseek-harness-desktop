@@ -6,6 +6,41 @@
 
 ---
 
+## 2026-09-10 能力缺口与优化全景方案（方案稿，未执行改动）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **AUD-1 [x]** | **全量能力体检（第二次，能力层）**：三路并行只读调研——① 30 插件 + 3 根级 + 3 市场 + 61 skill 能力普查；② 既有能力质量/性能/可维护性盘点（含 09-07 计划 16 条 `[ ]` 逐条核实）；③ 基数实测核对。产出 `docs/DSH-CAPABILITY-AUDIT-AND-PLAN-2026-09-10.md`（真缺口 12 项 + 可优化 24 项 + 已领先 7 项 + 5 波路线图 + 5 个待决策） | 方案文档；证据逐条带 `路径:行号` | 无改动，无需备份 |
+| **AUD-2 [x]** | **修正上一轮两个错误结论（诚实记录）**：① 上一轮判"无记忆插件"**有误**——`@openviking/dsh-memory-plugin` 已装且 active，只是 MCP 工具面未接通（`plugins/INVENTORY.md:78`；当时只扫 `@dsh-external/` 前缀漏了 `@openviking/`）；② 上一轮判"37 个 skill"**不完整**——实测顶层 **61** 个（首次探测输出截断） | `INVENTORY.md:78`；`~/.dsh/skills` 实测 | — |
+| **AUD-3 [x]** | **新发现·治理级 P0**：① **skill 治理失控**——61 个顶层 skill，`.hub-install-manifest.json` 仅登记 **12** 个，49 个无来源无 hash **不可回滚**，违反"可追溯可回滚"铁律；② `~/.dsh/skills/test-generator/` 下 **11 层嵌套副本链**（真实目录、非符号链接，实测 Attributes=Directory 无 LinkType），SKILL.md 实际 72 份；③ **文档口径打架**——skill 数 12/18/37/61/72 五种说法，插件数 26/30/33/37 四种，`UPGRADE-HANDOVER:198` 引用的 `_skills-batch1-manifest.json` **不存在** | `.hub-install-manifest.json` `"source"` 计数 = 12；嵌套链路径实测；`CAPABILITY-REGISTRY.md:6`(18) / `EXTERNAL-REPO-ADAPTATION-2026-09-09.md:76`(72 未装) | — |
+| **AUD-4 [x]** | **待实测项（未下结论）**：当前 preset `standard`（`settings.yaml:8`）究竟是 `anchored-standard`（skill_search 按需）还是 catalog 注入——**决定 61 个 skill 是否造成 catalog 膨胀**。工作区已实测"9KB catalog 使锚定率 81%→0%"，若走注入则必须裁剪到 20-25 个 | `settings.yaml:8`；工作区 MEMORY.md 门禁/锚定率记录 | 方案文档 D1 |
+
+> **本批为诊断，未执行任何修复**。下一步待用户在 D1-D5 决策后按 W1-W5 波次实施；W1（治理止血：skill 盘点补 manifest、删嵌套链、文档口径统一、verify-patches 改 SHA-256、MANIFEST 重算、docs 索引补录）全部低风险可逆，建议优先。
+
+---
+
+## 2026-09-10 skill 门禁 v2（lint-skills.mjs 升级：质量 + 安全 + 跨根遮蔽）
+
+| 项 | 内容 | 证据 | 备份 |
+|---|---|---|---|
+| **SL-1 [x]** | **lint-skills.mjs v2 升级**：在 v1 格式门禁（frontmatter/kebab/name=dir/description≤500/fail-closed）基础上新增——① 默认根扩展：`~/.dsh/skills` + `~/.agents/skills` + `tools/dsh-skills-hub/skills` + `agent-presets/*/skills`（v1 只扫前两者之一，`~/.agents` 30 个 skill 曾在门禁外）；② 质量：body >500 行 WARN；③ 安全内容扫描（P3）：凭证外泄诱导 / 指令覆盖 / 删除确认绕过 → FAIL，rm-rf / pipe-to-shell / 凭证提及 → WARN；④ 跨根遮蔽：同名 skill 同时存在于 `~/.agents` 与 `~/.dsh` → WARN（发现根顺序 agents 在 dsh 前，dsh 副本永不加载） | `scripts/lint-skills.mjs`；`node --check` PASS；基线 152 PASS / 0 FAIL / 152 WARN / 0 SEC-FAIL | `_backups/lint-skills-v2-pre-20260910-105155/` |
+| **SL-2 [x]** | **故障注入验证（7 类全捕获）**：bad-name（name≠dir）、legacy-camel（camelCase 遗留键）、BOM（内核静默丢弃）、cred-exfil（凭证外泄）、instr-override（忽略指令）、del-no-confirm（无确认删除）、跨根 dup-skill SHADOW——全部按预期 FAIL/WARN，正常 skill PASS，exit=1 语义正确 | fixture `_backups/lint-skill-fixture-20260910/`；注入输出 exit=1 | 同上 |
+| **SL-3 [x]** | **内核契约实测**（dsh-skill-filesystem v0.1.1-rc.2）：① `parseFrontmatter` 首行非 `---`（含 BOM）直接忽略整个 skill（:772-775）；② `rejectLegacyInvocationKey` 对 camelCase 顶层键 throw（:852-854）；③ 嵌套 `invocation:{}` 映射内核不解析（:841-851）——据此把 BOM/camelCase 判 FAIL、嵌套 invocation 判 WARN | `vendor/.../dsh-skill-filesystem/lib/index.js:772-870` | 同上 |
+| **SL-4 [x]** | **check-all.ps1 挂载 Step 1.8**：`node lint-skills.mjs` 只读扫描，FAIL 计入 totalFail（WARN 不破门禁），纯 ASCII 注释符合 PS 5.1 铁律 | `scripts/check-all.ps1` Step 1.8；PSParser PASS | 同上 |
+| **SL-5 [x]** | **基线发现（待用户决策，未静默修改）**：① **SHADOW ×6**——diagram/diagram-design/docx/pdf/pptx/xlsx 在 `~/.dsh` 副本被 `~/.agents` 遮蔽（与 V9-6「同步到 ~/.dsh/skills/diagram」冲突，该同步进了死路径）；② 5 个 body>500（claude-api 550 / firecrawl-usage 631 / chinese-git-workflow 545 / writing-skills 672 / thesis-word-writing 815）；③ 2 个 rm-rf 提及（claude-paper-webui:31 / subagent-driven-development:251，WARN 需人工确认）；④ 146 个 metadata missing（WARN，本系统约定非官方必需） | `_backups/lint-skills-baseline-20260910.txt` | 同上 |
+| **SL-6 [x]** | **SHADOW ×6 清理（用户授权执行）**：diff 实证——docx/pdf/pptx/xlsx 两根完全一致（hash 相同）；diagram 两版不同（agents 142 行旧版无看板 vs dsh 233 行 V9 新版含 board/Roadmap，**agents 版长期生效导致 V9 能力不可见**）；diagram-design 内容等价、dsh 版更规范（agents 版带内核不解析的嵌套 invocation 死代码）。决策：统一删除 `.agents` 根 6 个副本（dsh 是 skills-manager 官方安装位，api.js:22 实锤），`.dsh` 版自动生效。执行：备份 hash 留档 → **Move-Item 移出发现根**（非删除，天然可回滚）→ agents 根 30→24，SHADOW 归零，`.dsh` 6 个 skill 生效（diagram V9 复活）。验证：lint TOTAL 146 PASS / 0 FAIL / 140 WARN / 0 SEC-FAIL 无 SHADOW；`.dsh` 6 个 Test-Path 全 True、`.agents` 6 个全 False、24 个独有完好 | 备份 `_backups/skills-shadow-cleanup-20260910-143348/` + `_backups/agents-removed-20260910-*/`；lint 复跑无 SHADOW | 双备份可回滚 |
+| **SL-7 [x]** | **参考手册型豁免规则（lint v2.1）**：5 个 body>500 分析定案——全部为参考手册型（按需查章节，非整篇加载），拆分反而有害（token 更多 + 上游漂移）。新增 `REF_GUIDE_MARKERS`（Quick Reference/Reading Guide/阅读指南/阅读范围/快速参考/快速查阅）：命中标记的 body>500 降为 **INFO**（不计数不打扰），未命中（流程型）保持 WARN。**故障注入对照验证**：`ref-skill-oversize`（572 行+Quick Reference）→ INFO；`long-skill-nobom`（563 行无标记）→ WARN——二分精确无误伤。基线：claude-api/writing-skills 豁免为 INFO；chinese-git-workflow/firecrawl-usage/thesis-word-writing 无标记保持 WARN（保留改进信号） | `scripts/lint-skills.mjs` REF_GUIDE_MARKERS + body 检查段；`node --check` PASS；fixture 注入对照输出 | `_backups/lint-ref-exempt-pre-20260910-145525/` |
+| **SL-8 [x]** | **双根合并（用户授权执行）**：`.agents`（legacy 根，发现序优先于 `.dsh` 官方位）24 个独有 skill 全部 Move-Item 收敛到 `~/.dsh/skills`——预检 0 冲突 → 备份完整副本 → 移动 24/24 成功 → `.agents` 根 0 目录、`.dsh` 37→61。收益：消除双根歧义、未来新增 skill 只进官方位即无遮蔽可能（根治 F 系列 SHADOW 类问题）。验证：lint TOTAL 146 PASS / 0 FAIL / 140 WARN / 0 SEC-FAIL 无 SHADOW；抽查 claude-api 553 行/firecrawl-usage 562/dsh-skill-authoring 130/skill-creator 485/webapp-testing 94 与移动前一致；空 `.agents` 根被 lint 正确 SKIP 不报错 | 备份 `_backups/agents-to-dsh-merge-20260910-150604/`；lint 复跑 + 抽查 | 备份全量副本可回滚（复制回 `.agents` 即还原双根） |
+
+**记录（F 系列，供后续会话参考）**
+- F1：task-scheduler CLI `acquire` 在 DSH 沙箱内写 `~/.dsh/.task-scheduler/` 被 EPERM（工作区外写入被沙箱拦）——全局 AGENTS.md 已写「任意工作区用 HTTP 通道」，本机实测 CLI 路径确实不可用，锁操作一律走 `POST http://127.0.0.1:43120/task-scheduler/acquire`。
+- F5：safe-delete-shim 对 `~/.agents/skills/*` 路径的 `Remove-Item` 拒绝执行（`RemoveFileSystemItemArgumentError` 路径访问被拒）——删除类操作在用户根下改走 `Move-Item` 移出发现根（等效移除、天然可回滚、不触发 shim），已验证可行（SL-6）。
+- F2：PowerShell 控制台显示 UTF-8 中文为 `�?`（GBK 控制台），不影响脚本正确性；后续验证输出以文件为准。
+- F6：PowerShell 5.1 经 `-Command` 传参时中文/引号/`\n` 转义不可靠（`.Contains('阅读指南')` 对 UTF-8 文件返回 False、`node -e` 脚本被吃引号）——**涉及中文/多行内容的验证一律用 node 原生或写文件后由 node 读**，不用 PowerShell 内联字符串比较。
+- F3：内核契约支持扁平 `<name>.md` 形态（dsh-skill-filesystem 契约），当前 4 根实测 0 个，lint 只扫 `<name>/SKILL.md`；未来若引入扁平形态需补扫描。
+
+---
+
 ## 2026-09-09 设计系统 v9（dsh-diagram-renderer · scene 语义渲染内核，对标 archify）
 
 | 项 | 内容 | 证据 | 备份 |

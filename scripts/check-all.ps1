@@ -110,6 +110,25 @@ if (Test-Path $updateWatch) {
   Write-Host '  SKIP  update-watch.mjs not found' -ForegroundColor Yellow
 }
 
+# ---- Step 1.8: lint-skills.mjs (skill format/quality/security gate) ----
+# Scans all skill discovery roots (~/.dsh/skills, ~/.agents/skills, tools/dsh-skills-hub/skills,
+# agent-presets/*/skills) for frontmatter contract, size, security patterns, and cross-root shadowing.
+# Exits 1 on FAIL (WARN does not fail the gate). Read-only scan.
+Write-Host ''
+Write-Host '=== Step 1.8: lint-skills.mjs (skill quality + security gate) ===' -ForegroundColor Cyan
+$lintSkills = Join-Path $PSScriptRoot 'lint-skills.mjs'
+if (Test-Path $lintSkills) {
+  & node $lintSkills
+  $lintCode = $LASTEXITCODE
+  if ($lintCode -ne 0) {
+    Write-Host ('  FAIL  lint-skills exited with code ' + $lintCode) -ForegroundColor Red
+    Write-Host '  HINT  WARN entries are advisory only; FAIL entries break the gate' -ForegroundColor Yellow
+    $totalFail += $lintCode
+  }
+} else {
+  Write-Host '  SKIP  lint-skills.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan
