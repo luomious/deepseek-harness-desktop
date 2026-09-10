@@ -190,18 +190,34 @@ function resolveLayout(s) {
   // 防御：节点过少没有拓扑信号
   if (s.actors.length < 4 || s.actors.length > 11) return 'vertical'
   var bands = buildBands(s)
-  // ① hub 检测：某节点度数占连线总数比例高 → 辐射
+    // ① hub 检测：某节点度数占连线总数比例高 且 连接方向一致（≥60% 同向）→ 辐射
   var deg = {}
+  var inDeg = {}
+  var outDeg = {}
   var total = 0
   for (var i = 0; i < s.flows.length; i++) {
     var f = s.flows[i]
     deg[f.from] = (deg[f.from] || 0) + 1
     deg[f.to] = (deg[f.to] || 0) + 1
+    outDeg[f.from] = (outDeg[f.from] || 0) + 1
+    inDeg[f.to] = (inDeg[f.to] || 0) + 1
     total++
   }
   var maxDeg = 0
   for (var k in deg) if (deg[k] > maxDeg) maxDeg = deg[k]
-  if (total >= 4 && maxDeg >= Math.max(4, Math.ceil(total * 0.75))) return 'radial'
+  if (total >= 4 && maxDeg >= Math.max(4, Math.ceil(total * 0.75))) {
+    // 找到度数最高节点，检查方向一致性
+    var hubId2 = ''
+    for (var hi = 0; hi < s.actors.length; hi++) {
+      if ((deg[s.actors[hi].id] || 0) === maxDeg) { hubId2 = s.actors[hi].id; break }
+    }
+    var hOut = outDeg[hubId2] || 0
+    var hIn = inDeg[hubId2] || 0
+    var hTotal = hOut + hIn
+    // 只有 hub 连接方向一致（≥60% 是入度或出度）时才选 radial
+    // 否则 hub 是双向中转（如 DSH 内核），更适合分层 vertical
+    if (hTotal >= 3 && (hOut / hTotal >= 0.6 || hIn / hTotal >= 0.6)) return 'radial'
+  }
   // ② 水平推进检测：组间连线中「向前一列」占比 ≥60% 且组数 ≤4 → 泳道
   if (bands.length >= 2 && bands.length <= 4 && total >= 3) {
     var fwd = 0
