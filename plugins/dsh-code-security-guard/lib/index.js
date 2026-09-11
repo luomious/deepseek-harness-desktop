@@ -189,9 +189,12 @@ export function apply(ctx, rawConfig) {
       appendAlert(record)
       safeLog(`[${toolName}] ${filePath || '(no path)'}: ${reasons.join('; ')}`)
 
-      // 在工具结果上追加警告（非阻塞 accept + content 替换）
+      // 在工具结果上追加警告（非阻塞 accept + content 替换）。
+      // 防御：content 非数组时不动原结果（write/edit/patch 的 content 恒为数组，
+      // 但保持健壮，避免罕见形态下丢失原 value/error）。
+      if (!Array.isArray(result?.content)) return next()
       const warningText = `⚠️ 代码安全提醒：写入${filePath ? ` \`${filePath}\`` : '内容'}检测到危险模式——${reasons.join('；')}。如为可信场景（安全演示/测试用例/注释）可忽略。`
-      const content = Array.isArray(result?.content) ? [...result.content] : []
+      const content = [...result.content]
       content.push({ type: 'text', text: warningText })
       return { kind: 'accept', content }
     } catch {

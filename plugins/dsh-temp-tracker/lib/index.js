@@ -69,12 +69,14 @@ export function guessCategory(path) {
   }
 }
 
-/** 从 exec.arguments 提取文件路径（write 的 file_path/path 字段）。 */
+/** 从 exec.arguments 提取文件路径（write 的 file_path/path 字段）。
+ *  与 dsh-code-security-guard 同款：兼容 `{ arguments: {...} }` 嵌套形态。 */
 export function extractFilePath(args) {
   try {
     if (!args || typeof args !== 'object') return ''
-    return typeof args.file_path === 'string' ? args.file_path
-      : typeof args.path === 'string' ? args.path : ''
+    const inner = args.arguments && typeof args.arguments === 'object' ? args.arguments : args
+    return typeof inner.file_path === 'string' ? inner.file_path
+      : typeof inner.path === 'string' ? inner.path : ''
   } catch { return '' }
 }
 
