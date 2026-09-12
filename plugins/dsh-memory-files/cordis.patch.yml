@@ -1,0 +1,8 @@
+# dsh-memory-files — 装配补丁（bundle 形态）
+#
+# 与 dsh-host-services / dsh-session-hygiene 同形：单一 insert，把插件包名挂进
+# 宿主 profile 的 cordis 配置。刻意不在此处传 config —— 默认值已经可用，
+# 少一个可写错的字段就少一条启动失败路径（配置可经 apply(ctx, rawConfig) 注入）。
+- insert:
+    - id: dsh-memory-files
+      name: '@dsh-external/dsh-memory-files'

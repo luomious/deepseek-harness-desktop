@@ -1,0 +1,20 @@
+{
+  "name": "@dsh-external/dsh-memory-files",
+  "version": "0.1.0",
+  "description": "G1 文件型长期记忆：会话构建系统提示词时，把磁盘上的长期记忆文件作为只读上下文注入（零依赖 / 纯只读 / 缺文件即跳过 / 有字符预算 / 自带 /health 探测）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}
