@@ -106,3 +106,23 @@ export function registerRouteWithRetry(ctx, opts) {
 
   return false;
 }
+
+/**
+ * isLoopback — 本机回环请求校验（remoteAddress + Host 双重校验）。
+ *
+ * 从 dsh-session-hygiene 与 dsh-crashpad-hygiene 的逐字节等价实现中提取
+ * （2026-09-12 O16 收敛）。行为不变：remoteAddress 必须是 loopback，且 Host
+ * header 解析出的 hostname 也必须是 loopback 形式，任一不满足即拒绝。
+ *
+ * @param {object} req - http 请求对象（读取 socket.remoteAddress 与 headers.host）
+ * @returns {boolean}
+ */
+export function isLoopback(req) {
+  try {
+    const addr = req?.socket?.remoteAddress;
+    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false;
+    const hostname = new URL(`http://${String(req?.headers?.host ?? '')}`).hostname;
+    if (!['127.0.0.1', 'localhost', '[::1]', '::1'].includes(hostname)) return false;
+    return true;
+  } catch { return false; }
+}

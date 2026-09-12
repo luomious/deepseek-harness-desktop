@@ -31,6 +31,8 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+// Relative path on purpose (not a bare specifier): see scripts/verify-plugin-imports.mjs (F14).
+import { isLoopback } from '../../dsh-host-services/lib/shared-utils.js';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复模式，同 dsh-session-hygiene）。
@@ -298,16 +300,6 @@ function jsonResponse(res, code, body) {
   const payload = JSON.stringify(body);
   res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(payload);
-}
-
-function isLoopback(req) {
-  try {
-    const addr = req?.socket?.remoteAddress;
-    if (addr !== '127.0.0.1' && addr !== '::1' && addr !== '::ffff:127.0.0.1') return false;
-    const hostname = new URL(`http://${String(req?.headers?.host ?? '')}`).hostname;
-    if (!['127.0.0.1', 'localhost', '[::1]', '::1'].includes(hostname)) return false;
-    return true;
-  } catch { return false; }
 }
 
 function createReportHandler(getReport, getStats) {
