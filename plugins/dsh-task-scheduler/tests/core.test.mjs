@@ -1,11 +1,31 @@
 // plugins/dsh-task-scheduler/tests/core.test.mjs — core 引擎并发/接管/stale/时间线测试（隔离目录）
 // 用法: node plugins/dsh-task-scheduler/tests/core.test.mjs
+//   或: node --test plugins/dsh-task-scheduler/tests/core.test.mjs（门禁 check-all Step 3 用的方式）
 //   自动用 $env:TEMP/ts-test-<ts> 隔离存储，不污染真实 ~/.dsh/.task-scheduler
+// 框架说明：本文件用**自定义断言**（check() + 计数器 + process.exit），不是 node:test。
+//   node --test 会把「整个文件」当作 1 个用例，按退出码判定（fail>0 → exit 1）。
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { acquire, release, touch, status, clear, checkUnsupervised, getStoreDir } from '../lib/core.js'
+
+// 被测模块的绝对 URL（子进程脚本用；避免硬编码机器路径，O13 同类问题）
+const CORE_URL = new URL('../lib/core.js', import.meta.url).href
+
+// ── spawn 可用性探测 ──
+// 本机沙箱对 spawn 的放行时有时无（O8c/T3 均观测过 EPERM）。不可用则 SKIP + exit 0，
+// 不因环境缺能力制造假红（与 tests/plugins/ 各测试的 probe-then-skip 同口径）。
+let SPAWN_OK = true
+try {
+  const probe = spawnSync(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' })
+  SPAWN_OK = probe.status === 0
+} catch { SPAWN_OK = false }
+if (!SPAWN_OK) {
+  console.log('SKIP: 本环境 spawn 不可用（子进程并发/接管用例无法执行）；属环境限制，不判失败。')
+  process.exit(0)
+}
+
 
 // ── 隔离存储 ──
 const store = mkdtempSync(join(tmpdir(), 'ts-test-'))
@@ -42,7 +62,7 @@ check('时间线含 released 摘要', s2.changes.some((c) => c.action === 'relea
 console.log('\n[2] 并发抢占')
 const res2 = 'global:build'
 const childScript = `
-  import { acquire } from 'file:///D:/Deepseek-Harness/plugins/dsh-task-scheduler/lib/core.js'
+  import { acquire } from '${CORE_URL}'
   const r = acquire({ resources: ['global:build'], who: 'child-' + process.pid, task: 'build', waitMs: 0 })
   if (r.ok) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000) }
   console.log(JSON.stringify({ ok: r.ok, code: r.code }))
@@ -60,7 +80,15 @@ const childPromises = Array.from({ length: 4 }, (_, i) => new Promise((resolve) 
 }))
 const procs = await Promise.all(childPromises)
 console.log('  并行结果:', JSON.stringify(procs))
-check('恰好 1 个成功', procs.filter((p) => p.ok).length === 1, procs)
+// ⚠️ 不得断言「恰好 1 个成功」——它是**时序依赖**的，实测会假红：
+//    赢家持有 2s 后退出 → pid 死亡 → 锁按设计可回收；若其余子进程因机器负载
+//    在 2s 之后才开始 acquire，就会出现**合法**的第二赢家（O8c 实测：同一代码
+//    direct 跑出 2 赢家 = 28 通过 / 1 失败，node --test 下同源代码 29 通过）。
+//    「任意时刻只有一个持有者」由本文件 §2b（确定性判定）与
+//    tests/plugins/task-scheduler-lock.test.mjs §12b（真多进程重叠对=0）守护。
+const winners = procs.filter((p) => p.ok)
+check('竞态必有赢家（≥1）', winners.length >= 1, procs)
+if (winners.length > 1) console.log(`  注: ${winners.length} 个赢家 = 前者退出后按设计被接管（非并发重叠）`)
 check('其余为 BUSY', procs.filter((p) => !p.ok).every((p) => p.code === 'BUSY'), procs)
 
 // 子进程已退出 → pid 死亡 → 接管测试
@@ -70,6 +98,34 @@ const s3 = status()
 check('接管后 holder=会话A', s3.locks.some((l) => l.who.includes('接管')), s3.locks)
 check('时间线含 stale-reclaimed', s3.changes.some((c) => c.action === 'stale-reclaimed'), s3.changes.slice(-5))
 release({ resources: [res2], token: a2.token, who: '会话A' })
+
+// ── 2b. 确定性互斥：持有者存活时，并发申请必须 4/4 全 BUSY ──
+// 与 §2 互补——§2 只能断言「≥1 赢家 + 无异常码」（竞态本质不可复现），
+// 互斥本身用「持有者确定存活」来判定，不受子进程启动时序影响。
+console.log('\n[2b] 确定性互斥（持有者存活）')
+const res2b = 'global:build-deterministic'
+const hold2b = acquire({ resources: [res2b], who: '父进程: 持锁', task: '确定性互斥验证' })
+check('父进程拿到锁', hold2b.ok, hold2b)
+const childScript2b = `
+  import { acquire } from '${CORE_URL}'
+  const r = acquire({ resources: ['global:build-deterministic'], who: 'child2b-' + process.pid, task: 'build', waitMs: 0 })
+  console.log(JSON.stringify({ ok: r.ok, code: r.code }))
+  process.exit(0)
+`
+const procs2b = await Promise.all(Array.from({ length: 4 }, () => new Promise((resolve) => {
+  const env = { ...process.env, DSH_TASK_SCHEDULER_STORE: store }
+  const p = spawn(process.execPath, ['--input-type=module', '-e', childScript2b], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let out = ''
+  p.stdout.on('data', (d) => { out += d.toString() })
+  p.on('close', () => {
+    try { resolve(JSON.parse(out.trim().split('\n').pop())) } catch { resolve({ ok: false, code: 'PARSE_ERROR', raw: out.trim() }) }
+  })
+})))
+console.log('  并行结果:', JSON.stringify(procs2b))
+check('持有者存活 → 4/4 全部 BUSY', procs2b.length === 4 && procs2b.every((p) => p.ok === false && p.code === 'BUSY'), procs2b)
+check('无人接管，锁仍在父进程手上', status({ resource: res2b }).locks.length === 1, status({ resource: res2b }))
+release({ resources: [res2b], token: hold2b.token, who: '父进程' })
+check('释放后锁消失', status({ resource: res2b }).locks.length === 0, status({ resource: res2b }))
 
 // ── 3. 基线防覆盖：A 改完 → B 带旧 base-change acquire 应 STALE_BASE ──
 console.log('\n[3] 基线防覆盖（防“只更新一半”）')
@@ -146,6 +202,7 @@ release({ resources: [f7], token: a7.token, who: '会话A', summary: '合法修�
 writeFileSync(f7, 'v3-unsupervised')
 const ck = checkUnsupervised()
 check('检测到无锁修改', ck.alerts.length >= 1 && ck.alerts[0].resource.endsWith('watched.txt'), ck)
+check('coverage 暴露检测边界（基线数 / 窗口）', !!(ck.coverage && ck.coverage.baselined >= 1 && ck.coverage.window >= 1), ck.coverage)
 const s7 = status()
 check('告警入时间线', s7.changes.some((c) => c.action === 'unsupervised-change'), s7.changes.slice(-3))
 

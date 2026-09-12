@@ -17,7 +17,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto'
 import {
-  appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync,
+  appendFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync,
   renameSync, unlinkSync, writeFileSync, statSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -81,12 +81,76 @@ function lockFileFor(resource) {
   return join(locksDir(), `lock-${key}.json`)
 }
 
+/**
+ * 读取锁文件。**不可解析时不再改名销毁**（F-LOCK-1 修复 A/B，2026-09-11）。
+ *
+ * 旧实现：JSON.parse 失败 → 把文件改名成 `.corrupt-<ts>` 并返回 null。两个后果：
+ *   ① 调用方按「无主锁」接管了**活跃持有者**的锁（半写窗口内锁文件内容尚未落盘）；
+ *   ② 持有者随后 release 时找不到自己的锁 → release 静默变成空操作。
+ * 现在：只返回 null、**文件原样保留**（作为证据）；「是否可回收」交给
+ * reclaimableLockFile() 结合 mtime 宽限期判断（fail-closed）。
+ */
 function readLock(f) {
   try { const o = JSON.parse(readFileSync(f, 'utf8')); return o && typeof o === 'object' ? o : null }
-  catch { try { renameSync(f, `${f}.corrupt-${now()}`) } catch {} return null }
+  catch { return null }
 }
-function writeLock(f, lock) { writeFileSync(f, JSON.stringify(lock, null, 2), 'utf8') }
+
+/** 心跳/抢占更新：**原子替换**（临时文件 + rename），读者不会看到半截 JSON。 */
+function writeLock(f, lock) {
+  const tmp = `${f}.tmp-${process.pid}-${randHex(3)}`
+  try {
+    writeFileSync(tmp, JSON.stringify(lock, null, 2), 'utf8')
+    renameSync(tmp, f)
+  } catch (e) {
+    try { unlinkSync(tmp) } catch {}
+    throw e
+  }
+}
+
+/**
+ * 原子发布锁文件（F-LOCK-1 修复 A）：先写同目录临时文件，再用 `linkSync` 发布。
+ * link(2) 语义：目标已存在即 EEXIST —— 既保留「一次调用只有一个赢家」的互斥语义，
+ * 又保证**锁文件名出现时内容已经写完**（彻底消除 0 字节 / 半截 JSON 的可见窗口）。
+ */
+function publishLock(f, lock) {
+  const tmp = `${f}.tmp-${process.pid}-${randHex(3)}`
+  try {
+    writeFileSync(tmp, JSON.stringify(lock, null, 2), 'utf8')
+    linkSync(tmp, f) // 目标存在 → EEXIST（调用方按 race-eexist 处理）
+  } finally {
+    try { unlinkSync(tmp) } catch {}
+  }
+}
+
+/**
+ * 半写/损坏锁的宽限期（F-LOCK-1 修复 B）：锁文件存在但内容不可解析（刚创建、还没写完）时，
+ * 在宽限期内一律**视为有人持有** → fail-closed BUSY；超过宽限期才认为是被崩溃遗弃的孤儿。
+ * 取值依据：正常写入是毫秒级，30s 足以覆盖进程调度/磁盘抖动，又不会长期滞留孤儿锁。
+ */
+const HOLD_GRACE_MS = 30 * 1000
+
+/**
+ * 锁文件级回收判定（替代裸的 `isReclaimable(readLock(f))`）：
+ *   - 可解析        → 走对象级规则（TTL / pid 存活）
+ *   - 不可解析      → 宽限期内**不可回收**（fail-closed）；超过宽限期视为崩溃孤儿，可回收
+ *   - 文件不存在    → 可回收（无锁）
+ */
+function reclaimableLockFile(f) {
+  const lock = readLock(f)
+  if (lock) return isReclaimable(lock)
+  try {
+    const st = statSync(f)
+    return now() - st.mtimeMs >= HOLD_GRACE_MS
+  } catch (e) {
+    return true
+  }
+}
+
 function summarizeHolder(lock) {
+  if (!lock) {
+    // 不可解析（半写）或无锁文件：不得假设其优先级，交由调用方按 fail-closed 处理
+    return { id: null, who: '(unparseable lock file)', unparseable: true, resources: [] }
+  }
   return { id: lock.id, who: lock.who, task: lock.task, priority: priorityLabel(lock.priority ?? lock.priorityLabel),
     pid: lock.pid, host: lock.host, cwd: lock.cwd, resources: lock.resources || [],
     acquiredAt: lock.acquiredAt, heartbeatAt: lock.heartbeatAt, ttlMs: lock.ttlMs,
@@ -188,8 +252,8 @@ function tryAcquire(list, key, opts) {
       if (all.length > MAX_LOCKS) {
         for (const f of all) {
           const p = join(locksDir(), f)
-          const lock = readLock(p)
-          if (isReclaimable(lock)) { try { unlinkSync(p) } catch {} }
+          // 只清「可回收」的：不可解析且 mtime 很新（半写窗口）不得动（F-LOCK-1）
+          if (reclaimableLockFile(p)) { try { unlinkSync(p) } catch {} }
         }
       }
     } catch {}
@@ -197,25 +261,28 @@ function tryAcquire(list, key, opts) {
     for (const { r, f } of files) {
       if (existsSync(f)) {
         const holder = readLock(f)
-        if (!isReclaimable(holder)) {
+        // F-LOCK-1：改用文件级判定 —— 半写窗口内（内容不可解析但 mtime 很新）判为「有人持有」
+        if (!reclaimableLockFile(f)) {
           for (const a of acquired) { try { unlinkSync(a.f) } catch {} }
-          const preempt = mine > priorityRank(holder.priority ?? holder.priorityLabel)
+          // 不可解析的持有者不知道其优先级 → 不抢占（fail-closed）
+          const holderRank = holder ? priorityRank(holder.priority ?? holder.priorityLabel) : PRIORITY.high
+          const preempt = mine > holderRank
           if (preempt) {
             const preempted = { by: opts.who || 'unknown', at: now(), priority: myLabel, task: opts.task || '', resources: list }
             try { const cur = readLock(f); if (cur) { cur.preemptRequested = preempted; writeLock(f, cur) } } catch {}
-            appendChange({ action: 'preempt-requested', resource: r, resources: list, holderId: holder.id, preempted })
+            appendChange({ action: 'preempt-requested', resource: r, resources: list, holderId: holder ? holder.id : null, preempted })
             return { ok: false, code: 'BUSY', reason: 'preempt-requested', resource: r, key,
               holder: summarizeHolder(holder), preemptRequested: preempted,
               hint: 'higher-priority preempt requested; holder notified' }
           }
-          appendChange({ action: 'conflict', resource: r, resources: list, holderId: holder.id, requester: opts.who || 'unknown' })
+          appendChange({ action: 'conflict', resource: r, resources: list, holderId: holder ? holder.id : null, requester: opts.who || 'unknown' })
           return { ok: false, code: 'BUSY', reason: 'held-by-other', resource: r, key,
             holder: summarizeHolder(holder), hint: 'resource held; wait or request preempt' }
         }
         try { renameSync(f, `${f}.stale-${now()}`) } catch {}
         appendChange({ action: 'stale-reclaimed', resource: r, resources: list, holderId: holder?.id || null, by: opts.who || 'unknown' })
       }
-      // 原子创建+写入（flag 'wx' 一次 syscall 完成 open+write，消除空文件竞态窗口）
+      // 原子发布：publishLock 用「tmp + linkSync」，保证「锁文件出现 ⇒ 内容已写完」（F-LOCK-1 修复 A）
       const lock = {
         id: tk, resources: list, who: opts.who || '', task: opts.task || '',
         priority: mine, priorityLabel: myLabel,
@@ -228,7 +295,7 @@ function tryAcquire(list, key, opts) {
       // our existsSync check and the wx write (narrow race window). Re-read the
       // holder and return BUSY instead of a confusing ERROR code.
       try {
-        writeFileSync(f, JSON.stringify(lock, null, 2), { encoding: 'utf8', flag: 'wx' })
+        publishLock(f, lock)
         acquired.push({ r, f })
       } catch (writeErr) {
         if (writeErr?.code === 'EEXIST') {
@@ -325,10 +392,19 @@ export function status(opts = {}) {
     for (const f of staleFiles) {
       const p = join(locksDir(), f)
       const lock = readLock(p)
-      if (lock && isReclaimable(lock)) {
+      // F-LOCK-1：改用文件级判定；不可解析但 mtime 很新（半写窗口）的锁**不得回收**
+      if (reclaimableLockFile(p)) {
         try {
           renameSync(p, `${p}.stale-${now()}`)
-          appendChange({ action: 'auto-reclaimed', resource: (lock.resources || ['unknown'])[0], resources: lock.resources || [], holderId: lock.id, reason: 'status-lazy-reclaim (pid dead + heartbeat expired)' })
+          appendChange({
+            action: 'auto-reclaimed',
+            resource: (lock && lock.resources ? lock.resources : ['unknown'])[0],
+            resources: (lock && lock.resources) || [],
+            holderId: (lock && lock.id) || null,
+            reason: lock
+              ? 'status-lazy-reclaim (pid dead + heartbeat expired)'
+              : 'status-lazy-reclaim (unparseable lock file older than grace period)',
+          })
         } catch { /* rename 失败（如 Windows 文件句柄占用）不影响 status 返回 */ }
       }
     }
@@ -349,7 +425,16 @@ export function clear(opts = {}) {
     const f = lockFileFor(r)
     if (!existsSync(f)) { cleared.push({ resource: r, result: 'no-lock' }); continue }
     const lock = readLock(f)
-    if (!lock) { try { unlinkSync(f) } catch {} cleared.push({ resource: r, result: 'corrupt-removed' }); continue }
+    // F-LOCK-1：不可解析的锁只有在**超过宽限期**时才允许清（否则可能是活跃持有者的半写窗口）
+    if (!lock) {
+      if (!opts.force && !reclaimableLockFile(f)) {
+        refused.push({ resource: r, result: 'unparseable-refused', hint: 'lock 文件不可解析但很新（可能是半写窗口）；稍后重试，或显式 force' })
+        continue
+      }
+      try { unlinkSync(f) } catch {}
+      cleared.push({ resource: r, result: 'corrupt-removed' })
+      continue
+    }
     if (opts.force || isReclaimable(lock)) {
       try { renameSync(f, `${f}.stale-${now()}`); appendChange({ action: 'cleared', resource: r, holderId: lock.id, by: opts.who || 'manual', force: !!opts.force }); cleared.push({ resource: r, result: 'cleared', previousHolder: summarizeHolder(lock) }) }
       catch (e) { refused.push({ resource: r, result: 'error', error: String(e?.message || e) }) }
@@ -362,18 +447,21 @@ export function clear(opts = {}) {
 
 export function prune() { pruneChanges(); return { ok: true, store: storeDir() } }
 
-export function checkUnsupervised() {
+export function checkUnsupervised(opts = {}) {
   const alerts = []
-  const changes = readChanges(1000)
+  const limit = Number(opts.limit) > 0 ? Number(opts.limit) : 1000
+  const changes = readChanges(limit)
   const lastByRes = new Map()
   for (const c of changes) {
     const rs = c.resources || (c.resource ? [c.resource] : [])
     if (c.action === 'released' || c.action === 'locked') for (const r of rs) lastByRes.set(r, c)
   }
+  let baselined = 0
   for (const [r, c] of lastByRes) {
     if (c.action !== 'released') continue
     const after = c.afterHashes && c.afterHashes[normalizeResource(r)]
     if (!after) continue
+    baselined++
     const cur = fileHash(normalizeResource(r))
     if (cur && cur !== after) {
       const dup = changes.slice(-50).some((x) => x.action === 'unsupervised-change' && x.resource === r && x.hash === cur)
@@ -383,5 +471,17 @@ export function checkUnsupervised() {
       }
     }
   }
-  return { ok: true, alerts }
+  // COVERAGE（2026-09-11 T3）：把「检测边界」显式暴露，避免把「没告警」误读成「没人绕过锁」。
+  // 本机制只能检测**有 release 基线**的资源；从未登记过的文件（例如新插件文件被并发会话改）
+  // 不在范围内 —— 实例：plugins/dsh-memory-files/lib/index.js 被无锁修改时 alerts 为空。
+  // 项目级补位：scripts/check-unsupervised.mjs（git 工作区 × 时间线 比对，覆盖「从未登记」）。
+  return {
+    ok: true,
+    alerts,
+    coverage: {
+      window: changes.length,
+      baselined,
+      note: 'only resources with a release baseline are checked; files never registered are out of scope (see scripts/check-unsupervised.mjs)',
+    },
+  }
 }

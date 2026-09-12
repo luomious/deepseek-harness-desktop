@@ -1,0 +1,22 @@
+{
+  "note": "由 generate.mjs 生成；重生成需有意为之并复核 sha 变化",
+  "id": "golden-session-0001",
+  "cwd": "D:/golden-project",
+  "sessionFormatVersion": 0,
+  "headerLine": "{\"type\":\"session\",\"version\":0,\"id\":\"golden-session-0001\",\"createdAt\":1757587200000,\"cwd\":\"D:/golden-project\",\"delegationDepth\":0}",
+  "frameLayout": [
+    "header(仅头)",
+    "batch1(3)",
+    "batch2(1 long)",
+    "batch3(2)"
+  ],
+  "tornCutRatio": 0.4,
+  "eventCount": 6,
+  "completeFrameEventCount": 4,
+  "sha256": {
+    "session-golden.jsonl": "0c4b3f325395f38e653ae62260edcd851f6bea3ae292b2521ea8c9f5ac4eafba",
+    "session-golden.jsonl.zstd": "300b04db345ddc181915b2d4d71af2f11b91353073f231d1f787ce3c9124606e",
+    "session-golden-torn.jsonl.zstd": "32e47919216a8be405c36a289937482d2ac95a113cd3840ec3176d101ae0f030",
+    "completeFramesPlaintext": "53a3ecaf736e64c7b2d6b9003d8de5d5b2daa9923bb4ca0fa42f3455d4809013"
+  }
+}

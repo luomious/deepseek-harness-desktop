@@ -21,7 +21,11 @@
 #   #56/#58 settings-models / dir-picker browse bundles -> re-evaluate after client rewrite
 # Full evidence: _backups/upstream-probe-0.1.3-alpha.2/IMPACT-REPORT.md
 
-$ErrorActionPreference = 'SilentlyContinue'
+# 2026-09-10 (W1-4): never swallow errors globally. With SilentlyContinue a
+# broken lookup (missing node, unreadable file, failed chunk scan) reported PASS,
+# which is the worst possible failure mode for a deployment gate. Expected
+# misses are guarded locally with -ErrorAction SilentlyContinue on purpose.
+$ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\src'
 
@@ -84,7 +88,18 @@ $checks = @(
   @{ n = 'session prefix sync decode (PERF-6)';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-stream-readprefix' }
 )
 
+# 2026-09-10 (W1-4): when dist resolution fails, Join-Path against an empty
+# $unpacked throws, $checks ends up empty, every loop is skipped and the script
+# still prints ALL PASS. A gate that ran zero checks must never pass.
 $fail = 0
+if (-not $unpacked -or -not (Test-Path $unpacked)) {
+  Write-Host ('FAIL  dist root unresolved: ' + [string]$unpacked) -ForegroundColor Red
+  $fail++
+}
+if ($null -eq $checks -or $checks.Count -lt 40) {
+  Write-Host ('FAIL  check list empty or truncated (count=' + [string]$checks.Count + ')') -ForegroundColor Red
+  $fail++
+}
 foreach ($c in $checks) {
   if (Test-Path $c.f) {
     $hit = Select-String -Path $c.f -Pattern $c.p -SimpleMatch -Quiet
@@ -129,13 +144,48 @@ if ($profileChunks.Count -ne 1) {
   else { Write-Host 'FAIL  settings resilience guard (pattern missing)' -ForegroundColor Red; $fail++ }
 }
 
+# 2026-09-12 (T13, O14 remainder): syntax integrity pass over the JS patch targets.
+# Marker matching (Select-String) cannot see a file that is corrupt/truncated while its
+# marker string still survives. Measured 2026-09-12: a safe-delete-shim.cjs with invalid
+# JS appended (node --check exit 1, error at line 359) still printed
+# "PASS safe-delete-shim.cjs exists" and "ALL PASS (49 checks)" with exit 0 -> a broken
+# deployment file passed the gate. This pass closes that hole.
+# Deliberately NOT whole-file SHA-256: that fails on every rebuild (upgrade-day tradeoff,
+# see W5 / O4), whereas SYNTAX is rebuild-invariant. Measured before adding: 14/14 targets
+# already pass node --check, so this introduces no pre-existing false FAIL.
+# Uses the real parser (node --check), not a regex.
+$syntaxSet = @{}
+foreach ($c in $checks) { if ($c.f -match '\.(js|cjs|mjs)$') { $syntaxSet[$c.f] = $true } }
+if ($rtChunks.Count -eq 1) { $syntaxSet[$rtChunks[0].FullName] = $true }
+if ($profileChunks.Count -eq 1) { $syntaxSet[$profileChunks[0].FullName] = $true }
+$syntaxOk = 0
+foreach ($sf in $syntaxSet.Keys) {
+  if (-not (Test-Path $sf)) { continue }   # a missing file already FAILs in the loop above
+  & node --check $sf 2>$null
+  if ($LASTEXITCODE -eq 0) { $syntaxOk++ }
+  else {
+    Write-Host ('FAIL  syntax integrity: ' + $sf) -ForegroundColor Red
+    $fail++
+  }
+}
+# Same discipline as the empty-check-list guard above: a coverage collapse must not pass.
+if ($syntaxOk -lt 10) {
+  Write-Host ('FAIL  syntax integrity pass covered too few files (ok=' + [string]$syntaxOk + ' of ' + [string]$syntaxSet.Count + ')') -ForegroundColor Red
+  $fail++
+}
+
 # unpack-everything contract + module-graph integrity. Dist patches target
 # app.asar.unpacked and are only effective when lib/ is UNPACKED inside
 # app.asar; a stale main.js referencing a missing hashed chunk crashes with
 # ERR_MODULE_NOT_FOUND at link time. check-dist-integrity.mjs enforces both.
-$integrity = (& node (Join-Path $PSScriptRoot 'check-dist-integrity.mjs') 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -eq 0) { Write-Host 'PASS  dist integrity (unpacked contract + main.js imports)' -ForegroundColor Green }
-else { Write-Host ('FAIL  dist integrity: ' + $integrity) -ForegroundColor Red; $fail++ }
+# 2026-09-10 (W1-4): capture the exit code BEFORE piping through Out-String.
+# Piping into a cmdlet resets $LASTEXITCODE, so combined runs produced a false
+# FAIL while standalone runs passed (see PATCH-5).
+$integrityOut = & node (Join-Path $PSScriptRoot 'check-dist-integrity.mjs') 2>&1
+$integrityCode = $LASTEXITCODE
+$integrity = ($integrityOut | Out-String).Trim()
+if ($integrityCode -eq 0) { Write-Host 'PASS  dist integrity (unpacked contract + main.js imports)' -ForegroundColor Green }
+else { Write-Host ('FAIL  dist integrity (exit ' + $integrityCode + '): ' + $integrity) -ForegroundColor Red; $fail++ }
 
 Write-Host ('current build: ' + $build.buildDir)
 
@@ -157,6 +207,9 @@ if (Test-Path $vbs) {
 }
 
 Write-Host ''
+# 2026-09-10 (W1-4): always surface the check count. A silently shrinking
+# $checks list would weaken this gate without anyone noticing.
+Write-Host ('checks: ' + $checks.Count + ' static + 3 chunk + 1 dist integrity + ' + [string]$syntaxOk + ' syntax')
 if ($fail -eq 0) { Write-Host ('ALL PASS (' + $total + ' checks)') -ForegroundColor Green }
 else {
   Write-Host ($fail.ToString() + ' FAILED') -ForegroundColor Red

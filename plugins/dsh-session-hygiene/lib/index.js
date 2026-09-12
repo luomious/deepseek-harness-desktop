@@ -26,7 +26,8 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils';
+// Relative path on purpose (not a bare specifier): see scripts/verify-plugin-imports.mjs (F14).
+import { registerRouteWithRetry } from '../../dsh-host-services/lib/shared-utils.js';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，
@@ -187,6 +188,68 @@ export function buildAlertMessage(alerts) {
   };
 }
 
+/**
+ * O7 第一步（2026-09-12 · T13）：**归档动作计划的 dry-run**。
+ *
+ * 背景：本插件此前是 100% advisory（只通知、绝不动文件），审计项 O7 记的就是
+ * 「守护 90% 只通知不动作」。直接动作化不可逆，故按「先只读观察一周」推进：
+ * 本函数把**如果动作化会做什么**算清楚，并暴露在既有只读报告里
+ * —— 它**自己不产生任何 I/O**，不移动、不删除、不改名任何文件。
+ *
+ * `actionEnabled` **恒为 false**：开启动作化必须是另一次显式改动（并有观察期结论），
+ * 本文件有回归测试钉住这条 advisory 契约，防止被静默改成「会动手」的守护。
+ *
+ * 双计口径：会话条目与「会话目录」条目天然重叠（目录是会话的聚合）⇒ `reclaimMB`
+ * **只累加会话**；目录仅作为工作区级上下文列出，不参与回收量计算。
+ *
+ * @param {object[]} sessions    buildReport 的 ranked 会话（level/idleHours/suggestArchive/sizeMB）
+ * @param {object[]} directories buildReport 的目录聚合（level/idleHours/sessionCount/sizeMB）
+ * @param {object} config        resolveConfig 结果（取 idleHours 作为展示口径）
+ */
+export function buildArchivePlan(sessions, directories, config) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  const dirs = Array.isArray(directories) ? directories : [];
+  const idleGate = Number(config?.idleHours) || 0;
+
+  const sessionCandidates = list
+    .filter((s) => s && s.suggestArchive === true)
+    .map((s) => ({
+      kind: 'session',
+      sessionId: s.sessionId,
+      title: s.title,
+      sizeMB: s.sizeMB,
+      idleHours: s.idleHours,
+      proposedAction: 'move-to-archive', // 计划动作＝移动到存档目录（不是删除）
+      reversible: true,
+    }));
+
+  const workspaceContext = dirs
+    .filter((d) => d && d.level === 'error' && Number(d.idleHours) >= idleGate)
+    .map((d) => ({
+      kind: 'workspace-dir',
+      sessionId: d.sessionId,
+      title: d.title,
+      sessionCount: d.sessionCount,
+      sizeMB: d.sizeMB,
+      idleHours: d.idleHours,
+      proposedAction: 'report-only', // 目录级不自动动：粒度太粗、易误伤在用的会话
+    }));
+
+  const reclaimMB = +sessionCandidates
+    .reduce((sum, s) => sum + (Number(s.sizeMB) || 0), 0)
+    .toFixed(2);
+
+  return {
+    mode: 'dry-run',
+    actionEnabled: false, // ← advisory 契约：本轮（及观察期内）恒 false
+    idleHoursGate: idleGate,
+    sessionCandidates,
+    workspaceContext,
+    reclaimMB,
+    note: '只读观察期：本计划不执行任何动作；开启动作化需另一次显式改动 + 观察期结论',
+  };
+}
+
 /** Build the full report from a list of file entries. Pure function. */
 export function buildReport(files, config) {
   const ranked = files
@@ -239,6 +302,8 @@ export function buildReport(files, config) {
     },
     sessions: ranked,
     directories,
+    // O7 dry-run：只读动作计划（actionEnabled 恒 false，见 buildArchivePlan 说明）
+    archivePlan: buildArchivePlan(ranked, directories, config),
   };
 }
 

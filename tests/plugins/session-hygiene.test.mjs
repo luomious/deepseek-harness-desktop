@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveConfig, classifySession, deriveReadableTitle, buildReport, buildAlertMessage }
+import { resolveConfig, classifySession, deriveReadableTitle, buildReport, buildAlertMessage, buildArchivePlan }
   from '../../plugins/dsh-session-hygiene/lib/index.js';
 
 // ── resolveConfig ──────────────────────────────────────────────────────────
@@ -159,5 +159,72 @@ describe('buildAlertMessage', () => {
   it('handles empty alerts', () => {
     const msg = buildAlertMessage([]);
     assert.ok(msg.content[0].text.includes('Session Hygiene Alert'));
+  });
+});
+
+// ── buildArchivePlan（O7 第一步：只读 dry-run 计划，2026-09-12 · T13） ──────
+describe('buildArchivePlan (O7 dry-run)', () => {
+  const config = resolveConfig(null); // warn=4MB / error=8MB / idleHours=24
+  const old = Date.now() - 30 * 3600_000; // 30h 前
+  const fresh = Date.now() - 1 * 3600_000; // 1h 前
+
+  const bigIdle = { sessionId: 'old-big', title: 'Old Big', sizeBytes: 12 * 1_048_576, mtimeMs: old, project: '--D-proj--' };
+  const bigFresh = { sessionId: 'new-big', title: 'New Big', sizeBytes: 12 * 1_048_576, mtimeMs: fresh, project: '--D-proj--' };
+
+  it('超阈值 且 空闲 ≥ idleHours 的会话成为候选（计划动作是「移动」不是删除）', () => {
+    const plan = buildReport([bigIdle], config).archivePlan;
+    assert.equal(plan.mode, 'dry-run');
+    assert.equal(plan.sessionCandidates.length, 1);
+    assert.equal(plan.sessionCandidates[0].sessionId, 'old-big');
+    assert.equal(plan.sessionCandidates[0].proposedAction, 'move-to-archive');
+    assert.equal(plan.sessionCandidates[0].reversible, true);
+    assert.equal(plan.reclaimMB, 12);
+  });
+
+  it('大但「新鲜」的会话不入候选（空闲关口生效 —— 防止误伤在用的会话）', () => {
+    const plan = buildReport([bigFresh], config).archivePlan;
+    assert.equal(plan.sessionCandidates.length, 0);
+    assert.equal(plan.reclaimMB, 0);
+  });
+
+  it('小会话不入候选', () => {
+    const plan = buildReport([{ sessionId: 'tiny', title: 'T', sizeBytes: 1_000_000, mtimeMs: old }], config).archivePlan;
+    assert.equal(plan.sessionCandidates.length, 0);
+  });
+
+  it('【契约锁】advisory 契约：actionEnabled 恒 false、mode 恒 dry-run', () => {
+    const plan = buildReport([bigIdle, bigFresh], config).archivePlan;
+    assert.equal(plan.actionEnabled, false, '本轮不得开启动作化（须另一次显式改动 + 观察期结论）');
+    assert.equal(plan.mode, 'dry-run');
+  });
+
+  it('reclaimMB 只累加会话，不与「目录聚合」双计', () => {
+    // 22 × 12MB = 264MB 且全部空闲 ⇒ 目录聚合达 errorDirBytes(250MB)，会同时出现在 workspaceContext
+    const many = Array.from({ length: 22 }, (_, i) => ({
+      sessionId: 's' + i, title: 'S' + i, sizeBytes: 12 * 1_048_576, mtimeMs: old, project: '--D-proj--',
+    }));
+    const plan = buildReport(many, config).archivePlan;
+    assert.equal(plan.sessionCandidates.length, 22);
+    assert.equal(plan.reclaimMB, 264, '应等于会话之和');
+    assert.equal(plan.workspaceContext.length, 1, '目录级只作为上下文出现');
+    assert.equal(plan.workspaceContext[0].sizeMB, 264);
+    assert.notEqual(plan.reclaimMB, 528, '若把目录也累加就会变 528 —— 双计必须被挡住');
+  });
+
+  it('空输入不抛错，产出空计划', () => {
+    const plan = buildArchivePlan([], [], config);
+    assert.equal(plan.sessionCandidates.length, 0);
+    assert.equal(plan.workspaceContext.length, 0);
+    assert.equal(plan.reclaimMB, 0);
+    assert.equal(plan.actionEnabled, false);
+  });
+
+  it('接口传 null/undefined 也不抛错（防御性）', () => {
+    assert.equal(buildArchivePlan(null, undefined, config).reclaimMB, 0);
+    assert.equal(buildArchivePlan(null, undefined, null).idleHoursGate, 0);
+  });
+
+  it('buildReport 已接线 archivePlan（防漏挂）', () => {
+    assert.ok(buildReport([], config).archivePlan, 'report 必须携带 archivePlan 字段');
   });
 });

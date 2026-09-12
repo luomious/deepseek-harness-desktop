@@ -28,13 +28,23 @@
  *      original fs call instead of throwing — stock ENOENT semantics, and
  *      Node's rimraf treats ENOENT as success.
  *
+ * SELF-2c (F13, 2026-09-10, empirically verified): the VB recycle API succeeds but
+ * STILL throws FileNotFoundException afterwards, so powershell.exe always exits 1 —
+ * and a caught error still leaves $? false, so `try{}catch{}` does not make it exit 0.
+ * Because sendToRecycleBin() judged failure by that exit code, EVERY delete took the
+ * quarantine branch (item already in the Recycle Bin) and callers saw a bogus ENOENT
+ * from fs.unlinkSync/unlink. Fixed by switching to spawnSync and judging success by
+ * filesystem fact (lstat) instead of exit status, while re-throwing ENOENT for paths
+ * that were already absent. Genuine failures still throw, so the quarantine fallback
+ * keeps working exactly as designed.
+ *
  * Loaded via createRequire() at the top of main.js.
  */
 
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { execFileSync } = require("child_process");
+const { spawnSync } = require("child_process");
 
 // ── Protected-path detection ──────────────────────────────────────────
 
@@ -175,25 +185,65 @@ if (process.platform === "win32") {
     const resolved = path.resolve(filePath);
     // Escape single quotes for PowerShell
     const safe = resolved.replace(/'/g, "''");
-    // Detect directory so we use the correct VB API (DeleteFile only works
-    // on files; directories need DeleteDirectory, which is recursive).
+    // Detect directory so we use the correct VB API (DeleteFile only works on
+    // files; directories need DeleteDirectory, which is recursive). Existence is
+    // judged with lstat, NOT stat: stat follows links, so a dangling junction
+    // would look "absent" and we would wrongly re-throw ENOENT after removing it.
     let isDir = false;
+    let existedBefore = false;
+    try {
+      fs.lstatSync(resolved);
+      existedBefore = true;
+    } catch {
+      existedBefore = false;
+    }
     try {
       const st = fs.statSync(resolved);
       isDir = st.isDirectory();
     } catch {
-      // target missing: fall back to file API (will no-op/throw → original fs)
       isDir = false;
     }
     const method = isDir ? "DeleteDirectory" : "DeleteFile";
+    // SELF-2c (F13, 2026-09-10, empirically verified): the VB DeleteFile/DeleteDirectory
+    // API performs the recycle-bin move SUCCESSFULLY but then still throws
+    // FileNotFoundException (a post-operation re-check of the now-moved source path),
+    // so powershell.exe ALWAYS exits 1. An empty `catch {}` does not help either: a
+    // caught error still leaves $? false, so the process still exits 1. The exit code
+    // must therefore never be trusted here. Two consequences:
+    //   1. spawnSync instead of execFileSync — a non-zero exit must not throw by itself.
+    //   2. success is judged immediately below by filesystem fact, not by exit status.
+    // Previously the exit code was read, so EVERY delete fell through to the quarantine
+    // branch (and leaked a bogus ENOENT at the call site) even though the item had
+    // already reached the Recycle Bin.
     const cmd =
       "Add-Type -AssemblyName Microsoft.VisualBasic; " +
       `[Microsoft.VisualBasic.FileIO.FileSystem]::${method}('${safe}', 'OnlyErrorDialogs', 'SendToRecycleBin')`;
-    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd], {
+    spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd], {
       windowsHide: true,
       timeout: 10000,
       stdio: "ignore",
     });
+    // Fact check via lstat (not existsSync): a leftover junction whose target has been
+    // deleted resolves as "missing" under existsSync and would be a false pass. The shim
+    // only patches fs deletion methods, so this lstat call is not re-entrant.
+    let stillPresent = true;
+    try {
+      fs.lstatSync(resolved);
+    } catch {
+      stillPresent = false;
+    }
+    if (stillPresent) {
+      throw new Error(`safe-delete: recycle-bin did not remove ${resolved}`);
+    }
+    if (!existedBefore) {
+      // Stock fs semantics: removing a path that was already gone surfaces ENOENT.
+      const enoent = new Error(`ENOENT: no such file or directory, unlink '${resolved}'`);
+      enoent.code = "ENOENT";
+      enoent.errno = -4058;
+      enoent.syscall = "unlink";
+      enoent.path = resolved;
+      throw enoent;
+    }
   };
   console.log("[safe-delete-shim] recycle-bin via PowerShell Microsoft.VisualBasic ready");
 }
