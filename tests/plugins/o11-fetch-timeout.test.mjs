@@ -24,7 +24,7 @@
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { connect } from 'node:net'
@@ -115,8 +115,12 @@ async function serveRoute(options) {
 
 describe('O11 · client bundle 静态守卫：每个 fetch 都走超时 helper', () => {
   for (const rel of CLIENT_BUNDLES) {
-    it(`${rel} 具备可覆盖的 fetchWithTimeout`, () => {
-      const src = readFileSync(resolveRepo(rel), 'utf8')
+    const bundleFile = resolveRepo(rel)
+    const bundlePresent = existsSync(bundleFile)
+
+    it(`${rel} 具备可覆盖的 fetchWithTimeout`, (t) => {
+      if (!bundlePresent) { t.skip('gitignored build artifact; absent on clean checkout (covered locally by check-all.ps1)'); return }
+      const src = readFileSync(bundleFile, 'utf8')
 
       assert.match(src, /function fetchWithTimeout\(url, opts, timeoutMs\) \{/, '必须有 fetchWithTimeout helper')
       assert.match(src, /(API|DIAG)_TIMEOUT_MS\s*=\s*\d+/, '必须有命名超时常量（便于逐调用覆盖与调参）')
@@ -127,15 +131,16 @@ describe('O11 · client bundle 静态守卫：每个 fetch 都走超时 helper',
       assert.match(src, /请求超时/, '超时必须以可读错误暴露，而不是裸 AbortError')
     })
 
-    it(`${rel} 没有绕过 helper 的裸 fetch`, () => {
-      const src = readFileSync(resolveRepo(rel), 'utf8')
+    it(`${rel} 没有绕过 helper 的裸 fetch`, (t) => {
+      if (!bundlePresent) { t.skip('gitignored build artifact; absent on clean checkout'); return }
+      const src = readFileSync(bundleFile, 'utf8')
       // (?<![\w.$]) 让 `fetchWithTimeout(` 不算裸调用；helper 内部那次 fetch(url, o) 是唯一合法裸调用
       const bare = src.match(/(?<![\w.$])fetch\(/g) || []
       assert.equal(bare.length, 1, `应恰好 1 处裸 fetch(（helper 内部），实测 ${bare.length} 处 —— 说明有调用点绕过了超时`)
     })
   }
 
-  it('转发超时预算：算了预算就必须真的传给 helper（否则「逐调用覆盖」是死代码）', () => {
+  it('转发超时预算：算了预算就必须真的传给 helper（否则「逐调用覆盖」是死代码）', (t) => {
     // 本次实测踩到过：`var ms = /^market\./ ? 180s : 30s` 算了却没传进 fetchWithTimeout
     // ⇒ market.* 的放宽退化成默认 30s，「慢调用主动放宽」变成一句注释。静态守卫钉住它。
     assert.match(
@@ -144,7 +149,9 @@ describe('O11 · client bundle 静态守卫：每个 fetch 都走超时 helper',
       'skills-manager 必须把算出来的 ms 传进 fetchWithTimeout',
     )
     for (const rel of ['plugins/dsh-file-explorer/lib/client.js', 'plugins/dsh-remote-workspace/lib/client.js']) {
-      assert.match(readFileSync(resolveRepo(rel), 'utf8'), /\}, timeoutMs\)/, `${rel} 必须把 timeoutMs 转发给 helper`)
+      const fwdFile = resolveRepo(rel)
+      if (!existsSync(fwdFile)) { t.skip(`${rel} 是 gitignored 构建产物，clean checkout 无此文件`); continue }
+      assert.match(readFileSync(fwdFile, 'utf8'), /\}, timeoutMs\)/, `${rel} 必须把 timeoutMs 转发给 helper`)
     }
     assert.match(
       readFileSync(resolveRepo('plugins/dsh-vision-engine/lib/client.js'), 'utf8'),
