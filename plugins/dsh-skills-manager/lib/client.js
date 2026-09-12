@@ -6,12 +6,30 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react = require("react");
 
-		function callApi(method, args) {
-			return fetch("/skmg/api", {
+		// O11：请求超时。后端挂起 / 弱网时 fetch 永不 settle —— UI 会永久停在加载
+		// 态（市场安装按钮就卡在 busy），半开连接还会一直占着句柄。
+		// 本 bundle 是 __ModuleLoader__ 独立作用域（不能跨插件共享工具），故内联一份。
+		var API_TIMEOUT_MS = 30000;
+		var MARKET_TIMEOUT_MS = 180000; // market.* 走网络（索引/下载），预算放宽
+		function fetchWithTimeout(url, opts, timeoutMs) {
+			var ms = timeoutMs || API_TIMEOUT_MS;
+			var ac = new AbortController();
+			var timer = setTimeout(function () { ac.abort(); }, ms);
+			var o = Object.assign({}, opts || {}, { signal: ac.signal });
+			return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) {
+				clearTimeout(timer);
+				if (e && (e.name === 'AbortError' || e.code === 20)) throw new Error("请求超时（" + Math.round(ms / 1000) + " 秒）");
+				throw e;
+			});
+		}
+
+		function callApi(method, args, timeoutMs) {
+			var ms = timeoutMs || (/^market\./.test(String(method)) ? MARKET_TIMEOUT_MS : API_TIMEOUT_MS);
+			return fetchWithTimeout("/skmg/api", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ method: method, args: args })
-			}).then((r) => r.json()).then((r) => {
+			}, ms).then((r) => r.json()).then((r) => {
 				if (r && r.ok) return r.data;
 				throw new Error((r && r.error) || "请求失败");
 			});
@@ -224,6 +242,9 @@ window.__ModuleLoader__.load({
 			const [busy, setBusy] = react.useState(false);
 			const [error, setError] = react.useState(null);
 			const [msg, setMsg] = react.useState(null);
+			// T6：未过滤的全量条目缓存（治理总览用）。搜索/分类时 items 是子集，
+			// 不能拿子集算统计 —— 否则一搜索统计就"缩水"，显示不实。
+			const [allItems, setAllItems] = react.useState([]);
 
 			function loadSources(selectAfter) {
 				return callApi("market.sources").then((r) => {
@@ -247,6 +268,8 @@ window.__ModuleLoader__.load({
 			function reloadList() {
 				return callApi("market.list", { q: q, category: category }).then((r) => {
 					setItems(r.items || []);
+					// 仅在无过滤时把结果作为"全量"缓存（统计口径 = 目录全量）
+					if (!String(q || "").trim() && !category) setAllItems(r.items || []);
 					setCategories(r.categories || []);
 					setStale(!!r.stale);
 					setStaleError(r.staleError || null);
@@ -294,45 +317,104 @@ window.__ModuleLoader__.load({
 				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
 			}
 
-			function onUpdate(skill) {
-				if (!window.confirm("更新市场 skill「" + skill.id + "」到 v" + skill.version + "？旧版本将备份并自动回滚。")) return;
+			function onAdopt(skill) {
+				if (!window.confirm("接管本地 skill「" + skill.id + "」？\n\n市场只登记台账（不修改任何文件）；之后可用「更新」把本地内容对齐到目录 v" + skill.version + "，或用「卸载」删除本地目录。")) return;
 				setBusy(true); setError(null); setMsg(null);
-				callApi("market.update", { skillId: skill.id }).then(() => {
+				callApi("market.adopt", { skillId: skill.id }).then((d) => {
+					setMsg("已接管：" + skill.id + (d && d.localModelInvocable === false
+						? "（本地已屏蔽 disable-model-invocation；「更新」会覆盖该改造，需二次确认）"
+						: d && d.contentMatches === false
+							? "（本地内容与目录 v" + d.catalogVersion + " 不一致，默认保留本地）"
+							: "（内容与目录一致）"));
+					return loadSources();
+				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
+			}
+
+			function onUpdate(skill) {
+				const slim = (skill.localModelInvocable === false) ||
+					!!(installed[skill.id] && installed[skill.id].localModelInvocable === false);
+				const warn = slim
+					? "\n\n⚠️ 该 skill 本地带 disable-model-invocation:true（有意屏蔽，用于把模型 catalog 压在 9KB 安全线下）。\n更新会覆盖这一改造，使 catalog 重新变大 —— 本项目实测过这会把锚定率从 ~81% 拉到 0%。\n"
+					: "";
+				if (!window.confirm("更新 market skill「" + skill.id + "」到 v" + skill.version + "？\n\n会用目录内容覆盖本地 SKILL.md；覆盖前自动备份本地原文到 ~/.dsh/.skills-market/backups/。" + warn)) return;
+				setBusy(true); setError(null); setMsg(null);
+				callApi("market.update", { skillId: skill.id, confirmLocalMods: true }).then(() => {
 					setMsg("已更新：" + skill.id);
 					return loadSources();
 				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
 			}
 
 			function onUninstall(skill) {
-				if (!window.confirm("卸载市场 skill「" + skill.id + "」？此操作将删除其本地目录，不可恢复。")) return;
+				const slim = skill.localModelInvocable === false
+					? "\n（本地带 disable-model-invocation:true，备份会一并保留）"
+					: "";
+				const extra = skill && skill.installedAdopted
+					? "\n注意：该记录由「接管」建立，本地目录内容可能是你自行安装或编辑过的。"
+					: "";
+				if (!window.confirm("卸载 market skill「" + skill.id + "」？\n\n会从 ~/.dsh/skills/" + skill.id + " 永久删除该目录（该路径不在回收站保护范围内）；删除前会自动整目录备份到 ~/.dsh/.skills-market/backups/uninstalled/，可据此恢复。" + slim + extra)) return;
 				setBusy(true); setError(null); setMsg(null);
-				callApi("market.uninstall", { skillId: skill.id }).then(() => {
-					setMsg("已卸载：" + skill.id);
+				callApi("market.uninstall", { skillId: skill.id }).then((d) => {
+					setMsg("已卸载：" + skill.id + (d && d.backup ? "（备份：" + d.backup + "）" : ""));
 					return loadSources();
 				}).then(() => props.onChanged()).catch(showError).then(() => setBusy(false));
 			}
 
 			function renderCard(skill) {
 				const inst = installed[skill.id];
+				const localOnly = !inst && skill.localExists;
+				// T3 四态：市场已安装 / 已接管（可能待对齐）/ 本地已存在可接管 / hub 管理不可接管 / 全新可安装
+				const adoptedStale = !!(inst && inst.adopted && inst.contentMatches === false);
+				const instLabel = !inst ? null
+					: adoptedStale ? "已接管（本地已改造，目录 v" + (inst.catalogVersion || skill.version) + "）"
+					: inst.adopted ? "已接管 v" + (inst.version || inst.catalogVersion || "?")
+					: "已安装 v" + inst.version;
+				const canAdopt = localOnly && !skill.hubManaged && skill.localSource === "user-dsh";
+				// T5：本地「有意改造」标记（disable-model-invocation:true，SL-9 catalog 瘦身用）
+				const slimmed = skill.localModelInvocable === false || !!(inst && inst.localModelInvocable === false);
 				return react.createElement("div", { key: skill.id, className: "skmg-card" },
 					react.createElement("div", { className: "skmg-card-head" },
 						react.createElement("span", { className: "skmg-name" }, skill.id),
 						(skill.categories || []).map((c) => react.createElement("span", { key: c, className: "skmg-badge" }, c)),
-						react.createElement("span", { className: "skmg-badge" }, "v" + skill.version),
-						inst ? react.createElement("span", { className: "skmg-badge", style: { color: "var(--dsw-alias-state-success-primary)" } }, "已安装 v" + inst.version) : null,
+						react.createElement("span", { className: "skmg-badge" }, "目录 v" + skill.version),
+						slimmed ? react.createElement("span", { className: "skmg-badge", style: { color: "var(--dsw-alias-state-warn-primary)" } }, "已屏蔽(SL-9)") : null,
+						inst ? react.createElement("span", { className: "skmg-badge", style: { color: adoptedStale ? "var(--dsw-alias-state-warn-primary)" : "var(--dsw-alias-state-success-primary)" } }, instLabel) : null,
+						localOnly ? react.createElement("span", { className: "skmg-badge", style: { color: "var(--dsw-alias-state-warn-primary)" } }, skill.hubManaged ? "hub 管理" : "本地已存在") : null,
 						react.createElement("span", { style: { flex: 1 } }),
-						(!inst ? react.createElement("button", { key: "install", className: "skmg-btn", disabled: busy, onClick: () => onInstall(skill) }, "安装") :
-							react.createElement(react.Fragment, null,
+						(inst ? react.createElement(react.Fragment, null,
 								react.createElement("button", { key: "update", className: "skmg-btn", disabled: busy, onClick: () => onUpdate(skill) }, "更新"),
 								react.createElement("button", { key: "uninstall", className: "skmg-btn danger", disabled: busy, onClick: () => onUninstall(skill) }, "卸载")
-							))
+							) :
+							canAdopt ? react.createElement("button", { key: "adopt", className: "skmg-btn", disabled: busy, onClick: () => onAdopt(skill) }, "接管") :
+							localOnly ? react.createElement("span", { key: "local-hint", className: "skmg-muted", style: { fontSize: "11px" } },
+								skill.hubManaged
+									? "由本地 hub 安装并记录 SHA-256，市场不接管（避免破坏 hub 完整性记录）"
+									: "本地已存在（来源：" + (skill.localSource || "本地") + "），该来源市场无法管理") :
+							react.createElement("button", { key: "install", className: "skmg-btn", disabled: busy, onClick: () => onInstall(skill) }, "安装"))
 					),
 					react.createElement("div", { className: "skmg-desc" }, skill.description),
 					skill.author && skill.author.name ? react.createElement("div", { className: "skmg-muted", style: { marginTop: "4px", fontSize: "11px" } }, "作者：" + skill.author.name + (skill.author.url ? " · " + skill.author.url : "")) : null,
-					react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px" } }, "SHA-256: " + skill.download.sha256)
+					adoptedStale ? react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px", color: "var(--dsw-alias-state-warn-primary)" } }, "本地已改造（与目录 v" + (inst.catalogVersion || skill.version) + " 不一致）：默认保留本地；点「更新」会覆盖改造（覆盖前自动备份原文）") : null,
+					react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px" } }, "目录 SHA-256（安装时校验）: " + skill.download.sha256),
+					inst && inst.sha256 && inst.sha256 !== skill.download.sha256
+						? react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px", color: "var(--dsw-alias-state-warn-primary)" } }, "本地 SHA-256: " + inst.sha256 + "（与目录不同 → 本地已改造）")
+						: null
 				);
 			}
 
+			// T6 治理总览：把「三源真相」的分布直接摆到页面上（此前只有跑脚本才知道）。
+			// 口径 = 目录全量（allItems），不受搜索/分类过滤影响。
+			const srcAll = allItems.length ? allItems : items;
+			// 分区必须互斥（否则徽标数相加 ≠ 目录总数，就是"显示不正确"）：
+			//   市场管理（有台账） / 可接管（本地 user-dsh、无台账、非 hub） / hub 管理（本地、有 hub SHA 记录）
+			//   / 其他来源（本地但既非 user-dsh 也非 hub） / 可安装（本地不存在且无台账）
+			const stats = {
+				total: srcAll.length,
+				installed: srcAll.filter((x) => x.installed).length,
+				adoptable: srcAll.filter((x) => !x.installed && x.localExists && !x.hubManaged && x.localSource === "user-dsh").length,
+				hubManaged: srcAll.filter((x) => !x.installed && x.hubManaged).length,
+				localOther: srcAll.filter((x) => !x.installed && x.localExists && !x.hubManaged && x.localSource !== "user-dsh").length,
+				installable: srcAll.filter((x) => !x.installed && !x.localExists).length
+			};
 			return react.createElement("div", { className: "skmg-market" },
 				react.createElement("div", { className: "skmg-muted", style: { marginBottom: "8px" } },
 					"目录源：",
@@ -348,6 +430,20 @@ window.__ModuleLoader__.load({
 					),
 					react.createElement("div", { className: "skmg-muted", style: { fontSize: "11px", marginTop: "2px" } }, s.endpoint)
 				)),
+				sourceState ? react.createElement("div", { className: "skmg-card", style: { padding: "6px 10px", marginBottom: "6px" } },
+					react.createElement("div", { className: "skmg-card-head" },
+						react.createElement("span", { className: "skmg-name", style: { fontSize: "12px" } }, "治理总览"),
+						react.createElement("span", { className: "skmg-badge" }, "目录 " + stats.total + " 项"),
+						react.createElement("span", { className: "skmg-badge", style: { color: "var(--dsw-alias-state-success-primary)" } }, "市场管理 " + stats.installed),
+						react.createElement("span", { className: "skmg-badge" }, "可安装 " + stats.installable),
+						react.createElement("span", { className: "skmg-badge", style: { color: stats.adoptable > 0 ? "var(--dsw-alias-state-warn-primary)" : undefined } }, "可接管 " + stats.adoptable),
+						react.createElement("span", { className: "skmg-badge" }, "hub 管理 " + stats.hubManaged),
+						stats.localOther ? react.createElement("span", { className: "skmg-badge" }, "其他来源 " + stats.localOther) : null
+					),
+					react.createElement("div", { className: "skmg-muted", style: { marginTop: "2px", fontSize: "11px" } },
+						"「市场管理」＝可在本页更新/卸载；「可接管」＝本地已有但市场无台账，点接管即纳入管理（只登记台账、不改文件）；「hub 管理」有 hub 的 SHA-256 记录，市场不接管；本地已改造（含 disable-model-invocation 屏蔽）会在卡片上单独标注"
+					)
+				) : null,
 				react.createElement("div", { className: "skmg-form", style: { marginTop: "8px" } },
 					react.createElement("div", { className: "skmg-form-title" }, "添加目录源（manifest URL）"),
 					react.createElement("input", { value: manifestUrl, disabled: busy, placeholder: "https://example.com/skills-manifest.json", onChange: (e) => setManifestUrl(e.target.value) }),
