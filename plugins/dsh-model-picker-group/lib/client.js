@@ -106,13 +106,27 @@ window.__ModuleLoader__.load({
     }
 
     // 诊断自动上报：console + POST 到 host 落盘（~/.modlens/picker-diag.log），无需手动抄日志
+    // O11：请求超时。诊断上报是 fire-and-forget，但不能让它挂住句柄或拖住退出。
+    var DIAG_TIMEOUT_MS = 5000;
+    function fetchWithTimeout(url, opts, timeoutMs) {
+      var ms = timeoutMs || DIAG_TIMEOUT_MS;
+      var ac = new AbortController();
+      var timer = setTimeout(function () { ac.abort(); }, ms);
+      var o = Object.assign({}, opts || {}, { signal: ac.signal });
+      return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) {
+        clearTimeout(timer);
+        if (e && (e.name === 'AbortError' || e.code === 20)) throw new Error('请求超时（' + Math.round(ms / 1000) + ' 秒）');
+        throw e;
+      });
+    }
+
     function diag(payload) {
       try {
         var parts = []
         for (var k in payload) parts.push(k + '=' + JSON.stringify(payload[k]))
         console.log('[picker] ' + parts.join(' '))
         try {
-          fetch('/vision-engine/diag', {
+          fetchWithTimeout('/vision-engine/diag', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(Object.assign({ src: 'picker' }, payload)),

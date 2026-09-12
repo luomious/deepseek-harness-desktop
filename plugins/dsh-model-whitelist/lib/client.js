@@ -317,13 +317,28 @@ window.__ModuleLoader__.load({
       }
 
       // ── 测试连接:对厂商的模型发一次最小请求,返回可用性/延迟/错误 ──
+      // O11：请求超时。厂商探测在弱网/后端挂起时会让 fetch 永不 settle，测试按钮
+      // 就永久停在 testing 态。给整条链路一个上限，超时按失败回填结果。
+      var API_TIMEOUT_MS = 60000;
+      function fetchWithTimeout(url, opts, timeoutMs) {
+        var ms = timeoutMs || API_TIMEOUT_MS;
+        var ac = new AbortController();
+        var timer = setTimeout(function () { ac.abort(); }, ms);
+        var o = Object.assign({}, opts || {}, { signal: ac.signal });
+        return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) {
+          clearTimeout(timer);
+          if (e && (e.name === 'AbortError' || e.code === 20)) throw new Error('请求超时（' + Math.round(ms / 1000) + ' 秒）');
+          throw e;
+        });
+      }
+
       var [tests, setTests] = React.useState({});
       function testGroup(dg) {
         var entry = dg.entries[0];
         if (!entry) return;
         var name = dg.name;
         setTests(Object.assign({}, tests, { [name]: { phase: 'testing' } }));
-        fetch('/model-whitelist/test', {
+        fetchWithTimeout('/model-whitelist/test', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ provider: entry.gid, model: entry.model.id }),

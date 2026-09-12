@@ -18,12 +18,28 @@ window.__ModuleLoader__.load({
 
 		// ═══════════════ host API ═══════════════
 
-		function callApi(method, args) {
-			return fetch("/file-explorer/api", {
+		// O11：请求超时。后端挂起 / 弱网时 fetch 永不 settle —— UI 会永久停在加载
+		// 态，半开连接还会一直占着句柄。本 bundle 是 __ModuleLoader__ 独立作用域
+		// （不能跨插件共享工具），故内联一份，超时可逐调用覆盖。
+		var API_TIMEOUT_MS = 30000;
+		function fetchWithTimeout(url, opts, timeoutMs) {
+			var ms = timeoutMs || API_TIMEOUT_MS;
+			var ac = new AbortController();
+			var timer = setTimeout(function () { ac.abort(); }, ms);
+			var o = Object.assign({}, opts || {}, { signal: ac.signal });
+			return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) {
+				clearTimeout(timer);
+				if (e && (e.name === 'AbortError' || e.code === 20)) throw new Error("请求超时（" + Math.round(ms / 1000) + " 秒）");
+				throw e;
+			});
+		}
+
+		function callApi(method, args, timeoutMs) {
+			return fetchWithTimeout("/file-explorer/api", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ method: method, args: args || {} }),
-			}).then(function (r) { return r.json(); }).then(function (r) {
+			}, timeoutMs).then(function (r) { return r.json(); }).then(function (r) {
 				if (r && r.ok) return r.data;
 				throw new Error((r && r.error) || "请求失败");
 			});
