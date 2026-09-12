@@ -7,8 +7,12 @@
 #
 # Steps:
 #   1. node --check on all workspace JS files (syntax validation)
+#   1.5-1.12 preflight gates: health-check (assembly), scan-dangling, update-watch,
+#          lint-skills, skill-inventory, bundle-manifest, verify-plugin-imports,
+#          check-unsupervised (unregistered runtime changes vs task-scheduler timeline)
 #   2. verify-patches.ps1 (dist patch anchor drift detection)
-#   3. node --test unit tests (skipped with -SkipTests; EPERM in DSH sandbox)
+#   3. node --test unit tests: tests\plugins\*.test.mjs + plugins\*\tests\*.test.mjs
+#      (skipped with -SkipTests; EPERM in DSH sandbox)
 #   4. smoke-test.ps1 (runtime verification; skipped with -SkipSmoke)
 #
 # Exit code = number of failed checks (0 = all green).
@@ -54,15 +58,19 @@ if ($syntaxFail -eq 0) {
 }
 $totalFail += $syntaxFail
 
-# ---- Step 1.5: health-check.mjs (assembly preflight + SLO health history) ----
-# 优先使用 health-check.mjs：内部运行 startup-verify 并记录到 ~/.dsh/.health/startup-history.jsonl
-# （SLO 健康看板，方案书 v3 阶段 6）；脚本缺失时回退直接跑 startup-verify。
+# ---- Step 1.5: health-check.mjs (assembly preflight only; NO SLO record) ----
+# 优先使用 health-check.mjs：内部运行 startup-verify 得到装配预检结论。
+# F17（2026-09-10）：必须加 --no-record —— check-all 是门禁、不是"预检采样"。
+# 默认模式会向 ~/.dsh/.health/startup-history.jsonl 追加一条样本并计入连续失败链，
+# 使"跑门禁"本身触发与实际启动无关的误告警（实测已累积 2/3）。--no-record 保留
+# 退出码语义（门禁完全不受影响），采样交给每日计划任务
+# （install-health-task.ps1 -> health-task-run.ps1，09:05）。脚本缺失时回退直接跑 startup-verify。
 Write-Host ''
-Write-Host '=== Step 1.5: health-check.mjs (preflight + SLO record) ===' -ForegroundColor Cyan
+Write-Host '=== Step 1.5: health-check.mjs (preflight; no SLO record) ===' -ForegroundColor Cyan
 $healthCheck = Join-Path $PSScriptRoot 'health-check.mjs'
 $startupVerify = Join-Path $PSScriptRoot 'startup-verify.mjs'
 if (Test-Path $healthCheck) {
-  & node $healthCheck
+  & node $healthCheck --no-record
   $verifyCode = $LASTEXITCODE
   if ($verifyCode -ne 0) {
     Write-Host ('  FAIL  health-check exited with code ' + $verifyCode) -ForegroundColor Red
@@ -129,6 +137,114 @@ if (Test-Path $lintSkills) {
   Write-Host '  SKIP  lint-skills.mjs not found' -ForegroundColor Yellow
 }
 
+# ---- Step 1.9: skill-inventory.mjs (skill governance ledger) ----
+# Advisory: reports top-level skill count, hub-manifest coverage, nested
+# SKILL.md pollution, overlap groups. Exits 0 by default; --strict breaks gate.
+Write-Host ''
+Write-Host '=== Step 1.9: skill-inventory.mjs (skill governance ledger) ===' -ForegroundColor Cyan
+$skillInv = Join-Path $PSScriptRoot 'skill-inventory.mjs'
+if (Test-Path $skillInv) {
+  & node $skillInv
+  $invCode = $LASTEXITCODE
+  if ($invCode -ne 0) {
+    Write-Host ('  FAIL  skill-inventory exited with code ' + $invCode) -ForegroundColor Red
+    $totalFail += $invCode
+  }
+} else {
+  Write-Host '  SKIP  skill-inventory.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.10: verify-bundle-manifest.mjs (patch baseline hashes) ----
+# Compares patches/bundles/MANIFEST.md against files on disk, including the
+# .orig-* rollback baselines. A stale hash silently breaks the rollback path.
+Write-Host ''
+Write-Host '=== Step 1.10: verify-bundle-manifest.mjs (patch baseline hashes) ===' -ForegroundColor Cyan
+$bundleAudit = Join-Path $PSScriptRoot 'verify-bundle-manifest.mjs'
+if (Test-Path $bundleAudit) {
+  & node $bundleAudit
+  $bundleCode = $LASTEXITCODE
+  if ($bundleCode -ne 0) {
+    Write-Host ('  FAIL  bundle manifest drift (' + $bundleCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  confirm the file is correct, then: node scripts/verify-bundle-manifest.mjs --fix' -ForegroundColor Yellow
+    $totalFail += $bundleCode
+  }
+} else {
+  Write-Host '  SKIP  verify-bundle-manifest.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.11: verify-plugin-imports.mjs (plugin import-resolution gate) ----
+# Static gate over plugin sources: relative specifiers must exist on disk, and bare
+# specifiers must be Node builtins or host-provided (@deepseek-ai/*, react). Sharing code
+# across plugins via a bare '@dsh-external/*' specifier is a FAIL: it only resolves by
+# accident through sibling links in the runtime profile, so deregistering one plugin
+# breaks its dependents at import time (F14, 2026-09-10). Uses V8's real module parser,
+# so import-looking text inside string literals is not misreported as an import.
+Write-Host ''
+Write-Host '=== Step 1.11: verify-plugin-imports.mjs (plugin import gate) ===' -ForegroundColor Cyan
+$verifyImports = Join-Path $PSScriptRoot 'verify-plugin-imports.mjs'
+if (Test-Path $verifyImports) {
+  & node $verifyImports
+  $importCode = $LASTEXITCODE
+  if ($importCode -ne 0) {
+    Write-Host ('  FAIL  plugin import gate (' + $importCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  cross-plugin sharing must use a relative path, not a bare @dsh-external/* specifier' -ForegroundColor Yellow
+    $totalFail += $importCode
+  }
+} else {
+  Write-Host '  SKIP  verify-plugin-imports.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.12: check-unsupervised.mjs (unregistered-change gate, 2026-09-11 T4) ----
+# The task-scheduler plugin's own check() only sees resources that already have a release
+# baseline; a runtime file that was never registered produces NO alert at all (2026-09-11
+# instance: plugins/dsh-memory-files/lib/index.js edited by a parallel session -> 0 alerts,
+# found only by mtime). This gate diffs the git working tree against the timeline baselines
+# and blocks on DRIFTED/UNREGISTERED changes in RUNTIME paths only (plugins/ scripts/
+# patches/ profile/ agent-presets/ tests/ + root config files). docs/ and binary artifacts
+# are reported but never block, to avoid alarm fatigue.
+# Inside the DSH sandbox node cannot spawn git -> the script exits 2; retry through a
+# PowerShell pipeline instead (git is callable from the shell, just not from node).
+Write-Host ''
+Write-Host '=== Step 1.12: check-unsupervised.mjs (unregistered-change gate) ===' -ForegroundColor Cyan
+$unsupGate = Join-Path $PSScriptRoot 'check-unsupervised.mjs'
+if (Test-Path $unsupGate) {
+  & node $unsupGate --strict
+  $unsupCode = $LASTEXITCODE
+  if ($unsupCode -eq 2 -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    git status --porcelain --untracked-files=all | & node $unsupGate --stdin --strict
+    $unsupCode = $LASTEXITCODE
+  }
+  if ($unsupCode -eq 2) {
+    Write-Host '  SKIP  environment-blocked (git not callable from node or shell)' -ForegroundColor Yellow
+    Write-Host '  HINT  run: git status --porcelain | node scripts/check-unsupervised.mjs --stdin --strict' -ForegroundColor Yellow
+  } elseif ($unsupCode -ne 0) {
+    Write-Host ('  FAIL  unregistered runtime changes (' + $unsupCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  shared-file edits need: acquire -> edit -> release (summary into the timeline)' -ForegroundColor Yellow
+    $totalFail += $unsupCode
+  }
+} else {
+  Write-Host '  SKIP  check-unsupervised.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.13: check-docs-index.mjs (docs index completeness, ADVISORY, 2026-09-12 T13) ----
+# docs/README.md is the only entry point for "which document is authoritative", but it drifts
+# silently: on 2026-09-12, 20 docs/*.md files had never been indexed at all (audit item O24),
+# including still-relevant ones (runtime diagnosis, standardization analysis, zero-risk plan).
+# ADVISORY ON PURPOSE: this step prints a WARN and never touches $totalFail, because a gate that
+# goes red whenever somebody adds a document is a gate people learn to ignore (F20 lesson).
+# Hard mode is opt-in: `node scripts/check-docs-index.mjs --strict` exits 1 when something is missing.
+Write-Host ''
+Write-Host '=== Step 1.13: check-docs-index.mjs (docs index completeness, advisory) ===' -ForegroundColor Cyan
+$docsIndexGate = Join-Path $PSScriptRoot 'check-docs-index.mjs'
+if (Test-Path $docsIndexGate) {
+  & node $docsIndexGate
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host '  WARN  some docs are not listed in docs/README.md (advisory; add them or move retired ones to docs/archive/)' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host '  SKIP  check-docs-index.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan
@@ -188,16 +304,25 @@ if (-not $SkipTests) {
   Write-Host ''
   Write-Host '=== Step 3: unit tests (node --test) ===' -ForegroundColor Cyan
   $testDir = Join-Path $root 'tests\plugins'
-  $testFiles = Get-ChildItem $testDir -Filter '*.test.mjs' -ErrorAction SilentlyContinue
-  if ($testFiles) {
-    & node --test $testFiles.FullName 2>&1
+  $testFiles = @(Get-ChildItem $testDir -Filter '*.test.mjs' -ErrorAction SilentlyContinue)
+  # plugin-internal tests: plugins\<name>\tests\*.test.mjs (exactly one level down).
+  # Previously never collected -> plugin smoke tests (task-scheduler core, code-security-guard,
+  # command-guard) could regress with zero gate signal. They are custom-harness files
+  # (check() + process.exit), which node --test tolerates: it reports 1 test per file,
+  # pass/fail decided by the child exit code.
+  $pluginTestFiles = @(Get-ChildItem (Join-Path $root 'plugins') -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { Get-ChildItem (Join-Path $_.FullName 'tests') -Filter '*.test.mjs' -ErrorAction SilentlyContinue })
+  $allTestFiles = @($testFiles) + @($pluginTestFiles)
+  Write-Host ('  files: tests\plugins=' + $testFiles.Count + '  plugins\*\tests=' + $pluginTestFiles.Count) -ForegroundColor DarkGray
+  if ($allTestFiles.Count -gt 0) {
+    & node --test ($allTestFiles | ForEach-Object { $_.FullName }) 2>&1
     $testCode = $LASTEXITCODE
     if ($testCode -ne 0) {
       Write-Host ('  FAIL  unit tests exited with code ' + $testCode) -ForegroundColor Red
       $totalFail += $testCode
     }
   } else {
-    Write-Host '  SKIP  no test files found in tests\plugins' -ForegroundColor Yellow
+    Write-Host '  SKIP  no test files found' -ForegroundColor Yellow
   }
 } else {
   Write-Host ''

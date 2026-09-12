@@ -1,0 +1,32 @@
+﻿PURE HEAD (no working-tree commit): running=12
+# PASS  security: registered tools/post-execute
+# PASS  security: warning block appended
+# PASS  security: next NOT called (we replaced result)
+# PASS  security: alert logged to JSONL {"ts":1789146523285,"callId":"call-danger-1","tool":"write","filePath":"D:/tmp/evil.py","reasons":["eval() 鍔ㄦ€佹墽琛岋紙涓嶅彲淇¤緭鍏ュ彲鑷?RCE锛?]}
+# PASS  security: same callId deduped lines=1
+# PASS  security: safe -> next() delegates {"kind":"accept"}
+# PASS  security: non-target tool -> next()
+# PASS  audit: registered tools/pre-execute
+# PASS  audit: registered tools/post-execute
+# PASS  audit: JSONL written
+# PASS  audit: tool name recorded write
+# PASS  audit: args summary recorded {"keys":["file_path","content"],"chars":38}
+# PASS  audit: duration >= 0 5
+# PASS  audit: isError=false false
+# PASS  audit: resultSize counted 10
+# PASS  audit: orphan post-execute not recorded lines=1
+# PASS  registered tools/result
+# PASS  alerts.jsonl written
+# PASS  2 alerts recorded (high+medium, low+non-command skipped) lines=2
+# PASS  rec1 level=high high
+# PASS  rec1 tool=shell shell
+# PASS  rec1 command recorded rm -rf /
+# PASS  rec2 level=medium medium
+# tests 49
+# pass 46
+# fail 3
+  not ok 4 - C:\\Temp\\o20-clean\\plugins\\dsh-task-scheduler\\tests\\core.test.mjs
+  not ok 19 - deregister-plugin --yes 娓呯悊 deps/bundles/junction 骞堕獙璇侀€氳繃
+  not ok 10 - C:\\Temp\\o20-clean\\tests\\plugins\\session-hygiene.test.mjs
+EXIT=1 => RED
+check.yml final sha256 = 387E4464FA24908FDF7EE0700F094C24A0921A2FD47C80BFF8217DAC864D03A7

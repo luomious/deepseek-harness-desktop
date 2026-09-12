@@ -1,0 +1,10 @@
+runs-on: windows-latest
+steps: 5
+triggers: ['push', 'pull_request', 'workflow_dispatch']
+  [0] (uses)  (action step)
+  [1] (uses)  (action step)
+  [2] Syntax check - plugin and patch JS  -> OK
+  [3] Plugin import gate  -> OK
+  [4] Unit tests - tests/plugins + plugin-internal  -> OK
+
+PS blocks with errors: 0

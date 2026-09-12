@@ -1,0 +1,100 @@
+# O6 回归门禁原始输出（2026-09-10）
+# 生成: node C:/Temp/gates.mjs
+
+unit test files: 10
+======== unit tests (node --test) ========
+exit=0
+--- stdout (tail) ---
+  ...
+# Subtest: parsePatchYmlText: disabled follows id on next-next line
+ok 65 - parsePatchYmlText: disabled follows id on next-next line
+  ---
+  duration_ms: 0.2483
+  type: 'test'
+  ...
+# Subtest: check: level defaults to PASS/FAIL by ok
+ok 66 - check: level defaults to PASS/FAIL by ok
+  ---
+  duration_ms: 0.3146
+  type: 'test'
+  ...
+# Subtest: check: explicit WARN/INFO overrides
+ok 67 - check: explicit WARN/INFO overrides
+  ---
+  duration_ms: 0.1454
+  type: 'test'
+  ...
+1..67
+# tests 87
+# suites 6
+# pass 87
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 44487.323
+
+======== startup-verify --json ========
+exit=0
+--- stdout (tail) ---
+      "name": "singleton lock state",
+      "ok": true,
+      "detail": "no lock files",
+      "level": "PASS"
+    },
+    {
+      "id": "V8",
+      "name": "patch anchors present",
+      "ok": true,
+      "detail": "modlens=lowered0 workspace=ADD_CHAT",
+      "level": "PASS"
+    },
+    {
+      "id": "V9",
+      "name": "plugin bundle syntax",
+      "ok": true,
+      "detail": "link plugins=35 files=86 all ok",
+      "level": "PASS"
+    },
+    {
+      "id": "V10",
+      "name": "bundle dsh.bundle.patch declared",
+      "ok": true,
+      "detail": "bundles=42 all declared + patch present",
+      "level": "PASS"
+    }
+  ]
+}
+
+======== verify-plugin-imports ========
+exit=0
+--- stdout (tail) ---
+plugin-imports: 124 files, 327 static specifiers (builtin 187 / host 4 / relative 136 / bare 0), 7 dynamic (advisory)
+PASS  plugin import gate: 0 violations, 7 dynamic not gated
+
+======== syncheck-plugins ========
+exit=0
+--- stdout (tail) ---
+scanned 57 files
+none
+
+======== verify-bundle-manifest ========
+exit=0
+--- stdout (tail) ---
+bundle manifest audit
+=====================
+OK     dsh-client-ui-conversation-client.js
+OK     dsh-client-ui-directory-picker-browse-client.js
+OK     dsh-session-persistence-jsonl-index.js
+OK     dsh-client-ui-settings-models-client.js
+OK     dsh-client-ui-workspace-client.js
+OK     dsh-host-frontend-static-index.js
+OK     modlens-dsh-index.js
+OK     safe-delete-shim.cjs
+OK     dsh-client-ui-conversation-client.js.orig-npm
+OK     dsh-client-ui-workspace-client.js.orig-npm
+OK     dsh-client-ui-workspace-client.js.orig-packaged
+
+total 11  ok 11  problem 0
+
+DONE

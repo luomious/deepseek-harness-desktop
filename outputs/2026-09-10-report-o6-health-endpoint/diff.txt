@@ -1,0 +1,21 @@
+# 改动面审计（git diff --numstat + 12 行删除逐行核对）
+
+numstat (added removed file): "255\t12\tplugins/dsh-host-services/lib/index.js"
+removed line count: 12
+  -import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+  -import { dirname } from 'node:path'
+  -export function apply(ctx) {
+  -          apis: ['trusted', 'readBody', 'json', 'registerLocalApi', 'resolveConfig', 'readJson', 'writeJson'],
+  -        })
+  -      }
+  -      if (ctx.effect && ctx.webServer) {
+  -        ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/host-services/status', handler: statusHandler }), 'host-services: status route')
+  -      } else if (typeof ctx.inject === 'function') {
+  -        ctx.inject(['webServer'], (scope) => {
+  -          try { scope.webServer.register({ kind: 'exact', path: '/host-services/status', handler: statusHandler }) } catch (e) { /* ignore */ }
+  -    try { ctx.logger?.info?.(`[host-services] v${HOST_SERVICES_VERSION} mounted`) } catch { /* ignore */ }
+
+--- whole-repo diff --stat ---
+(clean)
+
+current: chars=19554 bytes=23390 CRLF=false BOM=false

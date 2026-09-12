@@ -1,0 +1,48 @@
+tests: 22   transitive dep files: 43
+
+=== UNTRACKED deps (CI will NOT have these) : 16 ===
+            plugins/dsh-memory-files/lib/index.js
+            scripts/lib/task-lock.mjs
+            tests/fixtures/zstd-golden/generate.mjs
+            tests/fixtures/zstd-golden/manifest.json
+            tests/fixtures/zstd-golden/session-golden-torn.jsonl.zstd
+            tests/fixtures/zstd-golden/session-golden.jsonl
+            tests/fixtures/zstd-golden/session-golden.jsonl.zstd
+            tests/plugins/_helpers/sandbox-import.mjs
+            tests/plugins/diagram-renderer-smoke.test.mjs
+            tests/plugins/memory-files.test.mjs
+            tests/plugins/register-plugin.test.mjs
+            tests/plugins/routing-suite-smoke.test.mjs
+            tests/plugins/session-persistence-zstd.test.mjs
+            tests/plugins/task-scheduler-halfwrite.test.mjs
+            tests/plugins/task-scheduler-lock.test.mjs
+            tests/plugins/vision-engine-contract.test.mjs
+
+=== TRACKED deps : 27 ===
+  patches/bundles/safe-delete-shim.cjs
+  plugins/dsh-code-security-guard/lib/index.js
+  plugins/dsh-code-security-guard/tests/smoke-handler.test.mjs
+  plugins/dsh-code-security-guard/tests/smoke-rules.test.mjs
+  plugins/dsh-command-guard/lib/index.js
+  plugins/dsh-command-guard/lib/risk-rules.mjs
+  plugins/dsh-command-guard/tests/smoke-tools-result.test.mjs
+  plugins/dsh-host-services/lib/index.js
+  plugins/dsh-host-services/lib/shared-utils.js
+  plugins/dsh-session-hygiene/lib/index.js
+  plugins/dsh-task-scheduler/lib/core.js
+  plugins/dsh-task-scheduler/tests/core.test.mjs
+  plugins/dsh-tool-audit/lib/index.js
+  scripts/apply-profile-guard.mjs
+  scripts/check-dist-integrity.mjs
+  scripts/resolve-dist.mjs
+  scripts/startup-verify.mjs
+  tests/plugins/command-guard-risk.test.mjs
+  tests/plugins/context-lifecycle-client.test.mjs
+  tests/plugins/deregister-plugin.test.mjs
+  tests/plugins/http-guard.test.mjs
+  tests/plugins/profile-guard.test.mjs
+  tests/plugins/safe-delete-shim.test.mjs
+  tests/plugins/scan-dangling.test.mjs
+  tests/plugins/session-hygiene.test.mjs
+  tests/plugins/startup-verify-v9.test.mjs
+  tests/plugins/startup-verify.test.mjs

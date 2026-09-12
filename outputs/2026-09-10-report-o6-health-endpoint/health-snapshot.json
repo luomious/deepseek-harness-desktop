@@ -1,0 +1,60 @@
+{
+  "ok": true,
+  "service": "@dsh-external/dsh-host-services",
+  "version": 1,
+  "mountedAt": "2026-09-10T15:29:26.897Z",
+  "generatedAt": "2026-09-10T15:29:26.911Z",
+  "count": 7,
+  "failed": [],
+  "items": {
+    "webserver": {
+      "ok": true,
+      "detail": "http layer up (0s)",
+      "uptimeSec": 0,
+      "ms": 0
+    },
+    "sessions": {
+      "ok": true,
+      "detail": "18 entries",
+      "entries": 18,
+      "ms": 1
+    },
+    "disk": {
+      "ok": true,
+      "detail": "34.8 GB free (min 0.5 GB)",
+      "freeBytes": 37417639936,
+      "minFreeBytes": 536870912,
+      "ms": 0
+    },
+    "patches": {
+      "ok": true,
+      "detail": "8 bundles; MANIFEST.md present",
+      "bundles": 8,
+      "manifest": true,
+      "ms": 1
+    },
+    "plugins": {
+      "ok": true,
+      "detail": "34 plugins, 0 missing lib/index.js",
+      "total": 34,
+      "missing": [],
+      "ms": 9
+    },
+    "logs": {
+      "ok": true,
+      "detail": "DSH_HOME writable; 2 log file(s), newest 41m old",
+      "writable": true,
+      "logFiles": 2,
+      "ms": 1
+    },
+    "preflight": {
+      "ok": true,
+      "detail": "16 samples, 100% pass, newest 2026-09-10T07:51:58.775Z",
+      "samples": 16,
+      "fails": 0,
+      "passRate": 100,
+      "newest": "2026-09-10T07:51:58.775Z",
+      "ms": 0
+    }
+  }
+}

@@ -1,0 +1,31 @@
+﻿overlaid untracked scripts: 15
+files: tests/plugins=18  plugins/*/tests=4  running=19  excluded=3
+# PASS  security: registered tools/post-execute
+# PASS  security: warning block appended
+# PASS  security: next NOT called (we replaced result)
+# PASS  security: alert logged to JSONL {"ts":1789146455720,"callId":"call-danger-1","tool":"write","filePath":"D:/tmp/evil.py","reasons":["eval() 鍔ㄦ€佹墽琛岋紙涓嶅彲淇¤緭鍏ュ彲鑷?RCE锛?]}
+# PASS  security: same callId deduped lines=1
+# PASS  security: safe -> next() delegates {"kind":"accept"}
+# PASS  security: non-target tool -> next()
+# PASS  audit: registered tools/pre-execute
+# PASS  audit: registered tools/post-execute
+# PASS  audit: JSONL written
+# PASS  audit: tool name recorded write
+# PASS  audit: args summary recorded {"keys":["file_path","content"],"chars":38}
+# PASS  audit: duration >= 0 12
+# PASS  audit: isError=false false
+# PASS  audit: resultSize counted 10
+# PASS  audit: orphan post-execute not recorded lines=1
+# PASS  registered tools/result
+# PASS  alerts.jsonl written
+# PASS  2 alerts recorded (high+medium, low+non-command skipped) lines=2
+# PASS  rec1 level=high high
+# PASS  rec1 tool=shell shell
+# PASS  rec1 command recorded rm -rf /
+# PASS  rec2 level=medium medium
+# tests 141
+# pass 140
+# fail 0
+# skipped 1
+--- not ok lines ---
+EXIT=0  => CI VERDICT: GREEN

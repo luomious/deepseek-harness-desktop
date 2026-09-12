@@ -1,0 +1,43 @@
+﻿=== ubuntu run 34449756093 --log-failed (trimmed) ===
+check	UNKNOWN STEP	2026-09-10T07:24:09.0124328Z not ok 15 - deregister-plugin --yes 娓呯悊 deps/bundles/junction 骞堕獙璇侀€氳繃
+check	UNKNOWN STEP	2026-09-10T07:24:09.0131903Z   failureType: 'testCodeFailure'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0132743Z   error: |-
+check	UNKNOWN STEP	2026-09-10T07:24:09.0157153Z   name: 'AssertionError'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0488320Z #   OK 鎸傝浇鐘舵€佺鐐硅矾鐢?check	UNKNOWN STEP	2026-09-10T07:24:09.0488905Z #   OK 鍚岀増鏈凡鎸傝浇鍒欒烦杩囷紙骞傜瓑锛?check	UNKNOWN STEP	2026-09-10T07:24:09.0489370Z # result: 42 passed, 0 failed
+check	UNKNOWN STEP	2026-09-10T07:24:09.0493674Z #   const err = new Error(message);
+check	UNKNOWN STEP	2026-09-10T07:24:09.0494751Z # Error: Cannot find module '@electron/asar'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0539417Z not ok 5 - tests/plugins/profile-guard.test.mjs
+check	UNKNOWN STEP	2026-09-10T07:24:09.0544772Z   failureType: 'testCodeFailure'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0547097Z   error: 'test failed'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0547854Z   code: 'ERR_TEST_FAILURE'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0572663Z # Subtest: SELF-2: 闈炵灛鎬佹枃浠跺洖鏀剁珯澶辫触 鈫?钀藉叆闅旂锛堝唴瀹瑰彲鎭㈠锛?check	UNKNOWN STEP	2026-09-10T07:24:09.0573667Z not ok 25 - SELF-2: 闈炵灛鎬佹枃浠跺洖鏀剁珯澶辫触 鈫?钀藉叆闅旂锛堝唴瀹瑰彲鎭㈠锛?check	UNKNOWN STEP	2026-09-10T07:24:09.0574380Z   ---
+check	UNKNOWN STEP	2026-09-10T07:24:09.0578746Z   failureType: 'testCodeFailure'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0579523Z   error: '鏂囦欢蹇呴』鍑虹幇鍦ㄩ殧绂诲尯'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0580804Z   name: 'AssertionError'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0611612Z not ok 29 - isProtected: DSH_HOME / tmpdir / node_modules 鍒ゅ畾
+check	UNKNOWN STEP	2026-09-10T07:24:09.0617616Z   failureType: 'testCodeFailure'
+check	UNKNOWN STEP	2026-09-10T07:24:09.0618429Z   error: |-
+check	UNKNOWN STEP	2026-09-10T07:24:09.0622382Z   name: 'AssertionError'
+check	UNKNOWN STEP	2026-09-10T07:24:09.1447462Z #   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+check	UNKNOWN STEP	2026-09-10T07:24:09.1468705Z # Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@dsh-external/dsh-host-services' imported from /home/runner/work/deepseek-harness-desktop/deepseek-harness-desktop/plugins/dsh-session-hygiene/lib/index.js
+check	UNKNOWN STEP	2026-09-10T07:24:09.1481496Z #   code: 'ERR_MODULE_NOT_FOUND'
+check	UNKNOWN STEP	2026-09-10T07:24:09.1483996Z not ok 8 - tests/plugins/session-hygiene.test.mjs
+check	UNKNOWN STEP	2026-09-10T07:24:09.1487455Z   failureType: 'testCodeFailure'
+check	UNKNOWN STEP	2026-09-10T07:24:09.1488601Z   error: 'test failed'
+check	UNKNOWN STEP	2026-09-10T07:24:09.1489025Z   code: 'ERR_TEST_FAILURE'
+check	UNKNOWN STEP	2026-09-10T07:24:09.1490499Z # Subtest: classifyNodeCheck: spawn EPERM (sandbox) 鈫?env-blocked, never a syntax error
+check	UNKNOWN STEP	2026-09-10T07:24:09.1491824Z ok 37 - classifyNodeCheck: spawn EPERM (sandbox) 鈫?env-blocked, never a syntax error
+check	UNKNOWN STEP	2026-09-10T07:24:09.1495430Z # Subtest: classifyNodeCheck: real child run + nonzero exit 鈫?syntax-error (FAIL preserved)
+check	UNKNOWN STEP	2026-09-10T07:24:09.1496642Z ok 39 - classifyNodeCheck: real child run + nonzero exit 鈫?syntax-error (FAIL preserved)
+check	UNKNOWN STEP	2026-09-10T07:24:09.1500910Z # Subtest: classifyNodeCheck: no error field but status null (killed/timeout edge) 鈫?env-blocked, not syntax-error
+check	UNKNOWN STEP	2026-09-10T07:24:09.1501885Z ok 41 - classifyNodeCheck: no error field but status null (killed/timeout edge) 鈫?env-blocked, not syntax-error
+check	UNKNOWN STEP	2026-09-10T07:24:09.1506020Z # Subtest: v9Verdict: real syntax errors always FAIL, even alongside env-blocked
+check	UNKNOWN STEP	2026-09-10T07:24:09.1507074Z ok 43 - v9Verdict: real syntax errors always FAIL, even alongside env-blocked
+check	UNKNOWN STEP	2026-09-10T07:24:09.1508553Z # Subtest: v9Verdict: all blocked 鈫?WARN (not FAIL, not PASS-silent)
+check	UNKNOWN STEP	2026-09-10T07:24:09.1509152Z ok 44 - v9Verdict: all blocked 鈫?WARN (not FAIL, not PASS-silent)
+check	UNKNOWN STEP	2026-09-10T07:24:09.1521901Z # Subtest: check: level defaults to PASS/FAIL by ok
+check	UNKNOWN STEP	2026-09-10T07:24:09.1522343Z ok 51 - check: level defaults to PASS/FAIL by ok
+check	UNKNOWN STEP	2026-09-10T07:24:09.1525792Z # tests 55
+check	UNKNOWN STEP	2026-09-10T07:24:09.1526508Z # pass 50
+check	UNKNOWN STEP	2026-09-10T07:24:09.1526704Z # fail 5
+check	UNKNOWN STEP	2026-09-10T07:24:09.1593093Z ##[error]Process completed with exit code 1.
