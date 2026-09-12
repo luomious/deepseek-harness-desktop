@@ -569,6 +569,46 @@ function ollamaExe() {
   const base = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local')
   return join(base, 'Programs', 'Ollama', 'ollama.exe')
 }
+// O5（2026-09-12 · T13）：模型目录**不再硬编码**（原先散落在 3 处字面量里，换机/换盘即失效）。
+// 默认值与原硬编码**完全一致** ⇒ 默认行为零变化；换机只需设 `DSH_OLLAMA_MODELS`。
+// 选环境变量而非插件 config：与仓内既有口径一致（DSH_HOME / DSH_BACKUPS_DIR /
+// DSH_DESKTOP_FORCE_GPU 都走 env），且模型目录是在**独立进程（wscript/ollama）**里生效的。
+const DEFAULT_OLLAMA_MODELS = 'D:\\ollama-models'
+export function ollamaModelsDir() {
+  const v = process.env.DSH_OLLAMA_MODELS
+  return typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_OLLAMA_MODELS
+}
+/** VBS 字符串字面量转义：双引号写成两个；反斜杠在 VBS 字符串里是普通字符。 */
+function vbsQuote(s) {
+  return '"' + String(s).replace(/"/g, '""') + '"'
+}
+/**
+ * VBS 路线只接受纯 ASCII 目录：wscript 默认按 ANSI 读 `.vbs`，非 ASCII（例如中文用户名下的
+ * 自定义模型目录）会被写坏 ⇒ 这种情况**放弃 VBS 静默启动**，降级为直接 `spawn`（env 传参，
+ * 无编码问题），代价只是可能多一个控制台窗口。导出以便单测锁定该分支。
+ */
+export function canUseVbsForModelsDir(dir) {
+  return /^[\x20-\x7e]*$/.test(String(dir))
+}
+// O5（2026-09-12 · T13）：退出钩子 —— 回收**本会话由本插件拉起**的 ollama / llama-server。
+// 只在 `startOllama()` 真正 spawn 成功后才安装 ⇒ 平时零开销，且不误杀用户自己起的实例。
+// `stopOllama()` 内部用 `spawnSync`（同步），因此可以在 'exit' 阶段调用（其 Promise 被忽略）。
+// 跳过条件：① 显式保留 `DSH_VISION_KEEP_OLLAMA=1`；② 应用正在重启
+// （`__dsh_relaunch_in_progress__`，跳过以免打断新实例 —— 范式同 `dsh-hy3-gateway/lib/index.js:41-60`）。
+let ollamaExitHookInstalled = false
+export function installOllamaExitHook() {
+  if (ollamaExitHookInstalled) return false
+  ollamaExitHookInstalled = true
+  process.on('exit', () => {
+    try {
+      if (process.env.DSH_VISION_KEEP_OLLAMA === '1') return
+      if (globalThis.__dsh_relaunch_in_progress__ === true) return
+      log('exit cleanup: stop ollama (started by this session)')
+      void stopOllama()
+    } catch { /* 退出阶段绝不抛错 */ }
+  })
+  return true
+}
 function startupDir() {
   return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
 }
@@ -584,18 +624,23 @@ function startOllama() {
     try {
       const exe = ollamaExe()
       if (!existsSync(exe)) { log('ollama.exe 不存在:', exe); return resolve(false) }
+      const modelsDir = ollamaModelsDir()
 
       try {
+        if (!canUseVbsForModelsDir(modelsDir)) {
+          throw new Error('OLLAMA_MODELS 含非 ASCII，跳过 VBS 静默启动（降级直接 spawn）: ' + modelsDir)
+        }
         // 纯 ASCII 源（%LOCALAPPDATA% 展开，避免中文用户名路径编码问题）
         const vbs =
           'Set sh = CreateObject("WScript.Shell")\r\n' +
-          'sh.Environment("PROCESS")("OLLAMA_MODELS") = "D:\\ollama-models"\r\n' +
+          'sh.Environment("PROCESS")("OLLAMA_MODELS") = ' + vbsQuote(modelsDir) + '\r\n' +
           'sh.Environment("PROCESS")("OLLAMA_CONTEXT_LENGTH") = "8192"\r\n' +
           'sh.Run sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") & " serve", 0, False\r\n'
         mkdirSync(dirname(OLLAMA_START_VBS), { recursive: true })
         writeFileSync(OLLAMA_START_VBS, vbs, { encoding: 'utf8' })
         const child = spawn('wscript.exe', ['//B', OLLAMA_START_VBS], { detached: true, stdio: 'ignore', windowsHide: true })
         child.unref()
+        installOllamaExitHook()
         return resolve(true)
       } catch (error) {
         log('VBS 静默启动失败，回退直接 spawn:', String(error))
@@ -604,9 +649,10 @@ function startOllama() {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
-        env: { ...process.env, OLLAMA_MODELS: 'D:\\ollama-models', OLLAMA_CONTEXT_LENGTH: '8192' },
+        env: { ...process.env, OLLAMA_MODELS: modelsDir, OLLAMA_CONTEXT_LENGTH: '8192' },
       })
       child.unref()
+      installOllamaExitHook()
       resolve(true)
     } catch { resolve(false) }
   })
@@ -642,10 +688,18 @@ function setOllamaAutostart(on) {
       if (existsSync(OLLAMA_AUTOSTART_VBS)) rmSync(OLLAMA_AUTOSTART_VBS, { force: true })
       return
     }
+    const modelsDir = ollamaModelsDir()
+    if (!canUseVbsForModelsDir(modelsDir)) {
+      // 非 ASCII 目录：VBS 会被 wscript 按 ANSI 读坏 ⇒ 不写自启（运行时仍可经 startOllama 直接 spawn），
+      // 并清掉可能残留的旧自启项（其内是错的模型目录，留着更糟）。
+      log('OLLAMA_MODELS 含非 ASCII，跳过开机自启 VBS:', modelsDir)
+      if (existsSync(OLLAMA_AUTOSTART_VBS)) rmSync(OLLAMA_AUTOSTART_VBS, { force: true })
+      return
+    }
     // 纯 ASCII 源(用 %LOCALAPPDATA% 展开,避免中文路径编码问题);直接调 ollama.exe,不经过 .cmd 关联 → 无弹窗
     const vbs =
       'Set sh = CreateObject("WScript.Shell")\r\n' +
-      'sh.Environment("PROCESS")("OLLAMA_MODELS") = "D:\\ollama-models"\r\n' +
+      'sh.Environment("PROCESS")("OLLAMA_MODELS") = ' + vbsQuote(modelsDir) + '\r\n' +
       'sh.Environment("PROCESS")("OLLAMA_CONTEXT_LENGTH") = "8192"\r\n' +
       'sh.Run sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\Ollama\\ollama.exe") & " serve", 0, False\r\n'
     writeFileSync(OLLAMA_AUTOSTART_VBS, vbs, { encoding: 'utf8' })

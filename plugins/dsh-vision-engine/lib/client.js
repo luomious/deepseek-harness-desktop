@@ -239,10 +239,25 @@ window.__ModuleLoader__.load({
     }
 
     // ---------- fetch helpers ----------
-    function api(path, body) {
+    // O11：请求超时。host 路由或上游推理挂起时 fetch 永不 settle —— 设置面板会
+    // 永久停在加载态。默认 60s，慢调用（真实读图/推理）逐调用放宽。
+    var API_TIMEOUT_MS = 60000;
+    function fetchWithTimeout(url, opts, timeoutMs) {
+      var ms = timeoutMs || API_TIMEOUT_MS;
+      var ac = new AbortController();
+      var timer = setTimeout(function () { ac.abort(); }, ms);
+      var o = Object.assign({}, opts || {}, { signal: ac.signal });
+      return fetch(url, o).then(function (r) { clearTimeout(timer); return r; }, function (e) {
+        clearTimeout(timer);
+        if (e && (e.name === 'AbortError' || e.code === 20)) throw new Error('请求超时（' + Math.round(ms / 1000) + ' 秒）');
+        throw e;
+      });
+    }
+
+    function api(path, body, timeoutMs) {
       var opts = { method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json' } };
       if (body !== undefined) opts.body = JSON.stringify(body);
-      return fetch(path, opts).then(function (res) {
+      return fetchWithTimeout(path, opts, timeoutMs).then(function (res) {
         return res.text().then(function (txt) {
           var j = {};
           if (txt) { try { j = JSON.parse(txt); } catch (e) { throw new Error('响应不是 JSON: ' + String(e).slice(0, 80)); } }
@@ -474,7 +489,7 @@ window.__ModuleLoader__.load({
         var reader = new FileReader();
         reader.onload = function () {
           setTest({ phase: 'running', result: null });
-          api('/vision-engine/test', { dataUrl: String(reader.result) })
+          api('/vision-engine/test', { dataUrl: String(reader.result) }, 180000)
             .then(function (r) { setTest({ phase: 'done', result: r }); loadAll(); })
             .catch(function (e) { setTest({ phase: 'done', result: { ok: false, error: String(e) } }); });
         };
@@ -486,7 +501,7 @@ window.__ModuleLoader__.load({
         setBalance({ phase: 'loading', data: null });
         setModelTest({ phase: 'loading', data: null });
         // 刷新 = 额度 + 用量 + 模型试读自测(内置测试图真实读图,验证模型能否正常使用)
-        api('/vision-engine/refresh').then(function (j) {
+        api('/vision-engine/refresh', undefined, 180000).then(function (j) {
           setBalance({ phase: 'done', data: j.balance });
           if (j.usage) setUsage(j.usage);
           setModelTest({ phase: 'done', data: j.test });
@@ -921,7 +936,7 @@ window.__ModuleLoader__.load({
         }, 'dsh-vision-engine: dictionaries');
 
         // 路由存在才挂载卡片（headless 下不渲染错误卡片）+ 启动粘贴图片预览
-        fetch('/vision-engine/config')
+        fetchWithTimeout('/vision-engine/config', {}, 15000)
           .then(function (res) {
             if (!res.ok) return;
             try {
