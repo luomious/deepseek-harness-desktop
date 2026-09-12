@@ -107,7 +107,13 @@ const SCAN_ROOTS = [
   'dsh-vision-rotator',
 ];
 
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'tests', 'dist', 'build', '.cache']);
+// 'test' (singular) and 'scripts' mirror the 'tests' exclusion: test/smoke/build
+// helpers import their own plugin's compiled lib/*.js, which does not exist on a
+// clean checkout (lib is a tsdown/tsc build artifact). Gating those imports
+// against the artifact fails CI for plugins whose lib/*.js is not committed
+// (4 RELATIVE_MISSING observed 2026-09-12). Runtime-source import discipline is
+// enforced on lib/ and src/, not on test/build helpers.
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'tests', 'test', 'scripts', 'dist', 'build', '.cache']);
 
 /**
  * Announced scope exclusions - deliberately NOT silent.
