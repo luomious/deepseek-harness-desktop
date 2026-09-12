@@ -109,3 +109,7 @@ plugins/dsh-crashpad-hygiene/data/events.jsonl
 
 # Generated diagram artifacts (workspace-local outputs of render_diagram)
 diagrams/
+
+# Test-render artifacts (regenerated per test run; not fixtures)
+tests/preview/
+plugins/dsh-diagram-renderer/tests/preview/
