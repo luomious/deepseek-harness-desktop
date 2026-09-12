@@ -1,5 +1,10 @@
 # DSH 升级计划 · 会话归档交接文档
 
+> ⚠️ **已过时提示（2026-09-12 实测修正）**：本文是 **2026-08-31→09-02 的归档交接**，其中「hub skill 第一批 18 个直装」等计数为当时快照；
+> 当前实测 = **skill 顶层 61 个**（hub 源码 94；12 个有 hub manifest 登记）+ **插件 35 个** + 根级 3 个。复算：`node scripts/skill-inventory.mjs`。
+> ⚠️ 另：本文所引 `_skills-batch1-manifest.json` **在仓库中（含 `_backups/`）不存在**（2026-09-12 全仓查实）⇒ **勿据该文件做回滚或核对**；实际清单以 `~/.dsh/skills/.hub-install-manifest.json`（12 条）为准。
+> **归档结论保留不动**，仅计数与失效引用需按上面口径判读。
+
 > 归档日期：2026-08-31 → 2026-09-02（最终归档）
 > 会话范围：WorkBuddy 学习 → DSH 全面升级方案（v1→v3）→ 分阶段执行（阶段 0-2、3a、3b、6）+ A/B 组收尾 + command-guard v2 + prompt-enhance 工具化 + 阶段 A 已有功能审计 + 官方 v2.0.4 评估
 > 主文档：`E:\WorkBuddy\learn\DSH全面升级方案书v3-最终版.md`（方案）、`E:\WorkBuddy\learn\UPGRADE-EXECUTION-LOG.md`（执行记录，D 盘副本 `D:\Deepseek-Harness\docs\UPGRADE-EXECUTION-LOG.md`）

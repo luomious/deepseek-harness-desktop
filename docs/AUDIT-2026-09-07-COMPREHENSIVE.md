@@ -1,5 +1,9 @@
 # DSH Desktop 工作区 · 全面架构与工程审计报告
 
+> ⚠️ **计数口径已过时（2026-09-12 实测修正）**：本文是 **2026-09-07 的审计快照**，其中的「30 本地插件」等计数为当时值。
+> 当前实测 = **插件 35 个**（`plugins/` 下 35/35 含 `lib/index.js`）+ 根级 3 个；**skill 顶层 61 个**（hub 源码 94）。
+> 复算：`GET http://127.0.0.1:43120/health` · `node scripts/skill-inventory.mjs`。**本文的历史结论与判定保留不动**，仅提醒**计数勿直接引用**。
+
 - 审计日期：2026-09-07
 - 审计对象：`D:\Deepseek-Harness`（DSH Desktop v2.0.2 壳 + 30 本地插件 + 3 根级守护 + 108 脚本 + 补丁体系）
 - 上游基线：`@deepseek-ai/dsh@0.1.1-rc.2`（upstream.json pin `b150a551`），Electron 43.4.0

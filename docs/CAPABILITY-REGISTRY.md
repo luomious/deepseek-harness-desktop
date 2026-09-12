@@ -4,6 +4,12 @@
 > 分层索引：本文件只做顶层地图，细节链接到各层的事实源文档，不重复维护。
 > 更新纪律：新增/下线任何能力，必须同步本表对应行。
 > 生成基线：2026-09-07（CAP-1/3 完成日）· skill 总数 18（6 方法论 + 12 hub 直装）
+>
+> **⚠️ 2026-09-10 实测修正：skill 顶层总数 = 61**（12 个有 hub manifest 登记 + **49 个来源未登记**）。
+> 旧写「18」是 CAP-1 完成时点数；之后经市场页 / 手工安装持续增长，且**未全部进 manifest**（不可回滚，违反可追溯铁律）。
+> **查当前数一律以 `node scripts/skill-inventory.mjs` 实测为准，勿采信本文件历史数字。**
+> **2026-09-12 补充：插件计数同为实测口径 = 35 个**（`plugins/` 下 35/35 都含 `lib/index.js`，与 `GET http://127.0.0.1:43120/health` 的 `plugins` 探测一致）+ 根级 3 个；本文件「插件层」标题原写「30 个」，已改正。
+> catalog 膨胀风险**已实测结清（2026-09-12 补正）**：preset `standard` 的 `agent.cordis.yml:76-87` 装配 `@deepseek-ai/dsh-tool-skill`，注释自证 *"gives them the catalog and loader"* ⇒ catalog **确实注入**（非纯按需搜索）。**处置（SL-9，2026-09-10）**：用 `disable-model-invocation: true` 把 **17 个低价值 skill 移出模型 catalog**（保留文件与用户菜单）⇒ catalog **11,686 → 6,804 字符（-41.8%）**、条目 61→44、含框架约 7,444（回到 9KB 危险线下）；**未删任何文件、零 FAIL、可一行回滚**。详见 CHANGELOG SL-9。
 
 ---
 
@@ -50,7 +56,7 @@ node scripts/install-hub-skills.mjs --remove <name>  # 回滚单个（仅限 man
 node scripts/lint-skills.mjs                   # 格式门禁
 ```
 
-## 2. 插件层（30 个 · 事实源 `plugins/INVENTORY.md`）
+## 2. 插件层（35 个 · 事实源 `plugins/INVENTORY.md`）
 
 > 装配/热重载/状态以 INVENTORY.md 为准，此处只列能力分组速览。
 

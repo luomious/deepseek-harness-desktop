@@ -36,7 +36,7 @@
  *   <hhmmss>），cleanup 按名字解析年龄，零状态文件、可跨会话维护。
  * ---------------------------------------------------------------------------
  */
-import { execFileSync, execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -272,8 +272,13 @@ function cleanupMain({ yes, maxAgeHours }) {
     const target = join(profilesDir, s.name);
     try {
       const escaped = target.replace(/'/g, "''");
+      // F13 实测（2026-09-10）：VB 的 DeleteDirectory 成功移入回收站后仍抛 FileNotFoundException，
+      // 且 try/catch 吞掉异常后 PowerShell 退出码**依然是 1**（$? 仍为 false），
+      // 因此 execFileSync 必然抛异常 → 恒误报失败。改为 spawnSync，不读退出码，
+      // 以"路径是否已消失"作为事实判据。
       const ps = `Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('${escaped}','OnlyErrorDialogs','SendToRecycleBin')`;
-      execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { windowsHide: true, stdio: "ignore" });
+      spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { windowsHide: true, stdio: "ignore" });
+      if (existsSync(target)) throw new Error(`回收站删除后路径仍存在: ${target}`);
       console.log(`[${BIN}] ♻ 已移入回收站：${s.name}`);
     } catch (cause) {
       failed += 1;

@@ -1,5 +1,9 @@
 # DSH Desktop 更新适配性评估（UPDATE ASSESSMENT）
 
+> ⚠️ **计数口径已过时（2026-09-12 实测修正）**：本文「本地定制规模」等行的**插件计数**（原写 26 个）为当时快照。
+> 当前实测 = **插件 35 个**（35/35 含 `lib/index.js`）+ 根级 3 个；**skill 顶层 61 个**（hub 源码 94）。
+> 复算：`GET http://127.0.0.1:43120/health` · `node scripts/skill-inventory.mjs`。**评估机制与结论保留不动**（`check-update-compat.mjs` 仍是有效入口），仅计数勿直接引用。
+
 > 目的：把「官方发新版本 → 是否适配本机 → 是否升级」的评估沉淀为可重复机制。
 > 每次官方发版后运行 `node scripts/check-update-compat.mjs`（只读），10 分钟出结论，再对照本文档决策。
 > 本文档只记录结论与依据；执行日志见 `docs/UPGRADE-EXECUTION-LOG.md`。

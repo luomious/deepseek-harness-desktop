@@ -26,7 +26,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
-import { createDedupNotifier, registerRouteWithRetry } from '@dsh-external/dsh-host-services/shared-utils';
+// Relative path on purpose (not a bare specifier): see scripts/verify-plugin-imports.mjs (F14).
+import { createDedupNotifier, registerRouteWithRetry } from '../../dsh-host-services/lib/shared-utils.js';
 
 // ESM 作用域无全局 require；createRequire 提供 Electron 主进程内置模块解析能力
 // （2026-09-06 审计修复：原 require('electron') 在 ESM 下 ReferenceError 被吞，通知降级为 warn）。

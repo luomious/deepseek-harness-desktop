@@ -1,5 +1,10 @@
 # DSH Desktop 单机化总方案（Master Plan）
 
+> ⚠️ **计数口径已过时（2026-09-12 实测修正）**：本文的 skill / 插件**计数**是写作当日（2026-09-07）的快照。
+> 当前实测 = **skill 顶层 61 个**（hub 源码 **94** 个；其中 **12** 个有 hub manifest 登记）+ **插件 35 个**（35/35 含 `lib/index.js`）+ 根级 3 个。
+> 复算：`node scripts/skill-inventory.mjs` · `GET http://127.0.0.1:43120/health`。**本文的历史结论与判定保留不动**，仅提醒**计数勿直接引用**。
+> ⚠️ 另：文中所引 `_skills-batch1-manifest.json` **在仓库中（含 `_backups/`）不存在**（2026-09-12 全仓查实）⇒ **勿据该文件做回滚或核对**，以 `~/.dsh/skills/.hub-install-manifest.json`（12 条）与 `node scripts/skill-inventory.mjs` 为准。
+
 > **对账备注（2026-09-08）**：第 1/2 波状态表已与实际完成度逐项对账（带证据行号）。
 > 已完成：目录聚合告警 / crashpad 轮转 / 非原子写清零 / skill 第一批；前提消失：归档 250M 会话。
 > 剩余待做：双 build 回滚、外部看门狗（移交 WorkBuddy 线）。

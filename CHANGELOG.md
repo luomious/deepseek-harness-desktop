@@ -6,6 +6,1188 @@
 
 ---
 
+## 2026-09-12 T20 · O3「先测量」证伪已修 + O13 标注 vendored（零代码改动）
+
+> 按上一步推荐执行 O3/O13。两件都严格「先测量」，结论共同指向：**不用动任何代码，只需修台账**。
+
+**① O3：会话解码同步阻塞 —— 实测已修（台账过时，非代码问题）**
+- 计划文档 O3 记为「同步 zstd 回退 · **用户可感知** · 中风险」，实际 **2026-09-07 的 PERF-5+PERF-6 补丁已解决**：
+  - `readRaw`（打开会话）走 `decompressZstdFramesStreaming`（多帧单 stream，~3x）；`readPrefix`（列表前缀）走同步 generator 但**帧间 `await scheduler.yield()`**；fallback per-frame async —— **三条路径都有事件循环让出机制**。
+  - 运行态确证：`resolveCurrentBuild().nodeModules/.../dsh-session-persistence-jsonl/lib/index.js` 与补丁源**同为 60809B**，`appliedWhen` 三标记（L926 / L1002 / L1041）都在；dev 副本同样 60809B。
+  - **行为实测**（探针复刻真实 `scanZstdFrames` + streaming 解码）：最大会话 17,768KB = **66,604 个小 zstd 帧**，解码 1232ms 期间 1ms 定时器 **tick 1213 次**（≈全程响应）；16MB / 12.8MB 同样（tick 872 / 512）。
+- ⇒ **判定：O3 不做代码改动**。「先测量」省掉了一次整文件补丁重打（原估中风险）。
+- 附知识：node `zstdDecompressSync(整文件)` 只解**第一个**帧（多帧串接会漏解）——测总耗时须用流式或逐帧循环。
+
+**② O13：上游构建机路径 `C:/Users/Eldwen/...` —— 标注 vendored（不改产物）**
+- 实测 8 处（`plugins/dsh-routing-suite/injector/lib/index.js:7,242,2054,2648,2927,2931,3081,3250`）全是 **tsdown 编译产物的 `//#region` sourcemap 注释**（`C:/Users/Eldwen/AppData/Roaming/npm/...`）。
+- 该目录是**独立 git 仓库（外部 clone）且被根 `.gitignore:54` 整体忽略** ⇒ 根仓 grep 看不到；基线只记录在 `PROVENANCE.md`。
+- 处置：**不改产物**（手改会被下次 build 覆盖并使 sourcemap 错位）→ 在 `plugins/dsh-routing-suite/PROVENANCE.md`「已知失真/待办」追加第 5 条申报为 vendored 预期失真。
+
+**验证**：计划文档表格自检 84 行 / 0 不一致；门禁无新增阻塞（改动 = docs + 外部仓 PROVENANCE，后者在根仓忽略区）。
+**影响面：零运行时影响** —— 无插件代码、无装配、无补丁改动，**不需重启**。
+
+---
+
+## 2026-09-12 T19 · W5 结构清理：O19 死文件清除 + O21 插件 README 补齐（零重启、零运行时风险）
+
+> 用户「按你最推荐的方法来」⇒ 执行 W5 的两项结构清理。**先测量**照例改写了部分范围（见 ② 的「移入」判定）。
+
+**① O19：`remote-workspace` 双份前端 —— 删掉死的那一份（三重取证）**
+计划文档 O19：「`lib/client.js` vs `lib/client/index.js` 并存 ⇒ 改一处漏一处」。取证结果：
+
+| 证据 | 结论 |
+|---|---|
+| `package.json` 的 `exports["./client"].default` | `./lib/client.js` —— **这才是加载入口** |
+| 全仓引用扫描（grep `client/index.js`） | 唯一命中是**计划文档自身** ＋ 5 处**别的插件补丁包里的 tsdown 构建注释**（`//#region lib/types/client/index.js`）⇒ **无任何代码引用它** |
+| 旧文件本体 | `import { useState } from 'react'`（**ESM 源码格式**），且**全文 0 处 `__ModuleLoader__.load`** ⇒ 现行客户端加载器**根本无法消费它** |
+
+⇒ 判定为**旧构建残留**（同 JSDoc / 同 `remoteFlow` slot / 同 `/remote-ws/api`）。处置：**回收站删除** `lib/client/index.js` + `.map`，并清掉随之为空的 `lib/client/` 目录；**原件已备份** `_backups/t13-o19-remote-ws-dup-20260912-105958/`（含前后 sha256）。
+**验证**：活文件 `lib/client.js` 哈希**逐字节未变**（`0D30ABEC…`）；`node --check` 两侧均 OK；`verify-plugin-imports` **124 文件 / 0 违规**（原 125/330 ⇒ 死文件此前也在被统计）；门禁无新增阻塞。
+> 这个隐患有多真：**同日上午我给这个插件加 O11 超时，改的正是 `lib/client.js`（活的那份）**；若改到死的那份，界面不会有任何变化，而你以为「改了」。
+
+**② O21：插件 README 补齐 20 份（覆盖 35/35），并判定「移入」不做**
+- **补 README**：`plugins/` 下 20 个插件原本没有任何 README ⇒ 生成统一体例 README（字段**全部实测导出**：装配/状态取自台账 `INVENTORY.md`，入口/客户端半/测试取自文件系统；**只写本会话核实过的坑位**，没把握的一律不写）⇒ 现在 **35/35 插件都有 README**（第 36 个是 `dsh-routing-suite`：外部仓库载荷、无 `package.json`，不是插件）。
+- **「根级 3 个移入 `plugins/`」判定：不做（有证据）**：`dsh-context-lifecycle` / `dsh-stuck-loop-guard` 在**模板与运行态 profile 里都以绝对 `link:D:\Deepseek-Harness\dsh-…` 装配**（`profile/desktop/package.json:5,19` 与运行态 `:10,28`）⇒ 移动目录＝**四处装配全断**（还要重跑 register-plugin + startup-verify），**收益为零**；且这 3 个目录**本来就有 README**。`dsh-vision-rotator` 已 deprecated 且**不在装配列表内**，处置是「标注」而非搬动。
+- 生成器留档：`_backups/t13-o21-readmes-20260912/gen-readme.mjs`（记录性产物，**不是**仓内脚本 ⇒ 不存在「改 README 还是改生成器」的双份维护）。
+
+**③ 两个过程教训（都是静默故障，值得入册）**
+1. **含中文的脚本绝不能经 PowerShell here-string + `Set-Content -Encoding ASCII` 落盘**：第一版生成器把中文**静默替换成 `?`**（脚本跑得通、退出码 0），产出的 20 份 README 全是乱码 ⇒ 含中文脚本必须用 `write` 工具（UTF-8）写盘，且**生成后必须抽查产物**。
+2. **`[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile` 前必须 `Add-Type -AssemblyName Microsoft.VisualBasic`**：否则类型解析失败 → 抛错被 `catch {}` 吞掉 → **删除静默未执行**（文件还在）。判据一律用文件系统事实（`Test-Path`），且别盲吞异常。
+
+**验证**：README 覆盖 **35/35**；无乱码残留（扫描 `???`）；`plugins/` 无遗漏；门禁 `check-unsupervised` **REGISTERED=88 / DRIFTED=0 / 阻塞=0**；计划文档表格结构自检 **84 行 / 0 不一致**。
+**回滚**：README 为纯新增（删掉即可）；O19 的删除有**备份 + 回收站**双路径。
+**影响面：零运行时影响** —— 无插件代码改动、无装配改动、**不需重启**（O19 删的是客户端旧文件，刷新浏览器即可确认界面无变化）。
+
+---
+
+## 2026-09-12 T18 · O5：ollama 模型目录可配置 + 退出钩子回收（**默认行为零变化**）
+
+> 用户「已重启」⇒ 先做重启验收，再按推荐接 O5。**先测量**同样改写了范围：`stopOllama()` 本体已存在且稳健，缺的只是**退出钩子**与**路径配置**。
+
+**① 重启验收（O7 确已生效）**
+- `/health` = **200 / count=8 / failed 为空**，`mountedAt` 晚于本次全部改动；
+- **`/session-hygiene/report` 已带 `archivePlan`**：`mode=dry-run`、**`actionEnabled=false`**、**2 候选 / 20.02MB**；与 7 小时前**同样两个会话**（idle 112.3h/31.9h → **119.5h/39.1h**）⇒ 候选集稳定、无新候选（观察期好信号）；
+- 运行时 junction 的 `lib/index.js` 与仓库 **sha256 完全一致**，新符号 `buildArchivePlan`/`archivePlan` 在位。
+
+**② O5 实测范围（先测量，避免重做）**
+
+| 原判断 | 实测 |
+|---|---|
+| 「路径硬编码」 | ✅ 成立：`D:\ollama-models` **散落 3 处**（静默启动 VBS / 直接 spawn 的 env / 开机自启 VBS） |
+| 「孤儿进程无回收」 | 🟡 **部分已修**：`stopOllama()` 本体已存在且稳健（枚举 `ollama.exe` + `llama-server.exe` 按 PID `/T` 杀；注释自证「本机 Ollama 完全由 vision-engine 托管，全杀无误伤风险」），**已在 profile 切换时调用**；缺的只是**退出钩子**（插件内无 `dispose`/`before-quit`/`process.on('exit')`） |
+
+**③ 改动（`plugins/dsh-vision-engine/lib/index.js`）**
+- **模型目录可配置**：新增 `DEFAULT_OLLAMA_MODELS` + `export function ollamaModelsDir()`（`DSH_OLLAMA_MODELS` 覆盖、空白值回落默认）—— **默认值等于原字面量 ⇒ 默认行为零变化**；3 处硬编码全部改走它，**全仓仅剩 1 处字面量**（常量定义处，已由测试钉住「只许 1 处」）。选 env 而非插件 config：与仓内既有口径一致（`DSH_HOME`/`DSH_BACKUPS_DIR`/`DSH_DESKTOP_FORCE_GPU` 均走 env），且模型目录是在**独立进程**里生效的。
+- **非 ASCII 守护**：`.vbs` 会被 wscript 按 ANSI 读坏 ⇒ 新增 `canUseVbsForModelsDir()`：非 ASCII 时**降级为直接 `spawn`**（env 传参无编码问题）；开机自启则**跳过并清掉旧 VBS**（其内是错的目录，留着更糟）。
+- **退出钩子**：新增 `installOllamaExitHook()`，**只在 `startOllama()` 真正 spawn 成功后安装** ⇒ 平时零开销、且**不误杀用户自己起的实例**；跳过条件＝显式 opt-out `DSH_VISION_KEEP_OLLAMA=1`，或**应用正在重启**（`__dsh_relaunch_in_progress__`）——**范式取自 `dsh-hy3-gateway/lib/index.js:41-60`**（本仓已验证有效的退出清理写法，正是当初修「退出后还有一个 DSH」的产物）。`stopOllama()` 内部用 `spawnSync`（同步），因此可在 `exit` 阶段安全调用。
+
+**④ 验证**：`node --check` OK · 契约测试 **9/9**（原 5 + 新增 4：默认值零变化/env 覆盖/空白回落 · 字面量收敛计数 · ASCII 分支 · 退出钩子契约与安装点）· 门禁同口径全量 **220 / 220 通过 / 0 失败 / 0 todo** · `check-unsupervised` 登记后绿。
+**生效**：宿主侧插件 ⇒ **下次重启生效**；**不重启也与现在完全一致**（默认值未变）。
+**回滚**：`git checkout -- plugins/dsh-vision-engine/lib/index.js tests/plugins/vision-engine-contract.test.mjs`。
+**风险说明**：默认路径与默认行为均未改变；退出回收只针对「本会话由本插件拉起的 ollama」，且有一键 opt-out。
+
+---
+
+## 2026-09-12 T17 · O14 残余盲区关闭（部署门禁能抓到「标记在、文件坏」）+ O15 实态复核
+
+> 承接「让数字可信 / 门禁可信」。**先测量后动手**，结果改写了任务本身：O14 的**危险部分 09-10（W1-4）已修**、**O15 实质已完成** —— 真正剩下的只有一处**盲区**，本批把它关掉。
+
+**① 实测复核（推翻两条陈旧状态行）**
+- `scripts/verify-patches.ps1` 的 **W1-4（2026-09-10）已修掉 O14 最危险的部分**，代码自证：`$ErrorActionPreference='Continue'`（注释明写「全局 SilentlyContinue 会把坏查找报成 PASS —— 对部署门禁是最糟的失败模式」）· **空 checks 前置断言**「零校验不得 PASS」（`$checks.Count -lt 40` 即 FAIL）· `$LASTEXITCODE` **先取后用**（修 PATCH-5 假 FAIL）· 末尾**总是打印检查计数**。
+- `scripts/verify-bundle-manifest.mjs` **本就实现了 O15 的全部诉求**：逐文件重算 SHA-256 + 大小比对 + **占位符检测**（`/x/i.test(modified||hash)`）+ `--fix` **原子改写**；实测 **11 / 11 OK**。且 MANIFEST 里**已无 `18:5x` 占位符**。⇒ **O15 状态行「哈希可能陈旧（未验证）」已过时**。
+
+**② 真实残余盲区（故障注入实测，非推断）**
+`Select-String -SimpleMatch` 只看**标记串在不在**，看不见「标记还在、文件已坏」：
+
+| 场景（真文件操作，改完即按哈希还原） | 修复前判定 |
+|---|---|
+| 删掉标记 `shouldAllowQuit`（`src/critical-guard.ts`） | `FAIL critical-guard source (pattern missing)` / exit 1 ✅ 能抓 |
+| **保留标记 + 追加非法语法**（`lib/safe-delete-shim.cjs`，`node --check` 报错在第 359 行） | `PASS safe-delete-shim.cjs exists` → **`ALL PASS (49 checks)` / exit 0** ❌ **坏了还过** |
+
+⇒ O14 的「破坏补丁仍报 PASS（假成功）」**今天仍成立**，只是窄化为「标记保留型破坏」。
+
+**③ 修法（确定性、与重建无关、不引入假红）**
+在 `verify-patches.ps1` 增加 **语法完整性 pass**：对**每个 JS 目标**（`.js/.cjs/.mjs`，去重后 **30 个**，含动态解析到的 electron-runtime / profile chunk）跑 **`node --check`**（真解析器，非正则）；任一失败即 `FAIL syntax integrity: <path>` 并计入 `$fail`；并有**覆盖率下限**（`$syntaxOk -lt 10` 即 FAIL，与既有「零校验不得 PASS」同一纪律）。末尾计数行改为 `checks: 48 static + 3 chunk + 1 dist integrity + 30 syntax`。
+- **刻意不做整文件 SHA-256**：那会在每次重建后必然全 FAIL（升级日取舍，属 **O4 / W5**），而**语法是重建不变的**。
+- **动手前先测**：14/14 代表性目标 `node --check` 已通过 ⇒ 新检查**不会产生既有假红**；纯 ASCII 0 字节违反（PS 5.1 硬约束）；PowerShell 解析 **0 错**。
+
+**④ A/B 复测（同一故障、同一文件）**
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 标记删除 | FAIL / exit 1 | FAIL / exit 1（不变） |
+| **标记保留 + 文件坏** | **ALL PASS (49) / exit 0** | **`FAIL syntax integrity: …safe-delete-shim.cjs` / exit 1** |
+
+还原后复跑：`ALL PASS (49 checks) / exit 0`；文件哈希逐字节还原已核验。
+
+**⑤ 顺带修正**：`patches/bundles/MANIFEST.md` 页脚「最后更新：2026-08-28」与表内实际（09-10 行）不符 ⇒ 改为实测口径 + 指向机器校验命令（`--fix` 只重写表格行、不会覆盖页脚，已核实）。
+
+**涉及文件**：`scripts/verify-patches.ps1`（+40 行，新增语法 pass）· `patches/bundles/MANIFEST.md`（页脚一行）· 记录三件。
+**回滚**：`git checkout -- scripts/verify-patches.ps1 patches/bundles/MANIFEST.md`；故障注入的证据与原件在 `_backups/t13-o14-faultinject-20260912-030909/`（含 `OPERATION-LOG.md`）。**零运行时影响、不需重启**（该脚本只在重建后 / 门禁里跑；单次新增约 1–3 秒）。
+
+---
+
+## 2026-09-12 T16 · O9 收尾：过时计数口径统一（11 份文档 + 台账，纯文档零风险）
+
+> 承接同一主线「让数字可信」。O9 原文指「skill 数曾有 12/18/37/61/72 五种说法、插件数 26/30/33/37 四种」，导致**每次决策基于错数字**。
+> 本批**只做标注与实测替换，不改写历史结论**（审计/方案/归档文档的时间点断言仍然有效）。
+
+**① 先测清 ground truth（写进抬头里的每个数字都实测）**
+| 量 | 实测值 | 口径 |
+|---|---|---|
+| `plugins/` 插件 | **35**（35/35 都含 `lib/index.js`） | `Get-ChildItem plugins -Directory` + `package.json` 过滤；与 `GET /health` 的 `plugins` 探测一致 |
+| 根级插件目录 | **3**（`dsh-context-lifecycle` / `dsh-stuck-loop-guard` / `dsh-vision-rotator`(deprecated)） | 根级 `dsh-*` |
+| `~/.dsh/skills` 顶层 | **61** | `node scripts/skill-inventory.mjs` |
+| hub 源码 skill | **94**（全部含 `SKILL.md`） | `tools/dsh-skills-hub/skills/*` |
+| hub manifest 登记 | **12** | `~/.dsh/skills/.hub-install-manifest.json` 的 `skills` 对象 |
+
+**② 台账（自称单一事实源）本身就滞后 ⇒ 修正**
+- `plugins/INVENTORY.md` 标题写「31 个」，而**表格行数早已是 35**（标题滞后于内容）⇒ 标题改 **35**，并新增「**计数纪律**」：写明复算命令 + 运行态对照口径（`/health`），防止再次静默漂移。
+
+**③ 扫描出「把过时计数当现状且无任何修正抬头」的文档 ⇒ 逐篇加统一抬头**
+- 已自带修正抬头的**不重复动**：`CAPABILITY-REGISTRY.md`（09-10 已有 skill 修正）、`docs/README.md`、`CLIENT-ASSEMBLY-FEASIBILITY.md`、`UPGRADE-EXECUTION-LOG.md`、`docs/archive/*`。
+- 本批新增抬头的 **11 篇**（每篇都只加 2–4 行引用块，**正文一字未改**）：
+  `CAPABILITY-OPTIMIZATION-2026-09-07.md` · `DSH-MASTER-PLAN-2026-09-07.md` · `LOCAL-STANDALONE-ROADMAP-2026-09-07.md` · `AUDIT-2026-09-07-COMPREHENSIVE.md` · `EXTERNAL-REPO-ADAPTATION-ASSESSMENT-2026-09-09.md` · `PLUGIN-STANDARDIZATION.md` · `STANDARDIZATION-ANALYSIS-2026-09-07.md` · `UPDATE-ASSESSMENT.md` · `UPGRADE-HANDOVER-20260831.md` ＋ `CAPABILITY-REGISTRY.md`（其**插件层标题 30 → 35** 并补插件计数口径）。
+- 抬头统一体例：**过时口径 + 当前实测值 + 复算命令 + 「历史结论保留不动，仅计数勿直接引用」** ⇒ 既不篡改历史，又消除误判。
+
+**④ 顺带查实（O9 第三个子项）：`_skills-batch1-manifest.json` 全仓不存在**
+- 它被 **2 处**引用（`DSH-MASTER-PLAN:254`、`UPGRADE-HANDOVER:198`），但全仓（含 `_backups/`）**查无此文件** ⇒ 已在两篇的抬头里写明「**勿据该文件回滚或核对**」，并指向真实清单 `~/.dsh/skills/.hub-install-manifest.json`（12 条）。
+
+**⑤ 同族补正：三处「状态落后于事实」的状态行**
+- `docs/CAPABILITY-REGISTRY.md` 末尾仍写「catalog 究竟是按需还是注入——**待确认**」，而同日的 N5/D1′ 行已记「已实测 + 已处置」⇒ 改为实测结论 + SL-9 处置结果（catalog 11,686 → 6,804 字符、条目 61→44）。
+- 计划文档 **O2 行**仍标「**新增·P0**」（状态列陈旧，O8g 已指出过）⇒ 改为 **✅ 已收敛（SL-9）** 并写明处置与证据。
+- 计划文档 **W1 行**标 ✅，但该波清单里的 **O14 / O15 仍成立** ⇒ 补「口径澄清」：✅ 指 **W1-1~W1-8 那批交付**，本波清单逐项实测状态 = O1 ✅ / O9 ✅ / O24 ✅ / **O14 ⬜ / O15 ⬜**（后两项属升级税，归 W5）。
+
+**验证**：`node scripts/check-docs-index.mjs` → **49 docs / 0 missing**（本轮未新增文件，索引仍完整）；残留扫描（`30 个本地插件` / `26 个插件` 等旧数字）已全部落在带抬头的文档内。
+**涉及文件**：`plugins/INVENTORY.md` ＋ 10 份 `docs/*.md`（全部**只增不改**历史段落）。
+**回滚**：全部为**已跟踪文件** ⇒ `git checkout -- <path>`；无新增文件、无运行时改动、**不需重启**、零后台开销。
+
+---
+
+## 2026-09-12 T15 · 文档索引治理（O24）+ 门禁可信度修复（含确定性 A/B 证据）
+
+> 用户要求：「确实对项目有提升不会有风险，规范化管理，而且不会很复杂导致系统卡顿，或者后台加载太多」⇒ 本批刻意只选**纯文档 / 纯脚本**、**零运行时开销、零后台负担**的两件事。
+
+**① O24 真结：`docs/` 有 20 篇文档从未进索引（"知识在库里，但没人会看"）**
+- **实测**（不是估计）：`docs/*.md` 顶层 **49 篇**，其中 **20 篇**从未出现在 `docs/README.md` —— 含仍然有效的 `DIAGNOSIS-2026-09-07-RUNTIME.md`、`STANDARDIZATION-ANALYSIS-2026-09-07.md`、`ZERO-RISK-IMPROVEMENTS-PLAN.md`、`UPSTREAM-UPDATE-PREP.md`、`UPGRADE-REHEARSAL-2026-09-08.md`、`PLUGIN-STANDARDIZATION.md`、`plugin-contracts.md`、`ROUTING-GATEWAY-PROPOSAL.md` 等。
+- **补录**：20 篇全部按「仍有参考价值 / 日志归档」两组写入索引，**每篇带日期 + 一句话定位**（描述取自各文件**真实 H1 与首段**，逐篇实测，不靠猜）。
+- ⚠️ 顺带查出一处**易漂移的重复定义**：`docs/global-agent-rules.md` 实为 **`~/.dsh/AGENTS.md` 的仓内副本** ⇒ 索引里已显式标注「唯一权威在 `~/.dsh/AGENTS.md`，不要改这份」。
+- **口径修正（实测值替换旧数字）**：索引原写「插件：`plugins/INVENTORY.md`（30 + 根级 3 + 市场 3）」；实测 `plugins/` 下含 `package.json` 的目录 = **35**，且 **35/35** 都含 `lib/index.js`（与 `GET /health` 的 `plugins` 探测同口径）+ 根级 **3**（`dsh-context-lifecycle` / `dsh-stuck-loop-guard` / `dsh-vision-rotator`(deprecated)）。skill 顶层 61 / hub manifest 12 复测**无误**，保留。
+- **防复发（规范化）**：新增 `scripts/check-docs-index.mjs`（零依赖、只读）并接入 `check-all` **Step 1.13**。**刻意做成告警式**：默认恒 exit 0、只打 WARN，**从不计入 `$totalFail`** —— 与 F20「狼来了」同源：一个「谁新增一篇文档就变红」的检查会被学会无视。硬门禁是**可选**的 `--strict`。
+- **故障注入验证**（"它通过了"≠"它有效"）：临时目录放一篇未索引新文档 ⇒ 被准确捕获（`ok=false, missing=["BRAND-NEW-UNINDEXED.md"]`）；索引文件缺失时按设计**静默跳过**（非源码部署不报红）。
+
+**② 门禁可信度修复：`register-plugin` 备份目录「跨秒拆分」竞态（把一个 flaky 断言变确定）**
+- **现象（门禁自己抓到的）**：全量 `check-all` Step 3 报 **216 用例 1 失败** —— `tests/plugins/register-plugin.test.mjs:107` 断言「应恰好一个备份子目录」，实测 **2 个**（`…-20260911175740` 与 `…-20260911175741`）。
+- **根因（代码级）**：`scripts/register-plugin.mjs` 的 `backupFile()` **每次调用各自取秒级时间戳**，而一次运行要调用它**两次**（runtime / template，`:291-292`）⇒ 两次调用跨过秒界时，**同一次运行的备份被拆成两个目录**（一个只含 runtime、一个只含 template）。与 O8g「恰好 1 个赢家」同族：**时序脆弱**（轻载难复现，全量并行时概率上升）。
+- **同类扫描**（铁律 3）：全仓 `scripts/*.mjs` + task-scheduler `lib/*.js` 中只有这**一处**「调用内取时间戳做备份目录名」的写法；`deregister-plugin` / `ensure-recovery-profile` / `startup-verify` 的 backup 调用点均为 0 ⇒ **无需连带修改**。
+- **修法（治根因，不放宽断言）**：时间戳上提为**每次运行一次的 `RUN_TS`** ⇒ 两次调用必然同目录 ⇒ **确定性**、完全不依赖时序；测试的「恰好 1 个」断言因此由 flaky 变为确定成立（保留原断言＝保留更强的不变量）。
+- **确定性 A/B 证据**（不靠"跑几次没复现"）：用**同步忙等注入 1.1s** 把竞态窗口撑开后，跑同一份 fixture：
+
+  | 变体 | 备份目录数 | 目录内容 |
+  |---|---|---|
+  | 修复前 | **2** | `…180120` → `runtime.package.json.orig`；`…180121` → `template.package.json.orig` |
+  | 修复后 | **1** | `…180122` → **两个 orig 同在一处** |
+
+- **回归**：`node --check` OK；本测试顺序 **6 次 × 7/7 全绿**；**12 并发实例 12/12 绿**（负载正是修复前失败的条件）；全量 **216 / 216 通过 / 0 失败 / 0 todo**。
+
+**涉及文件**：`docs/README.md`（补录 + 口径修正 + 维护约定）· `scripts/check-docs-index.mjs`（**新增**）· `scripts/check-all.ps1`（Step 1.13）· `tests/plugins/docs-index.test.mjs`（**新增** 7 项）· `scripts/register-plugin.mjs`（备份时间戳）。
+**回滚**：前三个是**已跟踪文件**（`git checkout -- <path>`）；两个新文件直接删除；`register-plugin.mjs` 另有原件备份 `_backups/t13-register-plugin-flaky-20260912-020009/`（含 `MANIFEST-before.sha256` + 门禁失败证据 + `OPERATION-LOG.md`）。
+**运行时影响：零** —— 本批全部是文档 / 脚本 / 测试；不改 `plugins/`、不改装配、**不新增定时器或轮询**、不需重启、不增加任何后台加载。
+**不做**：`task-scheduler prune` —— 读源码后发现其真实语义是**截断时间线 `changes.jsonl`**（只留最后 MAX_CHANGES 行），而 `check-unsupervised` 的**基线就在该文件里** ⇒ 跑它等于自毁基线。锁目录的 26 个 `.stale-*` 标记清理须另走「回收站删除」，待用户确认清单。
+
+---
+
+## 2026-09-12 O7（第一步）· 归档动作化 dry-run：把「会做什么」算清楚，但**什么都不做**
+
+> 承接 W3 最后一项。审计项 O7 原文：「守护 90% 只通知不动作」。**本轮刻意不实现动作化** —— 按「先只读观察一周」推进，只补上「动作计划」的可观测面。
+
+**① 查实（决定了改动范围）**
+- `dsh-session-hygiene` **已经**算好候选：`/session-hygiene/report` 的 `summary.archiveSuggestionCount`（判定 = `suggestArchive`：超 `errorBytes` **且** 空闲 ≥ `idleHours`），但**只通知、绝不动文件**（`lib/index.js` 文件头自证 "Advisory only - never modifies session files"）⇒ 缺的**不是判定，而是「动作计划」这一面**。
+- ⇒ **范围收窄**：`dsh-self-maintenance:280-283` 那条是**磁盘**阈值告警（"请尽快清理"），它的「动作化」意味着**自动删用户数据**，风险性质完全不同，**本轮不动**（记录理由，避免下一位把它当成遗漏）。
+
+**② 改动（1 个纯函数 + 1 处接线 + 8 个测试，全只读）**
+- 新增 `buildArchivePlan(sessions, directories, config)`（`plugins/dsh-session-hygiene/lib/index.js`）：输出 `{mode:'dry-run', actionEnabled:false, idleHoursGate, sessionCandidates[], workspaceContext[], reclaimMB, note}`；候选的计划动作是 **`move-to-archive`（移动，非删除）+ `reversible:true`**。
+- **`actionEnabled` 恒为 `false`** —— 开启动作化必须是**另一次显式改动**（且要有观察期结论）；本文件**有回归测试钉住这条 advisory 契约**，防止守护被静默改成「会动手」。
+- 挂进既有报告：`buildReport()` 返回值新增 `archivePlan` 字段（**纯新增字段**，既有字段与契约零改动）。
+- **双计口径**（易错点，已用测试锁）：会话条目与「会话目录」条目天然重叠 ⇒ `reclaimMB` **只累加会话**，目录仅作为工作区级上下文列出（`proposedAction:'report-only'`：粒度太粗、易误伤在用的会话）。
+
+**③ 真实数据基线（本轮即刻可看，只读）**
+- 取**运行中**的 `/session-hygiene/report`（161 会话 / 18 目录 / 239.24MB）再套用新纯函数 ⇒ dry-run 计划：
+  | 候选 | 大小 | 空闲 | 计划动作 |
+  |---|---|---|---|
+  | `session-d8623818-…` | 11.89MB | 112.3h | move-to-archive |
+  | `session-9c75bb43-…` | 8.13MB | 31.9h | move-to-archive |
+  ⇒ **2 个候选 / 可回收 20.02MB**；目录级上下文 0（无目录超 250MB 阈值）。**观察一周后**再看候选集是否稳定、有没有「刚被列为候选又被使用」的情况 —— 那才是能否动作化的判据。
+
+**验证**：`node --check` OK · 本测试文件 **30 / 30 通过**（原 22 + 新增 8，含双计守卫、advisory 契约锁、null/undefined 防御、接线锁）· 门禁同口径全量 **209 / 209 通过 / 0 失败 / 0 todo**（原 201 + 8）。
+**生效**：`plugins/` 宿主侧代码 ⇒ **需重启后**实时报告的 `archivePlan` 字段才会出现（当前可用上面的「实时报告 + 纯函数」方式等价查看）。**未重启**（等用户指示）。
+**不做**：动作化本体、`~/.dsh` 下任何移动/删除、自动清理磁盘。
+
+---
+
+## 2026-09-12 T14 · 重启后验收 + 记忆注入窗口治理（含一条自我勘误）
+
+> 用户「已重启，按照你推荐的执行」。本批三件：**① O11 重启后现场验收**（最强证据）**② 记忆注入窗口治理**（实测驱动）**③ 撤回一条被自己实测推翻的建议**。
+
+**① O11 重启后验收 —— 宿主侧改动确已生效**
+- `mountedAt` = 本地 **01:43:38**（晚于我最后一次编辑 01:37:44）；运行时 junction 指向仓库，**运行时 `lib/index.js` 的 sha256 与仓库逐字节相同**（`BB86F081…`）；新符号在位（`pump` / `guard` / `BODY_TIMEOUT` / `bodyTimeoutMs` / 408 分支）。
+- `GET /health` = **200 / count=8 / failed=[]**（全绿）。
+- **现场行为验证（真 socket，直接打运行中的应用）**：正常 POST `/file-explorer/api` → `HTTP/1.1 200 OK` @4ms ✓；**半开 POST**（声明 `Content-Length: 999` 但不发体）→ **`HTTP/1.1 408 Request Timeout` @30011ms**，响应体 `{"ok":false,"error":"读取请求体超时（> 30000ms）"}` ✓。
+- **修复前这条请求会永久挂住** ⇒ 不只是「文件改了」，而是**运行态行为已改变**（这是 O11 里唯一需要重启才生效的部分）。
+
+**② 记忆注入窗口治理（先把推断变成实测，再据此改文件）**
+- 插件导出了 `parseConfig` / `candidateFiles` / `collectMemory` / `renderBlock` ⇒ 用**真实链路**测本工作区的注入，不再靠读代码推断：
+
+  | 来源 | 字符 | 实际注入 | 截断 |
+  |---|---|---|---|
+  | `~/.dsh/memory/MEMORY.md`（用户级） | 718 | 718 | 否 |
+  | `.workbuddy/memory/MEMORY.md`（项目级） | **12,982** | **仅 1,282** | **是** ⇒ **90.1% 从未进上下文** |
+  | `<cwd>/.dsh/memory/MEMORY.md` | 不存在 | — | 静默跳过（符合设计） |
+
+- **切面定位**：落进窗口的**只有** title + `## Skill 规范`，且**截断在 token 中间**（`…（false＝本地带 disable-m`）；`## 插件规范`(偏移 1582) / `## 系统约定`(2499) / `## 门禁覆盖`(3080) / `## 工程坑位`(4704) — **全部 0% 注入** ⇒ 「重启守则 / task-scheduler 并发纪律 / 沙箱面 / PS 与换行坑位 / 四件套记录」这些**每轮都要用**的规则**一直是隐形的**。
+- **刻意不做「简单调大 budget」**：注入全量需 ≈14k 字符/轮，而 SL-9 已实测「常驻上下文膨胀**静默**降级锚定率（9KB catalog → 81%→0%）」⇒ 正解是**排优先级**，不是加预算。
+- **做法（零重启生效、零信息丢失）**：在文件**头部**插入 `## 常驻核心（每轮必注入 · 细节按下文各节）` 摘要，11 条高价值规则（重启守则 / 生效面 / 共享文件锁与绝对路径登记 / 删除纪律 / `shell` 在沙箱外 / 四件套＋根级 `.md` 也在门禁内 / 证据三级与否定断言复核 / 装配 4 处＋禁裸引 / 门禁与健康入口 / PS 5.1 坑 / 换行纪律），并**显式写明**「下文各节是**按需查阅的源**，『没被注入』≠『不存在』，遇场景先读对应节」；下文**原样保留、零删除**。
+- **复测（实测）**：摘要**完整落进窗口**，截断点由「token 中间」变为**节边界**（`## Skill 规范` 标题处）。文件 12,983 → **14,145 字符**（纯 LF，86 行）。
+- 生效面：该文件按会话读取（mtime 缓存）⇒ **下一次会话即生效，不需要重启**。
+
+**③ ⚠️ 自我勘误：撤回「CRLF 污染 git status」的判断（该项作废）**
+- 我先前（O11 记录）写「3 个工作树 CRLF 文件会长期显示 ` M`、污染 `git status` 与未登记改动判读」，并建议 `git add --renormalize`。**实测推翻**：`git status --porcelain` 对 `plugins/dsh-skills-manager/lib/index.js` 与 `plugins/dsh-diagram-renderer/lib/client.js`（两者皆 `i/lf w/crlf`）**不报任何修改** —— 因为 `.gitattributes` 的 `text eol=lf` 让 git 在**比较时已归一**，纯 EOL 差异**不构成**修改；`skills-manager/lib/client.js` 显示 ` M` 是因为**我真的改了它的内容**，与 EOL 无关。
+- ⇒ **建议作废、不做**（`git add --renormalize` 还会改动 index，属用户的提交决策范围）。已同步修正每日记忆与 `OPERATION-LOG.md` 的对应表述。
+- 教训与 O11 同类：**「看起来会造成噪声」与「实测确实造成噪声」是两种证据等级**，前者不足以成为改动的理由。
+
+---
+
+## 2026-09-12 O11 · 请求超时治理（改 6 个 client bundle + host-services，新增 1 个测试文件）
+
+> 接手并行会话（WorkBuddy 线）W3 剩余项：其 O8g 已结清门禁覆盖面、O20 第一步已改 CI，**W3 剩 O7 · O11**。本批把 **O11 结清**。
+
+**① 缺口（审计项 O11 原文）**：前端 7 处 `fetch` 无超时 + `host-services` 读请求体无超时 ⇒ 后端挂起 / 弱网时 `fetch` **永不 settle**（UI 永久停在加载态）；宿主侧「发了头不发体」的半开连接会让 `for await (const chunk of req)` **永久挂住**（句柄与缓冲都收不回）。
+
+**② 改动**
+- **6 个手写 client bundle**（file-explorer / skills-manager / remote-workspace / model-whitelist / model-picker-group / vision-engine）各内联一份 `fetchWithTimeout(url, opts, timeoutMs)`：`AbortController` + `setTimeout(abort)`，**成功与失败两条分支都 `clearTimeout`**（不新增句柄泄漏 —— 与 O18 同类关注点），超时统一转成可读错误「请求超时（N 秒）」而非裸 `AbortError`。
+  - **为什么内联而不是抽共享模块**：这些 bundle 是 `window.__ModuleLoader__` 的独立作用域（`factory: (require) => …`），跨插件共享只在宿主侧成立 ⇒ 抽公共 `clientFetch()` 在本架构里**做不到**（F14 同源约束）。审计建议的「抽 `clientFetch()`」据此改为「按文件内联 + 统一形态」，并用**静态守卫测试**保证形态一致。
+  - **超时预算按调用性质分级、且逐调用可覆盖**：本机 IPC 30s（file-explorer / skills-manager）；远程链路 60s（remote-workspace / model-whitelist / vision-engine 默认）；诊断上报 5s（model-picker，fire-and-forget）；**慢调用主动放宽** —— `market.*` 180s（走网络下载/索引）、`/vision-engine/test` 与 `/vision-engine/refresh` 各 180s（**真实读图推理**；实测 `refresh` 不只是查额度，注释自证「额度 + 用量 + 模型试读自测」）。一刀切超时会把「慢」误判成「挂」⇒ 这是本次特意避开的次生缺陷。
+- **`host-services`**：`readBody(req, maxBytes, timeoutMs = 30000)` —— 把 `for await` 收进 `pump`，与超时 `guard` 做 `Promise.race`，超时抛 `code='BODY_TIMEOUT'`（被淘汰的 `pump` 挂 `catch` 兜底，避免 unhandledRejection）；`registerLocalApi` 新增 `bodyTimeoutMs` 选项，并把 `BODY_TIMEOUT` 映射为 **408**，响应带 `connection: close`（请求体没读完的连接不可复用）。文档注释同步（错误码链 413→**408**→400）。
+
+**③ ⚠️ 一次证伪纠错（本批最有价值的产出）**
+第一版在超时分支写了 `req.destroy(err)`「顺手销毁连接」。**真 socket 探针实测**（`C:\Temp\o11-probe.mjs`，客户端只发头不发体）：
+
+| 变体 | 客户端观测 |
+|---|---|
+| 超时**不** destroy | `HTTP/1.1 408` + JSON 体 @307ms ✅ |
+| 超时 `req.destroy()` | **CLOSED-WITHOUT-RESPONSE**（socket 被连带干掉，408 根本写不出去）❌ |
+
+⇒ 改为「**超时只负责停止等待 + 报错，是否关闭连接交给调用方**」。这类缺陷**读代码看不出来**（`destroy` 会连带销毁 socket 是隐式行为），只有真连接能暴露 —— 已用回归测试锁死（断言 `readBody` 超时时 `destroy` **未被调用** + 端到端断言客户端真收到 408）。
+
+**④ review 阶段自纠两处**（本批第二个产出：证明「verify + review」不是走过场）
+- **死代码缺陷（功能级）**：`skills-manager` 里算了 `var ms = /^market\./.test(method) ? 180s : 30s`，但 `fetchWithTimeout(...)` **只传了 2 个参数** ⇒ `ms` 从未生效，`market.*`（网络下载/索引）仍按默认 **30s** 超时 —— 恰好把我特意避开的「把慢误判成挂」重新引入。同批 `file-explorer` / `remote-workspace` 的 `timeoutMs` 形参也没转发（无行为影响，但属误导性死参数）。**已修**（3 个文件改为 `}, ms)` / `}, timeoutMs)`），并**新增静态守卫**「算了预算就必须真的传进去」，把这一类重新钉死。
+- **陈旧注释（认知级）**：`readBody` 上方注释仍写「超时到点即销毁连接」，与纠错后的定稿（**刻意不** destroy）**直接矛盾** ⇒ 已改写，并把 `pump` 循环体缩进归位。**「注释与代码相反」比没有注释更危险**（下一位读者会照着注释改回去）。
+
+**验证**
+- 7 个文件 `node --check` 全 **OK**；**换行风格零漂移**（`dsh-skills-manager/lib/client.js` 是 `i/lf w/crlf` 的工作树 CRLF 文件，改动保持纯 CRLF=489 / 0 裸 LF；其余保持纯 LF；无 BOM）。
+- 新增 `tests/plugins/o11-fetch-timeout.test.mjs`：**22 项全通过**，含 2 处**真 socket 故障注入**（半开连接 ⇒ 408；非本机来源仍 403，证明 `trusted` 语义未被改造破坏）+ 6 个 bundle 的静态形态守卫（裸 `fetch(` 只允许 helper 内部那 1 处）+ 1 项「预算必须真转发」守卫。
+- 门禁同口径全量：**201 / 201 通过 / 0 失败 / 0 todo**（原 179 + 新增 22，零回归）。
+- `verify-plugin-imports.mjs` **PASS**（0 违规，330 说明符）；`startup-verify.mjs` **V1–V10 全 PASS**（V9: 36 个 link 插件 / 87 文件语法全绿）。
+
+**记录/回滚**：`_backups/t13-o11-timeout-20260912-012853/`（7 个原件 + `MANIFEST-before.sha256` + `OPERATION-LOG.md`）。
+**生效**：6 个 client bundle ⇒ **刷新浏览器即生效**（按请求读盘 + no-cache）；`plugins/dsh-host-services/lib/index.js` 是**宿主侧**代码 ⇒ **需重启（或热重载）才生效，等用户指示，不擅自重启**。
+
+---
+
+## 2026-09-12 O20（第一步）· CI 从「永久红」修正为「可绿且有意义」（改 1 个文件）
+
+> 起因：用户「做吧，主要确实有用就行」→ 继续 O20。**原本以为只是「CI 没跟踪到新测试」，一查发现比这严重：CI 每一次运行都是红的**（`gh run list --limit 6` = 6/6 failure，8–13s 即挂）。
+
+**① 先纠正归因（重要，此前的判断是错的）**
+- 先前结论写的是「ubuntu 跑 Windows-only 产品 ⇒ 平台语义不匹配」。**复核后证伪**：把失败日志（`run 34449756093`）与**本机从 HEAD 导出的全新 checkout** 逐条对照，**两边失败的是同一批断言**（`@electron/asar` 缺失、`session-hygiene` 的 `@dsh-external/dsh-host-services` 缺失、`profile-guard`、`isProtected`、`SELF-2 隔离区`）⇒ **与平台无关**，根因是**测试的被测对象依赖「不在仓库里的东西」**（npm 依赖 / 被 gitignore 的外部仓库 / 本地运行时状态）。
+
+**② 建立「CI 真伪」的判定手段（可复用）**
+- 本机 `node --test` 全绿是**假象来源**：工作区含大量 `??` 未跟踪文件，而 runner 只有**已提交**内容。
+- 判定法：`git archive --format=zip -o x.zip HEAD` → 解压 → 在**该目录**跑 CI 的三步。本次据此得到两个确定状态：
+  - **纯 HEAD**（只推 check.yml）：12 文件 → `tests 49 / pass 46 / fail 3`（`core.test.mjs` 时序假红 + `deregister-plugin` 缺 `@electron/asar` + `session-hygiene` 裸引）⇒ **RED**。
+  - **提交工作区后**（叠加全部 `M` + 应入库的 `??`）：19 文件 → `tests 141 / pass 140 / fail 0 / skipped 1` ⇒ **GREEN**。
+
+**③ `check.yml` 改动**
+- runner `ubuntu-latest` → **`windows-latest` + `shell: pwsh`**（产品是 Windows-only Electron；公开仓库 ⇒ Windows runner 免费）。语法检查用 `Get-ChildItem` 替掉 bash `find`；新增 `verify-plugin-imports.mjs` 一步；单测一步**同时收集** `tests/plugins/*.test.mjs` 与 `plugins/*/tests/*.test.mjs`（与 O8g 的 check-all Step 3 同口径）；加 `workflow_dispatch` 手动触发。
+- **公告式排除清单**（遵「作用域排除必须公告制」）：排除 3 个 runner 上必然失败的文件并在日志里打印 —— `profile-guard.test.mjs`（需 npm 依赖 `@electron/asar`）、`routing-suite-smoke.test.mjs`（被测对象在被 `.gitignore:54` 忽略的外部 `dsh-routing-suite` 仓库）、`safe-delete-shim.test.mjs`（2 条断言依赖本地运行时状态）。清单**按文件名排除而非列白名单**，因此**提交新测试会自动扩大覆盖**。
+- 头部注释已改为**如实归因**（写明「不是 ubuntu 的问题」，并保留 windows-latest 的理由：NTFS junction / 回收站语义）。
+
+**验证**：`yaml.safe_load` OK（`runs-on=windows-latest` / 5 steps / 3 triggers）· 3 个 pwsh 块 `Parser::ParseInput` **0 错** · 提交后状态复刻 **GREEN（141/140/0/1）**。
+**记录/回滚**：`_backups/o20-ci-windows-20260911170601/`（`check.yml.head` = HEAD 原件 + `check.yml.work` + sha256 MANIFEST）。HEAD 版 sha256 `733af687…b05509` → 最终 `387e4464…d03a7`。
+**生效**：CI 配置，**不涉及运行时**⇒ 不需重启。⚠️ **未提交、未推送**（`master` 已领先 7 个未推提交；工作区含并行会话改动，git 决策留给用户）。
+
+---
+
+## 2026-09-12 O8g · 门禁覆盖插件内部测试（改动 3 个文件 + 清 1 处残留）
+
+> 承接 O8f：O8c 交付的测试此前**没有任何门禁守护**（本地门禁 glob 不到插件内测试、CI 又没跟踪到文件）⇒ 本批先补齐本地覆盖面，并修掉挡在路上的假红断言。
+
+**① 修 `plugins/dsh-task-scheduler/tests/core.test.mjs` 的时序脆弱断言（挡路项）**
+- **复现（当场）**：直接运行 → 4 子进程竞态跑出 **2 个赢家**（`ok:true,BUSY,BUSY,ok:true`）→ **28 通过 / 1 失败 / exit 1**；同源代码在 `node --test` 下一次 29 通过 0 失败 ⇒ **随机假红**。
+- **根因**：断言「恰好 1 个成功」依赖子进程启动时序——赢家持锁 2s 后退出 → pid 死亡 → 锁**按设计可回收**；机器负载高时其余子进程在 2s 之后才 `acquire`，就会出现**合法**的第二赢家。
+- **修法**：改为时序无关断言「竞态必有赢家（≥1）」+「未赢者必须 BUSY（不得 `ERROR`/`PARSE_ERROR`）」；**新增 §2b 确定性互斥用例**——父进程先持锁 → 4 个子进程必须 **4/4 全 BUSY** → 释放后锁消失。互斥的硬信号从此不依赖时序。
+- **附带**：新增 **spawn 可用性探测**（不可用则 SKIP + exit 0，与 `tests/plugins/` 的 probe-then-skip 同口径，不因环境缺能力假红）；子进程脚本改用 `new URL('../lib/core.js', import.meta.url).href`，**去掉硬编码机器路径**（O13 同类）。
+- **证据**：direct 连跑 4 次 + `node --test` 2 次 **全部 exit 0**；连跑 3 次均 **33 通过 / 0 失败**（原 29 + §2b 4 条），§2b 每次稳定 4/4 BUSY。
+
+**② `scripts/check-all.ps1` Step 3 收集插件内部测试（此前完全不跑）**
+- 原：`Get-ChildItem $testDir -Filter '*.test.mjs'`（**非递归**）⇒ `plugins/*/tests/*.test.mjs` 从未被收集。
+- 现：额外收集 `plugins\<name>\tests\*.test.mjs`（恰好一层），输出里打印两个来源的文件数。
+- **框架兼容性已实测**：4 个插件内测试都是**自定义断言框架**（`check()` + `process.exit`），`node --test` 会把「整个文件」当 1 个用例、按子进程退出码判定 —— `smoke-rules` / `smoke-handler`（19 PASS）/ `smoke-tools-result`（7 PASS）均 exit 0，唯 `core.test.mjs` 因①假红 exit 1。
+- 纯 ASCII（PS 5.1 约束）已核：解析 **0 错**、非 ASCII 字节 **486 → 486（未变）**。
+
+**③ 关闭 `scripts/cleanup-nested-skills.mjs` 盲区 + 清掉 O1 残留（11 层空目录 + 2 个孤儿 `_source.json`）**
+- 现象：脚本 dry-run 报 `found 0 nested SKILL.md`，但 `~/.dsh/skills/test-generator/` 下 **11 层空目录链仍在**，底部有 2 个 `_source.json`。
+- 根因：脚本只删 `SKILL.md`，而"空目录清扫"无法删除**仍持有文件**的目录 ⇒ 链存活（O1 ② 其实没真结）。
+- 修法：残留集 = `SKILL.md` + `_source.json`（后者 depth 1 合法、depth ≥ 2 必为同一次递归拷贝残留），同路径、同备份、同处理。
+- **执行结果**：`removed 2 / failed 0`；`test-generator\code-review` 整链**消失**（`exists=False`）；顶层 skill 目录数 **仍为 61**（未误删）、`test-generator` 只剩 `SKILL.md` + `_source.json`；再 dry-run = `found 0`。
+
+**验证**：`node --check` ×2 = 0 · `check-all.ps1` 解析 0 错 · 4 个插件内测试 `node --test` 全 exit 0 · `core.test.mjs` **33/33**。
+**端到端门禁**（`check-all.ps1 -SkipSmoke`，改动后全流程重跑）：Step 3 输出 `files: tests\plugins=18  plugins\*\tests=4` → **179 tests / 179 pass / 0 fail / 0 todo**（原 175 + 新收集的 4 个插件内文件）；Steps 1–2.6 全 PASS（含 Step 2.5 diagram 15/15、Step 2 `ALL PASS (49 checks)`）。**全流程唯一红点仍是 Step 1.8 `lint-skills`**（`TOTAL 166 PASS / 2 FAIL / 162 WARN / 2 SEC-FAIL`，两个 SEC-FAIL 位于 `tools/dsh-skills-hub/skills`，属**既有技能内容治理**问题、与本次改动无关）⇒ `CHECK-ALL: 1 FAILED` / EXIT=1。
+**记录/回滚**：`_backups/o8g-gate-plugin-tests-20260912-001602/`（3 个改动前原件 + sha256 MANIFEST）· `_backups/o1-nested-residue-20260912-001859/`（2 个原件 + `_cleanup.log`）。
+**生效**：改的是**测试与门禁脚本**，非运行时代码 ⇒ **不需重启**。
+
+---
+
+## 2026-09-11 O8f · 重启后验收：F-LOCK-1 修复确认生效（**零运行时代码改动**）
+
+> 用户重启 DSH 后做验收。结论：**T9 的 F-LOCK-1 修复已随运行中的应用生效**，无需再动。
+
+**证据（三条独立）**
+1. **字节级**：运行时 `~/.dsh/profiles/desktop/node_modules/@dsh-external/dsh-task-scheduler` 为指向本仓库的 **junction**（`readlink` = `D:\Deepseek-Harness\plugins\dsh-task-scheduler`）；两侧 `lib/core.js` **sha256 相同** = `ab16537499b2c6d350ee6423bc8979cadb322e1c2f16e4ffd5842d6acbbc735d` ⇒ 运行时字节 == 仓库字节；`publishLock` / `HOLD_GRACE_MS` / `reclaimableLockFile` 三符号均在位。
+2. **健康**：`GET 127.0.0.1:43120/health` → HTTP **200**、`count=8`、`failed=[]` 全绿（含 `memory.files`）。
+3. **单测**：`scripts/check-all.ps1 -SkipSmoke` Step 3 → **175 pass / 0 fail / 0 todo**（53.98s）。
+
+**门禁结果**：Steps 1–2.6 + 2.5 + 3 全 PASS；唯 Step 1.8 `lint-skills` 退出码 1 → `CHECK-ALL: 1 FAILED` / EXIT=1。该红项**既有、与本次无关**：`TOTAL 166 PASS / 2 FAIL / 162 WARN / 2 SEC-FAIL`，两个 SEC-FAIL 位于 **`tools/dsh-skills-hub/skills`（v1.7.0 技能源码树）**——`browser-testing-with-devtools:74`、`source-driven-development:107`，命中规则 `[instr-override]`（正文含 "ignore previous instructions" 类文本）；同目录另有 `subagent-driven-development:251`、`claude-paper-webui:31` 的 `rm -rf` SEC-WARN。属**技能内容治理**范畴，另立批次处理，不阻塞本轮。
+
+**本轮改动**：仅 `docs/DSH-CAPABILITY-AUDIT-AND-PLAN-2026-09-10.md`（O25 行补字节级生效证据）+ 当日 `memory/2026-09-11.md`。**不动运行时代码 ⇒ 不需重启**。
+
+---
+
+## 2026-09-11 T12-续 · 清理执行（仅 A 级）+ 门禁假红修复（**改动 1 个脚本**）
+
+> 用户指示「行，确定对系统没有影响就行」→ 按「可否证明无影响」重新逐项取证，结果**大半候选被自己推翻**。
+
+**① A 级 6 项已删（进回收站）**
+- 6 个 `*.tmpdir/` 原子写残渣（`diagrams/`、`docs/`×3、`plugins/dsh-host-services/lib/`、`plugins/dsh-modlens-autoread/test/`）。
+- 删除前逐项断言（必须在工作区内 / 必须匹配 `*.tmpdir` / 目录内条目 ≤1）；删除后实测：工作区残留 **0**、回收站可见 **6**。
+
+**② B/C 级撤回（证据不支持删除）**
+- `~/.dsh/tool-visibility/`（1.27 MB）**不是垃圾**：`CHANGELOG.md:2280` 记录 2026-09-01 归档该插件时**明确保留**这份历史数据；`docs/plugin-contracts.md:13` 又以它作为「工具调用事件契约 v1」的样本路径。
+- 两个 `js-yaml/lib/index_vite_proxy.tmp.mjs`（868 B）—— **反例级错误，我先前判错了**：它是 `js-yaml@4.3.0` **发行包自带的构建中间产物**（证据：`dist/js-yaml.mjs.map` 的 `sources` 末项正是 `../lib/index_vite_proxy.tmp.mjs`；`mermaid.js.map` 内出现同源 pnpm 路径 `.../js-yaml@4.3.0/node_modules/js-yaml/lib/index_vite_proxy.tmp.mjs`）。先前「全树 0 引用」**只在工作区扫过**，未扫 `~/.dsh` 与安装目录 ⇒ 结论不成立。**教训：判「无引用」必须写明扫描根。**
+- `~/.dsh/.dsh-usage-stats.json.bak`（92 KB）：无代码引用，但属数据快照、收益≈0 ⇒ 保留。
+
+**③ 门禁假红修复（`scripts/check-unsupervised.mjs`，3 处）**
+- 现象：本批用**相对路径** release 后，门禁仍报 `AGENTS.md`/`CHANGELOG.md` **DRIFTED**。
+- 根因（带行号）：查表用**绝对**键（`:160` `norm(join(REPO, rel))`），写基线用 **release 传入原样**（`:80`）⇒ 相对键基线永远查不中；`:56` 的归一化只覆盖**分隔符**双写，漏了相对/绝对。
+- 修法：`readBaselined()` 中相对路径的基线**同时挂到绝对键**（`isAbsolute` 判定）。按时间线顺序处理、后写覆盖先写 ⇒ **单调安全**：只会让基线更新鲜，不会掩盖真 drift。
+- **确定性证据（同一命令前后对照）**：`--paths '.workbuddy/memory/MEMORY.md,.workbuddy/memory/2026-09-11.md' --all` 从 `UNREGISTERED=2` → **`REGISTERED=2`**；基线资源数 **281 → 304**（23 条原本隐身的相对键基线重新可见）。反向对照：修复后门禁**仍**正确报出我自己改的 `scripts/check-unsupervised.mjs` 未登记（未因修复而失明）。
+
+**验证**：`node --check` exit 0 · 探针前后对照如上 · 门禁 `--stdin --strict` **exit 0**（改动已以绝对路径重新登记）。
+**记录/回滚**：`_backups/t12-gate-keyfix-20260911-231901/`（OPERATION-LOG 含三处改动的精确反向说明 + 修复后文件 sha1 `ff3f27a9…`）。⚠️ 该脚本**未被 git 跟踪**，无 git 历史；本轮**先改后备份**属流程偏差（已如实记录；今后改未跟踪脚本先拷改前副本）。
+
+## 2026-09-11 T12 · 沙箱外通道勘误 + 两处遗留文件清理（**无代码改动**）
+
+> 用户指示「你帮我做」——收尾 T10/T11 遗留的手动项。本批只删两个文件 + 更正文档，**不需要重启**。
+
+**① 遗留文件已清理（进回收站，可还原）**
+- 删除 `~/.dsh/skills/academy-guide/.SKILL.md.new`（SL-9 改造残留，7,227 B）与
+  `~/.dsh/.skills-market/cache/rec-44ljzaz7mtihov1g.json`（旧市场源孤儿缓存）。
+- 判据（三重独立复核）：`Test-Path` 前后 False · `Get-Item` 为空 · 父目录列举只剩正常文件 ·
+  `Shell.Application` 回收站列表可见两项（`$RIWIMUF.new` / `$RXUZB9V.json`）。
+- 通道：`shell` 工具（**沙箱外**）→ PowerShell `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile(...,'SendToRecycleBin')`。
+
+**② 勘误：T10 的「`~/.dsh` 下的文件删不掉、只能用户手删」不成立**
+- `shell` 工具以 dsh 进程自身权限运行、**不受 DSH 文件沙箱约束**（工具描述自证 + 本批实测）；受限的是
+  `pwsh` 工具与 `read/write/edit` 文件工具（仅工作区）。T2 记录的「node/PS 全 EPERM」只对**沙箱面**成立。
+- `safe-delete-shim.cjs` 的「`~/.dsh` 永久删除」只对**应用进程内 node `fs` 删除**成立；经 `shell` 走 PS 回收站 API
+  删 `~/.dsh` 文件**是进回收站的**（实测）。
+- 已同步更正 `.workbuddy/memory/MEMORY.md`（通道条 / 删除条）与本日 memory。
+
+**③ 顺带扫出的同类残留（已列清单，**待用户确认后才删**，本批未执行）**
+- A 级（明确垃圾 6 项）：工作区 6 个 `.tmpdir/` 原子写残渣（`diagrams/`、`docs/`×3、
+  `plugins/dsh-host-services/lib/`、`plugins/dsh-modlens-autoread/test/`；被 `.gitignore:97 *.tmpdir/` 忽略，真实文件均在或已有归档副本）。
+- B 级（死数据 1 项）：`~/.dsh/tool-visibility/`（1.27 MB）——所属插件已归档，4 个 profile 引用数 0。
+- C 级（可选 3 项）：`~/.dsh/.dsh-usage-stats.json.bak`（比 live 旧 30 s 的同尺寸快照、2 周未更新）、
+  两个 `js-yaml/lib/index_vite_proxy.tmp.mjs`（868 B，全树含 gitignore 目录 0 引用）。
+- 保留：`~/.dsh/profiles/*/cordis.patch.yml.bak.*`（回滚件）与 `_backups/` 内一切 `.orig/.bak/.tmp`（备份本体）。
+
+---
+
+## 2026-09-11 T11 · 文档同步 + 归档索引 + GitHub 文档更新（**无代码改动**）
+
+> 用户指示「更新有关文档，整理和清理文件，更新GitHub」。本批只动文档/索引，**不需要重启**。
+
+**① 文档更新（全部以实测数据为准，不靠记忆）**
+- `tools/dsh-skills-hub/README.md`：统一源计数 **70 → 94**（附按来源分布：addyosmani 22 · laolaoshiren 20 ·
+  anthropics 19 · jnMetaCode 19 · luomious 6 · zenstory-ai 6 · redbaronyyyyy-eng 1 · MrGeDiao 1）；
+  用法 URL 全部 `@v1.6.0 → @v1.7.0`；目录结构补 `import-remote.mjs`；工作流示例 tag 统一改 `vX.Y.Z`（防止再次过期）；
+  新增「本机发布通道说明」（github.com git 通道被阻断 → 免 git 通道）。
+- `tools/dsh-skills-hub/PUBLISH.md`：按当前状态整篇重写（v1.7.0 / 94 项 / 线上实测证据 / 两条发布通道 A·B /
+  发布后逐项 sha256 校验步骤 / 导入器三道守卫 / 回滚口径）。
+- `docs/DSH-CAPABILITY-AUDIT-AND-PLAN-2026-09-10.md`：**O25（F-LOCK-1，原标记 P0·新增）改为 ✅ 已修复**，
+  补齐修法、测试矩阵与"已随重启生效"证据。
+- `.workbuddy/memory/MEMORY.md`：市场条目更新（v1.7.0 / 94 项 / 治理总览实测 36·46·0·12）；单测基线
+  167 → **175/175、0 todo**；F-LOCK-1 条目改标"已生效"；**新增 5 条工程坑位**（免 git 发布通道 + tree SHA
+  比对法；免 clone 导入通道与聚合仓库禁令；**沙箱内不存在删文件的 HTTP 通道**；PS 嵌套双引号会整段解析失败；
+  **记录文件也属 runtime 类、改完需登记**）。
+- `AGENTS.md`：新增 2 条（未登记改动门禁 Step 1.12 的适用范围与处理方式；写锁原语已抗半写）。
+
+**② 整理与清理（先核查再决定，两处候选最终保留并给出理由）**
+- 新建 **`_backups/INDEX.md`**：`_backups/` 原有 **100 个批次目录 / 491.9 MB 却无索引** → 生成索引表
+  （目录 / 体积 / 是否有操作日志 / 日志标题），并注明"**不要按体积清理**"的原因。
+- 候选 1：`tests/preview/*.png` + `plugins/dsh-diagram-renderer/tests/preview/*`（7 文件 437 KB）——无脚本引用，
+  但被 `.workbuddy/memory/2026-09-09.md` 作为**图表示意图的视觉证据**引用 ⇒ **属证据，保留**。
+- 候选 2：`_backups/archived-sessions-*` / `sessions-pre-upgrade-*`（≈431 MB）——抽样核对：其中会话文件在活跃
+  `~/.dsh/sessions/` 中**已不存在** ⇒ **唯一副本（对话历史），保留**。
+- 实际清掉的：历轮自产的临时文件（`_analyze-*` / `_probe-*` / `_verify-*` / `_push-hub-via-api.mjs` / `_filelist*.txt`，
+  均走回收站）；工作区根目录现无 `_*` 残留；无测试泄漏的临时目录。
+- 未能清理（沙箱限制，已入项目记忆）：`~/.dsh/.skills-market/cache/rec-44ljzaz7mtihov1g.json`（旧源孤儿缓存，
+  被 `readCache` 忽略、无害）与 `~/.dsh/skills/academy-guide/.SKILL.md.new`（SL-9 残留）⇒ 需用户手动删。
+
+**③ GitHub 同步**
+- hub 文档提交 `7ca0ecb`（`README.md` + `PUBLISH.md`）→ 经免 git 通道发布：**`main: 53cdd7bc → 31da06c7`**（快进）。
+  **刻意不打新 tag**：目录内容未变，市场源仍指向 `v1.7.0`（jsDelivr 按 tag 永久缓存）。
+- 核验（GitHub API 读 `main`）：README 含「94 个技能」✓、含 `@v1.7.0/manifest.json` ✓、含 `import-remote` 说明 ✓；
+  PUBLISH 含「94 个技能」与「免 git 通道」✓；tags 最新仍为 **`v1.7.0@53cdd7b`** ✓。
+
+**验证**：工作区门禁 `--strict` **exit 0**（阻塞项 0）；GitHub 侧抽样核验如上。
+**记录/回滚**：本批为文档类改动，**未建 `_backups/` 备份目录**（理由：改的都是 git 跟踪的 md 与项目记忆，
+hub 侧有提交可回退、工作区侧可 `git diff` 检视）——以 CHANGELOG 本条 + 当日 memory 为记录。
+
+---
+
+## 2026-09-11 T10 · 台账补齐到磁盘真相（批量接管 32 项）+ hub 本地仓库状态校正
+
+> 用户指示"你帮我做"（针对我列出的三项收尾）。本批完成两项，第三项经查实**无技术路径**（见文末）。
+
+**① 批量接管 32 项 → 台账与磁盘真相对齐**
+- 对市场里全部「可接管」项（本地 `user-dsh` 且无台账、非 hub）执行 `market.adopt`：**32/32 成功**，
+  台账 `installed` **4 → 36**。
+- 治理总览随之变为 **目录 94 · 市场管理 36 · 可安装 46 · 可接管 0 · hub 管理 12** ——
+  「本地有、市场无台账」的中间态**归零**（这正是 T2 起那条"三源真相"主线的收口）。
+- **零文件改动核验**：样例 skill（`academy-guide`/`theme-factory`/`brainstorming`）的 `SKILL.md` mtime
+  仍为 09-10 17:38 / 09-01 20:09（远早于本次操作时间），SL-9 标记完好 ⇒ adopt 只写 `state.json` 台账，
+  未触碰任何 skill 文件（与设计一致）。
+- 可逆性：`_backups/bulk-adopt-20260911-224128/` 存有改前/改后台账（改前 = 4 条记录）。
+
+**② hub 本地仓库状态校正（消除 `ahead 1` 假象）**
+- 由于本机无法 `git fetch`，`refs/remotes/origin/main` 永远停在 `0e55900f`，会让 `git status` 误报 ahead 1、
+  并让发布清单混入已发布文件 ⇒ **删除该陈旧追踪引用**并 `git branch --unset-upstream main`，
+  现在 `git status -sb` = **`## main`**（不再有误导性比较）。
+- 基线改用**已发布标签**：实测 `git diff --name-only v1.7.0 HEAD` = **0 个文件** ⇒ 本地内容 == 已发布内容。
+- 顺带做了一次**独立的内容一致性证明**：用本地文件重建 git tree 得到
+  `d2dd7e18e251a8503a5711d3aadae0c336fee86b`，与远端提交的 tree SHA **逐字节一致** ✓
+  （这是比"上传成功"更强的证据）。
+- 反向尝试（如实记录）：用远端提交的真实元数据（author/committer/date/message）重建 commit 对象**未能复刻
+  远端 SHA**（三种写法 `-m` / `-F` 无尾换行 / 带时区偏移均不匹配）⇒ 放弃"逐字节复刻"，改以上述"基线标签"方案。
+- 发布工具说明同步更新（`scripts/push-hub-via-api.mjs` 头部：基线标签用法 + 两条注意事项）。
+
+**③ 未完成项（经查实无技术路径，需用户手动）**
+- `~/.dsh/skills/academy-guide/.SKILL.md.new`（SL-9 批次残留，全库仅 1 个）无法由我删除：
+  ① 会话沙箱禁止写 `~/.dsh`；② 查遍插件本地 API（`dsh-file-explorer` 只有
+  `list-dir`/`read-file`/`open-external`/`resolve-home`/`session-cwd`，其余插件 API 与文件删除无关）
+  **没有任何删除文件的 HTTP 通道**；③ 唯一"能删"的路径是市场 `uninstall`，但它会删**整个 skill 目录**，
+  且该目录是带 SL-9 屏蔽的本地改造版，重装会丢失该改造（得不偿失）。**⇒ 只能你手动删（一次点击）。**
+
+**验证**：治理总览数字实测（94/36/46/0/12）· 零文件改动（mtime 证据）· `git diff v1.7.0 HEAD` = 0 文件 ·
+tree SHA 逐字节一致 · 工作区门禁 `--strict` **exit 0**。
+**记录**：`_backups/bulk-adopt-20260911-224128/`（改前/改后台账 + OPERATION-LOG）。
+
+---
+
+## 2026-09-11 T9 · **v1.7.0 已发布上线（94 项）** + 修 F-LOCK-1（P0）+ 免 git 发布工具化
+
+> 用户指示"你帮我做，都做完了告诉我归档"。本批完成三件事：① 用 GitHub API 打通被阻断的发布通道，
+> 把 94 项真正发布到线上并接入市场；② 修掉并行会话发现的 **F-LOCK-1（P0）**——多会话写锁的
+> 半写窗口会被当成无主锁接管；③ 把"免 git 发布"沉淀为工作区工具，下次一条命令。
+
+**① 发布上线（本机 git 通道被阻断 → 改用 GitHub API）**
+- 事实：`git clone https://github.com/...` → `Recv failure: Connection was reset`；`git ls-remote origin`(SSH) 失败；
+  但 `api.github.com` 可达且 **`gh` CLI 已登录 luomious（scope 含 `repo`）**。
+- 做法：Git Data API —— 57 个 blob → 建 tree（`base_tree`=远端，**只覆盖改动文件**，不会回退别人的改动）
+  → 建 commit（parent=远端 HEAD）→ 快进 `refs/heads/main` → 建 tag `v1.7.0`。
+  结果：`main: 0e55900f → 53cdd7bc`，tag `v1.7.0 → 53cdd7bc`。
+- **发布后核验（关键）**：jsDelivr 索引 = **94 项**，且抽样 6 个技能（含 2 个自撰 + 2 个导入 + 2 个历史项）
+  的**实际字节 sha256 与索引完全一致** ⇒ 安装期强校验必然通过（T7 预排的 CRLF 隐患确认无发生）。
+- 市场已接入：新增源 `@v1.7.0`（`rec-gl6mx07cmtwxzhjm`）并选中、移除旧 `@v1.6.0` 源 →
+  `market.list` 实测 **94 项 / 可安装 46**（原 24）/ 台账 4 条完好。
+  ⚠️ 过程踩坑：PowerShell 里我再次把函数参数命名为 `$args`（自动变量）→ 实参被静默吞掉、首轮调用全部无效；
+  改名后正常（该坑已在项目记忆里，属重复踩，已记录）。
+
+**② F-LOCK-1 修复（P0 · 运行时改动 · 需重启生效）**
+- 写入侧：`publishLock()` = 先写同目录 tmp，再 `linkSync(tmp, lock)` **原子发布**
+  （EEXIST 即冲突 ⇒ 保留"一次调用只有一个赢家"；锁文件名出现即内容完整，半写窗口从根上消失）。
+- 读取侧：`readLock()` **不再**把不可解析的锁改名成 `.corrupt-*`（那会让持有者 release 静默失效）；
+  新增 `reclaimableLockFile()`：不可解析 + mtime 在 **30s 宽限期**内 → 一律判"有人持有"（fail-closed BUSY），
+  过期才按崩溃孤儿接管并留 `.stale-*` 痕迹。`status()` 懒回收与 `clear()` 同步改用该判定
+  （`clear` 对新鲜半写锁返回 `unparseable-refused`，`force` 才清）。
+- 连带修复：BUSY 分支 `holder.id` 缺可选链 → 半写场景会抛错返回 `ERROR` 而非 `BUSY`（**由新测试抓出**）。
+- 测试：新增 `tests/plugins/task-scheduler-halfwrite.test.mjs`（**免 spawn**，7/7）覆盖
+  0 字节/半截 JSON 判 BUSY、宽限期两侧、status/clear 行为、原子发布无 tmp 残留、token 与 release 回归；
+  并把并行会话留的 `test.todo('F-LOCK-1 …')` **升级为正式断言**（其文件 14/14 通过，`todo 0`，
+  且真多进程并发实测 `重叠对=0 corrupt 痕迹=0`，修复前会留 `.corrupt-` 痕迹）。
+
+**③ 发布能力工具化**：新增工作区工具 `scripts/push-hub-via-api.mjs`
+（`--dry` 预演 / 只上传清单文件 / 凭据仅从 `GH_TOKEN` 读、不落盘 / 头部写明"清单宁可多传不漏传"），
+并附 `--dry` 实测（读到远端 `53cdd7bc` 后停手，零写入）。下次改内容 → 一条命令即可发布。
+
+**验证汇总**：`node --check` ×3 exit 0 · 新测试 **7/7** · 锁测试文件 **14/14**（todo 0）·
+旧 `core.test.mjs` **29/29** · 全量 `tests/plugins` **175/175**（原 167）· 发布后 CDN 抽样 sha256 全等 ·
+`market.list` 94 项 · 工作区门禁阻塞项 0。
+
+**记录/回滚**：`_backups/flock1-fix-20260911-203928/`（`core.js` + 锁测试改前副本 + OPERATION-LOG）。
+回滚：核心回滚 = 还原 `core.js`（提交级回滚见 OPERATION-LOG）；发布回滚 = 远端 ref 指回 `0e55900f`
+（**注意已公开，回滚需谨慎**）。**需重启**：`core.js` 是运行时插件代码（重启后锁定行为才生效）。
+
+---
+
+## 2026-09-11 T8 · 免 clone 远程导入器（新工具）+ 目录 72 → **94 项**（本地 commit+tag，**待用户 push**）
+
+> T7 的结论是"内容要多"必须真的新增内容、且本机不能 clone。本批把**扩充能力**做成工具并立刻用它
+> 导入一个高星 MIT 上游 —— 从此"加内容"不再依赖 clone，也不再依赖我一人手工。
+
+**新工具 `tools/dsh-skills-hub/scripts/import-remote.mjs`（免 clone 导入器）**
+- 通道：GitHub API **列目录**（`git/trees?recursive=1`）+ jsDelivr **取文件**（`cdn.jsdelivr.net/gh/...`，
+  无限流）；两者实测可达，而 `git clone https://github.com` 与 `raw.githubusercontent.com` 在本机被阻断。
+- **fail-closed 许可闸门**：`<expected-license>` 必须与仓库声明的 SPDX **一致**，否则 exit 2 ——
+  防止把聚合仓库/无许可内容"当 MIT 导入"。
+- **绝不覆盖**：目标源已有同名 skill → 跳过并列出（同名合并由人决定）。
+- **契约守卫**：市场只分发 `download.url` **单个文件**（SKILL.md），故带附属文件
+  （references/、templates/、scripts/）的 skill **默认跳过**并标注，`--allow-extra` 才强导（会缺文件）。
+- 复用既有 `lib/skillmd.mjs`（frontmatter name 必须等于目录名、description 超 500 自动截断重写、`validateSkillFile` 复核），
+  与 `import-upstream.mjs` 同源同校验；`--list-only` / `--dry` 支持预检。
+- 可发现性：`package.json` 增 `npm run import:remote`；README 增专门章节（含聚合仓库风险警示）。
+
+**导入结果（首个上游：`addyosmani/agent-skills`，MIT，93k★）**
+- 25 个技能 → **导入 22**，跳过 3：`test-driven-development`（与我们重名，未覆盖）、
+  `constraint-driven-development`（多文件 references/）、`idea-refine`（多文件 examples/frameworks/scripts）。
+- 新增内容为工程类技能：`api-and-interface-design`、`ci-cd-and-automation`、`context-engineering`、
+  `debugging-and-error-recovery`、`documentation-and-adrs`、`observability-and-instrumentation`、
+  `performance-optimization`、`security-and-hardening`、`spec-driven-development`、`writing-plans` 类近邻等。
+- 目录：**70 → 72 → 94 项**（+34%）。
+
+**验证（实测，全部 exit 0）**
+| 项 | 结果 |
+|---|---|
+| `import-remote.mjs --list-only` | 预检 25 项，标出重名与多文件项 |
+| 导入 | `已导入: 22`，`跳过 3`（原因逐条列出） |
+| `build-index official` | `skills-index.json -> 94 items (1.7.0-2026-09-11)` |
+| `validate-index official` | **VALIDATION OK: 94 items**（含离线 sha256 复核 + 交叉校验） |
+| `verify-parser official` | **94/94** |
+| `test-rewrite` | REWRITE TEST OK |
+| **零漂移核验** | 对比 T7 备份的原始索引：**原有 70 项 sha256 70/70 未变** ⇒ 切到 v1.7.0 不会给已安装用户造成假"有更新" |
+| 多文件隐患复核 | 自撰的 `diagram-design` 虽带 templates/examples，但 SKILL.md 对它们的引用数 = **0**（`./diagrams/*.html` 是让 agent 生成产物的路径，非依赖）⇒ 单文件分发完整，无需撤下 |
+
+**git**：amend 为单个未推送提交 `56c2626`，tag `v1.7.0` 重指该提交（`main...origin/main [ahead 1]`）。
+**记录/回滚**：`_backups/hub-import-20260911-201312/`（索引/manifest/package.json/新工具/README 快照 + OPERATION-LOG）。
+回滚：`git reset --soft HEAD~1 && git tag -d v1.7.0`（**未 push ⇒ 远端零影响**）或删掉新增 `skills/<name>/` 目录。
+
+---
+
+## 2026-09-11 T7 · hub 发布包就绪：目录 70 → **72 项**（本地 commit + tag，**待用户 push**）
+
+> 承接 T6 的"内容要多"调研：线上无新内容、第三方无合规源、发布通道在本机被阻断。
+> 本批把**能做的部分做到位**：把 2 个我们自撰但从未发布的 skill 补溯源 → 重建索引 → 全量校验 →
+> bump 版本 → 本地提交打 tag，**只留一条 push 命令给用户**。
+
+**交付**
+- 补 `_source.json` 溯源（`build-index.mjs:109` **硬依赖**该文件，缺失即崩）：
+  `skills/diagram-design/_source.json`、`skills/firecrawl-usage/_source.json`
+  （`origin` = 本仓库、`author` → luomious、`license: null`，与既有自撰种子 `code-review` 等一致）。
+- `package.json` **1.6.0 → 1.7.0**，重建 `manifest.json` + `skills-index.json`：
+  **72 items**、revision `1.7.0-2026-09-11`、CDN 基址自动切到 `@v1.7.0`。
+- 本地 git：commit `54f7c41` + tag `v1.7.0`（**未 push**；`main...origin/main [ahead 1]`）。
+
+**验证（实测，全部 exit 0）**
+| 项 | 结果 |
+|---|---|
+| `node scripts/build-index.mjs official` | `skills-index.json -> 72 items (1.7.0-2026-09-11)` |
+| `node scripts/validate-index.mjs official` | **VALIDATION OK: 72 items**（含离线 sha256 复核） |
+| `node scripts/verify-parser.mjs official` | **PARSER REGRESSION OK: 72/72**（含 2 个新项的块标量描述） |
+| `node scripts/test-rewrite.mjs` | REWRITE TEST OK |
+| 交叉验证 | `diagram-design` 索引 sha `cbb6cc1f…` 与本地 hub 安装清单记录**一致** |
+| **发布前陷阱排查** | `core.autocrlf` 未设置（不改写行尾）；工作区字节数 == 已提交 blob 字节数（新项 + 抽样历史项 `brainstorming`/`docx`）⇒ push 后 jsDelivr 供出字节与索引 sha256 **必然吻合** |
+
+**用户待执行（一条命令）**
+```
+cd D:\Deepseek-Harness\tools\dsh-skills-hub && git push origin main --tags
+```
+push 后在市场页把源换成 `https://cdn.jsdelivr.net/gh/luomious/dsh-skills-hub@v1.7.0/manifest.json`（或新增该源）→ 即见 **72** 项。
+
+**记录/回滚**：`_backups/hub-publish-20260911-200136/`（official/community 索引 + manifest + package.json 改前副本 + OPERATION-LOG）。
+回滚：`git reset --soft HEAD~1 && git tag -d v1.7.0` + 还原备份文件（**未 push，所以远端零影响**）。
+
+---
+
+## 2026-09-11 T6 · 市场页「治理总览」+ 安装显示正确（**纯客户端 · 刷新即生效、无需重启**）
+
+> 用户三条要求：市场内容要多 / 管理规范化 / 安装显示正确。本批交付后两条的**可见性**部分；
+> "内容要多"的调研结论见文末（结论：受发布通道限制，需用户 push）。
+
+**治理总览（市场页顶部新增一行）**
+- 显示**互斥分区**：`目录 N 项 · 市场管理 a · 可安装 b · 可接管 c · hub 管理 d ·（其他来源 e）` ——
+  把「三源真相」的分布直接摆到页面上（此前只有跑脚本才知道）。
+- 口径 = **目录全量**（新增 `allItems` 状态缓存）：搜索/分类时 `items` 是子集，拿子集算统计会"缩水"。
+- **实测校验互斥性**：`4 + 24 + 31 + 11 + 0 = 70` ✓ —— 首版公式把 hub 项重复计入（31+11+11=53），
+  在模拟页面数字时发现并修正；这正是"显示正确"要防的错误。
+
+**安装显示正确**
+- 版本徽标 → **「目录 v1.6.0」**（明确是目录版本，而非本地版本）。
+- 已接管项标签「已接管（**待对齐** vX）」→ **「已接管（本地已改造，目录 vX）」**（旧措辞暗示要用户去对齐，
+  与 T5 定的「默认保留本地」策略相反）。
+- SHA 行 → **「目录 SHA-256（安装时校验）」**；本地哈希与目录不同时**加一行「本地 SHA-256 …（本地已改造）」**
+  —— 用户能直接判断"本地装的是不是目录那一份"。
+
+**"市场内容要多"调研结论（本批未交付，附实测证据）**
+- 线上 `luomious/dsh-skills-hub` = **v1.6.0**，main HEAD 与本地一致（GitHub API 实测）→ **无更新内容可用**；
+- 本地 hub 有 **2 个未提交 skill**（`skills/diagram-design/`、`skills/firecrawl-usage/`，`git status` 实测）
+  → 发布后 70 → 72，但**两者均无 license 字段**，需先确认来源许可；
+- 第三方合规源 **0 个**：GitHub API 搜到的 5 个 DSH 目录仓库（`cheshireez/dsh-skill-hub`、`lcthe/dsh-skills-hub`、
+  `FlashingChen/dsh-desktop-hub`、`sulfide2085/dsh-skill-manager`、`Relistencode/dsh-extension-hub`）
+  在 jsDelivr 上 `manifest.json`/`skills-index.json` **全部 404** → 无法以"加源"方式扩充；
+- 大上游已收录或冲突：`obra/superpowers`(MIT, 14 skills) 与已收录的中文移植**同名冲突**；
+  `anthropics/skills` 已收 19/20；其余候选多为单技能且**许可不明**（`NOASSERTION`/无 license）；
+- **发布通道受阻（实测）**：`git clone https://github.com/...` → `Recv failure: Connection was reset`；
+  `git ls-remote origin`（SSH）→ 失败。可达的只有 `api.github.com`（只读）与 `cdn.jsdelivr.net`。
+  ⇒ **内容扩充必须由用户在其网络环境执行 push**（或改走 Gitee 镜像，gitee.com 实测 200 可达）。
+
+**验证**：`node --check lib/client.js` exit 0；用运行中的 `market.list` 模拟页面统计并校验分区求和 = 总数（70）✓。
+**记录/回滚**：`_backups/market-display-20260911-190201/`（`client.js` 改前副本 + 当时 `state.json`）。
+
+---
+
+## 2026-09-11 O8c · 剩余量补齐：跨会话写锁语义 + 两插件冒烟（**纯测试新增，零运行时改动**）
+
+> O8 第一刀（zstd 会话日志 + routing 冒烟）只覆盖了「补丁产物」与「路由大脑」两块。
+> 本次补的是**门禁覆盖面缺口**：`dsh-task-scheduler` 的锁语义测试原本位于
+> `plugins/dsh-task-scheduler/tests/`，**不在 check-all Step 3 的采集范围**
+> （只 glob `tests/plugins/*.test.mjs`，非递归）；`dsh-diagram-renderer` 的回归只有
+> Python+Playwright 的浏览器级版本（Step 2.5，环境不可用即静默跳过）；
+> `dsh-vision-engine` 完全没有单元层保护。
+
+**新增（4 个文件，全部只读断言，不写用户目录）**
+- `tests/plugins/_helpers/sandbox-import.mjs` — **沙箱化导入基建**。插件的 `lib/index.js` 在模块
+  作用域裸导入 `@deepseek-ai/dsh-tools`，而仓库根**没有** `node_modules/@deepseek-ai`（该依赖只在运行时
+  profile 里）→ 仓库内 `node --test` 导入插件会 ERR_MODULE_NOT_FOUND，纯函数无法被单测覆盖。
+  做法：把 `lib/` 复制到 mkdtemp 临时目录 + 在同级写桩包，并 `verifyIdentity()` 逐文件 sha256
+  比对仓库原件（断言 `ok===true` = **被测字节就是仓库字节**）。不用 `--experimental-loader`、
+  不用 spawn、不触碰仓库与 profile。附带 `createFakeWebServer/createFakeTools/createFakeCtx/createFakeRes`。
+- `tests/plugins/task-scheduler-lock.test.mjs` — **13 通过 + 1 todo**。覆盖：存储隔离（惰性 env 回归锁）、
+  争用 held-by-other、多资源失败回滚（空资源不留部分锁）、等待超时边界与耗时上界、release 幂等、
+  **TOKEN_MISMATCH 保护（错 token 不得摘锁/不得续心跳）**、崩溃自愈（死 pid）、TTL 过期接管、
+  优先级合作式抢占、clear 活锁拒/force 清、时间线契约、真多进程并发（12a 确定性：持有者存活时
+  4 子进程全 BUSY；12b：失败者全 BUSY + 每次接管必有回收记录）。
+- `tests/plugins/diagram-renderer-smoke.test.mjs` — **15/15**。覆盖：`sanitizeSvg` 注入防护
+  （script/foreignObject/iframe/object/embed、`on*` 事件、`javascript:`、外部 `xlink:href`/`src`；
+  内部 `#anchor`/`url(#id)` **必须保留**；幂等；嵌套绕过）+ `extractSvg`；`render_diagram` 参数集锁；
+  board/scene-v9/svg 三条数据驱动路径端到端落盘（含**满画布白底注入**与**清洗后才落盘**）；
+  mermaid script 拦截不落盘；超限（>512KB）/空输入/非法 board·scene 均返回可读错误且不落盘；
+  两条 prefix 路由注册 + 未知文件名/穿越 404（正文不泄漏本地路径）；离线 mermaid 资产存在性。
+- `tests/plugins/vision-engine-contract.test.mjs` — **5/5**。**刻意不调用 `apply()`/`recordUsage()`**：
+  `apply` 会 `seedProfiles()`（乱码自愈时写回 `~/.modlens/vision-engine.json`）+ `setOllamaAutostart(true)`
+  （写启动目录 VBS）+ `probeOllama()`→ 必要时 `startOllama()`（拉起进程）；`recordUsage` 硬编码写
+  `~/.modlens/vision-engine-usage.json`（无 env 覆盖）。故改为锁「导出形状 / inject 顺序 / hostServices
+  缺失守卫」，并把上述副作用做成**锚点断言** —— 副作用一旦被移除或可注入，本文件失败并提示升级为真调用。
+
+**🔴 顺带发现：缺陷 F-LOCK-1（锁文件半写窗口 → 活跃锁被接管）**
+- 现象：锁文件处于「已创建、内容未写入」的中间态（0 字节 / 半截 JSON）时，`readLock` 的 JSON.parse
+  失败 → 返回 `null` → `isReclaimable(null) === true` → 调用方把**持有者的锁**当无主锁接管，
+  并把持有者的锁文件**改名成 `.corrupt-<ts>`**（持有者随后 release 找不到自己的锁，release 静默变空操作）。
+  后果：窗口期内两个会话可同时认为自己持有同一资源 → 并发写同一文件（正是写锁机制要防的事）。
+- **确定性复现（无需并发，实测）**：写入一个 `pid=存活进程`、心跳新鲜、TTL=1h 的合法锁文件 →
+  把内容改成 0 字节 → `acquire(同资源)` 返回 **ok=true**（应为 BUSY）；对照组（完整合法 JSON）正确 BUSY。
+- 受控实验（`_backups/o8c-f-lock-1-20260911/` 内 7 个探针脚本与原始输出）：活跃持有者存在时，
+  串行申请者 **3/3 全部 BUSY** → 正常路径互斥成立；0 字节锁 → 100% 被接管。
+  另有 1 次 4 路同起时观测到 ~295ms「持有区间重叠」，未能归因（候选：上述半写窗口被读到，
+  或 `existsSync/readLock/rename/write(wx)` 多步被文件系统拖长导致的交错 —— 同批实验出现过
+  `race-eexist`，证明此类交错确实发生）。两者指向同一修复方向。
+- 修复方向（**属运行时改动，需重启，待批准**）：
+  (A) 写入侧 `writeFileSync(tmp)` + `linkSync(tmp, lock)` 原子发布，从根上消除半写可见窗口；
+  (B) 读取侧保守化：不可解析的锁文件不得立即改名销毁，短重试仍不可解析且 mtime 很新 → 返回 BUSY（fail-closed）。
+  代码内已留 `test.todo('F-LOCK-1：…（修复后启用）')`（`tests/plugins/task-scheduler-lock.test.mjs` §13）。
+- 另记：`plugins/dsh-task-scheduler/tests/core.test.mjs:63` 断言「4 进程**恰好 1 个**成功」**时序脆弱** ——
+  赢家若在输家启动前退出，其 pid 死亡 → 锁按设计可回收 → 后到者**合法地**成为第二个赢家。
+  互斥的真实不变量是「持有区间不重叠」（且须从**拿到锁的时刻**度量），不是「恰好 1 个赢家」。
+
+**验证（实测）**：`tests/plugins` 全量 **167 通过 / 0 失败 / 1 todo（17 文件）**，退出码 0
+（O8 第一刀后为 134/134/14 文件 → 本次 +33 通过）。各文件单独运行同样全绿。
+**无需重启**（本批为测试与文档，未改动任何运行时文件）。
+
+**记录/回滚**：新增文件均为可安全删除的测试资产；缺陷证据与探针脚本归档于
+`_backups/o8c-f-lock-1-20260911/`（含 `MANIFEST.txt` 与逐个 sha256）。
+
+---
+
+## 2026-09-11 T5 · 市场破坏性动作护栏（卸载前整目录备份 + SL-9 本地改造识别）
+
+> 动因是 T3「接管」引入的**新增不可逆风险**：34 个可接管对象里有 **13 个是本地已改造**，
+> 且 **13/13 都带 SL-9 的 `disable-model-invocation: true`**；一旦被「更新」覆盖，模型 catalog 会重新
+> 变大 —— 而「catalog 超 9KB 使锚定率 81%→0%」是本项目实测过的**静默降级**。同时查实一条既有风险：
+
+**⚠️ 卸载是永久删除（本次查实，非新引入）**
+- `patches/bundles/safe-delete-shim.cjs:290-299`：`safeDeleteRmSync` 在 `isProtected()` 为真时
+  **直接走原始删除**；`PROTECTED_PREFIXES` 含 `DSH_HOME`（`:54-57`，注释明说 shim never redirects
+  deletions there）。⇒ 市场「卸载」删的是 `~/.dsh/skills/<id>` = **永久删除、回收站救不回**。
+  T3 之前这条路径几乎无人可达（无台账 → 无「卸载」按钮），T3 接线后才真正暴露。
+
+**修复**
+- `lib/market/install.js`：新增 `backupSkillDir()`（整目录递归复制到
+  `<marketRoot>/backups/uninstalled/<id>/<ts>/`，保留子目录结构、不跟随符号链接）；
+  `uninstallSkill(..., marketRoot)` **先备份再删**，备份失败即抛（fail-closed：宁可拒绝卸载，
+  也不做不可恢复的删除）。
+- `lib/market/api.js`：`list()`/`sources()` 暴露 `localModelInvocable`（取自 `collectAll` 的 summary，
+  **零额外读盘**）；`adopt()` 落库该标记；`update()` 增**服务端**护栏 —— 本地带
+  `disable-model-invocation:true` 时未显式传 `confirmLocalMods:true` 一律拒绝（`code: LOCAL_MODIFIED`），
+  不依赖 UI 文案；`uninstall()` 回传备份路径。
+- `lib/client.js`：新增「已屏蔽(SL-9)」徽标；更新确认框在本地已屏蔽时**明确写出后果**（catalog 变大、
+  锚定率下降）并携带 `confirmLocalMods`；卸载确认框如实描述「永久删除 + 删除前自动整目录备份」；
+  「待对齐」文案由**鼓励更新**改为中性（默认保留本地）。
+
+**验证（实测）**：`node --check` ×4 exit 0 · `market-integration` **21/21**（18 + 3 新增：改造标记落库 /
+更新需显式确认 / 真实 FS 整目录备份含子目录）· `market-smoke` **21/21**。
+**护栏在宿主侧，需重启生效**；重启前请勿在市场点「更新/卸载」（新文案会先于新宿主生效，行为不一致）。
+
+**记录/回滚**：`_backups/market-guardrails-20260911-183104/`（4 代码文件 + `state.json` 改前字节 + OPERATION-LOG）。
+
+---
+
+## 2026-09-11 T4 · 「未登记改动」升级为 check-all 门禁（运行路径分类 + 存量基线补齐）
+
+> T3 交付了 `scripts/check-unsupervised.mjs`（只读巡检），但它只是**手工工具** —— 不接入门禁就等于
+> 「知道有盲点，但没人会去看」。本批把它接成 `check-all` 的 **Step 1.12**，并补齐历史欠账。
+> 关键设计：**只对运行路径阻塞**，避免"每次都是红的"把真告警淹成噪声（与 F20「狼来了」同源）。
+
+**脚本升级（`scripts/check-unsupervised.mjs`）**
+- **运行路径分类**：`runtime`（`plugins/` `scripts/` `patches/` `profile/` `agent-presets/` `tests/`
+  ＋ 根级配置与共享文档）→ **阻塞**；`info`（`docs/` 叙述文档、图片等产物、根级 `_` 前缀临时件）→ **只提示**。
+- `--strict` 仅对 runtime 阻塞（门禁用）；新增 `--strict-all`（连 info 也失败）；汇总行分开报
+  「阻塞项(runtime) / 提示项(info)」并打印阻塞清单。入口三通道不变（git / `--stdin` / `--paths`），
+  `exit 2` 语义明确为「git 不可调用」。
+
+**门禁接入（`scripts/check-all.ps1` Step 1.12）**
+- 先直连 git；沙箱内 node 不能 spawn → 脚本 exit 2 → **自动回退** `git status --porcelain | node … --stdin --strict`
+  （git 由 PowerShell 调用，不受 node spawn 限制）；两路都不可用才 SKIP 并给出手工命令。
+- 失败计入 `$totalFail`（check-all 退出码 = 失败项数），与既有步骤同构。
+
+**存量基线补齐（一次性）**
+- 对门禁上线**之前**的历史欠账（无基线 / 基线过期）执行 `acquire → release`：**28 个文件**，
+  summary 标注「T4 门禁上线：存量基线补齐（此前无基线/基线过期，非本次改动）」→ 时间线从此有可比基线。
+
+**验证（实测）**
+
+| 项 | 结果 |
+|---|---|
+| `node --check scripts/check-unsupervised.mjs` | exit 0 |
+| 分类生效 | 30 条 runtime 阻塞项；`docs/*.md`、`tests/preview/*.png`、根级 `_*.mjs` 均归 info、不阻塞 |
+| 分支 A（直连 git） | 沙箱内 exit **2** + 明确提示（触发回退路径） |
+| 分支 B（PowerShell 管道） | exit **1**，阻塞清单**恰好只有 3 个在途文件**（= 本批持锁未 release 的自身文件） |
+| 补齐效果 | 阻塞项 **31 → 3**；`REGISTERED=35`；时间线含 **28** 条 `who=main:gate-unsupervised` 的 released 记录 |
+
+**记录/回滚**：备份 `_backups/gate-unsupervised-20260911-180234/`（巡检脚本当日快照 + `check-all.ps1`
+的 `git diff` 补丁 + HEAD 基线副本）。⚠️ 该补丁是**vs HEAD 的全量未提交 diff（含其他会话改动）**，
+**不要整片回滚**；本批对 `check-all.ps1` 的改动是自包含的两处：① header 注释 `1.5-1.11 → 1.5-1.12`（+1 行）
+② Step 2 之前新增 Step 1.12 块（约 26 行），回滚=删除该块并还原注释行。
+
+---
+
+## 2026-09-11 T3 · 市场「接管」本地已存在 skill + 更新前备份 + 未登记改动巡检
+
+> 承接 T2：市场 70 项里 **46 项显示「本地已存在」却没有市场台账** —— 既不能「更新」也不能被
+> 市场「卸载」，用户只能看着。根因仍是**三源真相**（hub 直装清单 12/61 · 市场 `installed[]` 空 ·
+> 磁盘 61）。本批不搞大重构，而是用**最小可行一步**把这类 skill 纳入台账（渐进式治理）。
+
+**`market.adopt`（新增 · 10 道 fail-closed 闸门 · 只写台账不碰文件）**
+- 闸门：缺 skillId / 无选中源 / 条目不存在 / 已有市场记录 / 本地不存在 / 来源非 `user-dsh`
+  / 无法定位目录 / 读失败 / frontmatter 不合法 / **hub 清单记录且哈希一致**（保护 hub 完整性，
+  AGENTS.md 明令勿改 hub 安装的 skill）→ 任一不过即拒绝，**零写入**。
+- 落库语义：`sha256` = **本地实际内容哈希**；`version` 仅在内容与目录一致时有确定值；
+  `contentMatches=false` → UI 提示「可点更新对齐」。`list()` 增 `installedAdopted` /
+  `installedContentMatches` / `installedCatalogVersion` / `hubManaged`。
+- UI 四态：市场已安装 / **已接管**（含"待对齐"）/ 本地可接管（出现「接管」按钮）/ hub 管理（只显示状态）。
+
+**更新前备份（补数据安全缺口）**
+- `updateExisting(..., marketRoot)`：覆盖前把本地原文备份到 `<marketRoot>/backups/<id>/<ts>-SKILL.md`
+  （内容相同则跳过；**备份失败即拒绝更新** = fail-closed）。
+- 同时修掉旧 UI 的**假承诺**：原文案称「旧版本将备份并自动回滚」，而代码里从来没有备份。
+
+**未登记改动巡检（补插件侧的静默盲点）**
+- `plugins/dsh-task-scheduler/lib/core.js`：`checkUnsupervised()` 增 `coverage {window, baselined, note}`
+  —— 显式暴露「只能检测**有 release 基线**的资源；从未登记的文件不在范围内」。
+  实测依据：memory-files 被并发无锁修改时，`check` 对该资源返回 **0 告警**（靠 mtime 才发现）。
+- 新增 `scripts/check-unsupervised.mjs`（只读 · 零依赖）：git 工作区 × 时间线基线比对，输出
+  `REGISTERED / DRIFTED / UNREGISTERED` 三类；`--strict` 可作门禁；沙箱内 node 不能 spawn git，
+  故内置 `--stdin` / `--paths` 通道。
+
+**验证（全部实测）**：`node --check` ×3 exit 0 · `market-integration` **18/18**（11 基线 + 7 新增）·
+`market-smoke` **21/21** · `core.js` 定向验证 **7/7**（含故障注入：绕锁改动仍被抓到）·
+`check-unsupervised` 实测 `REGISTERED=1 DRIFTED=17 UNREGISTERED=33`，并**抓到了 memory-files 那个实例**（证伪通过）·
+重启前实测 `market.adopt → 未知方法` = **需重启生效**。
+
+**环境约束（实测）**：`core.test.mjs` 在会话沙箱内崩于 `:52` 的 `spawn EPERM`（4 子进程并发锁用例）
+—— 既有沙箱限制，需在真实终端运行。
+
+**记录/回滚**：备份 `_backups/adopt-local-skill-20260911-172058/`（6 代码文件 + `state.json` 改前字节 +
+`OPERATION-LOG.md`）。回滚=覆盖回原文件 / 删台账记录；**adopt 天然可逆**（从未触碰 skill 文件）。
+
+---
+
+## 2026-09-11 O8（部分）· 关键链路测试：zstd golden + routing-suite 冒烟
+
+> O8 审计项「关键链路零测试」的第一刀（处置原文即此两项）。测试**纯新增**，零生产行为变更。
+> 单测基线 **115 → 134**（+5 zstd golden，+14 routing 冒烟）；startup-verify 10/10 ·
+> scan-dangling 0 · plugin-imports 0 违规，全部无回归。
+
+**O8a · zstd golden（`tests/plugins/session-persistence-zstd.test.mjs`，5 用例）**
+- 被测对象 = **已应用补丁的真实工件**（dist `app.asar.unpacked` → dev vendor，按序取首个存在的），
+  不是补丁源文件 —— 测的就是运行时代码，并断言 3 个补丁标记在位（工件被覆盖回退会立即红）。
+- fixture 三件套（`tests/fixtures/zstd-golden/`，**可再生**：`generate.mjs` + manifest sha256 锁）：
+  明文（含中文/emoji/60KB 长行）、4 帧 zstd（checksum 开，帧布局 = 首帧仅头 + 3/1/2 事件）、
+  同布局尾帧截断 40% 的 torn 版。
+- 覆盖：fixture 完整性 · `readRaw` 流式多帧解码（PERF-5 路径）逐字节还原 ·
+  `readPrefix` 同步生成器快路径（PERF-6）事件逐条一致 · torn 不抛错/完整帧保留/tornMarker 截断点 ·
+  **新鲜往返**（当前 zlib 现写现读，防 zlib 升级引入编解码漂移）。
+- 测试细节：公开面 `locate()/readRaw()/readPrefix()` 切入，绕开需 live sessions 服务的构造器/协调器
+  （原型实例化 + 真实读路径全走）；工件不存在（非源码部署）→ skip 不误报（O6 skipped 纪律）。
+- 生成器调试中实证了两条内核约束（已写进 fixture）：**首帧必须恰好一行头**（`assertZstdHeaderFrame`）、
+  **事件 `seq` 必须严格 0..N-1**（seq gap 会让 committed 停滞，报成 torn record 错误导向排查）。
+
+**O8b · routing-suite 冒烟（`tests/plugins/routing-suite-smoke.test.mjs`，14 用例）**
+- 覆盖路由大脑 `preset/preset/router-core.mjs`（**零依赖**，18 导出）：三行为带量化边界
+  （0.199/0.2/0.499/0.5）、weak 双模型分型 persona（pro 无 flash 锚 / flash 带锚）、
+  工具组三带映射、classifyTask 中英证据词、`seq` 无关的会话模式恢复（snapshotEvents 优先/
+  legacy 回退/恒数组）、`data.message` 嵌套解包（router-standard issue #1 回归锁）、
+  parseMode 全分支、applyPersona 大小写 persona 清除与段保留。
+- bootstrap 契约：name/inject(`['systemPrompt','tools','llm']`)/apply 形状锁。
+- **不重复测**：`injector/lib/index.js`（369KB）全模块加载依赖运行时 profile 解析，
+  其可加载性已由 startup-verify V1 + 应用启动覆盖，此处只测零依赖路由逻辑。
+
+**O8 余量（下批）**：diagram-renderer、vision-engine、task-scheduler 并发锁仍无测试（审计原文列项）。
+O20（CI 升级）未动。记录：`_backups` 无新增（本批零修改既有文件，全部纯新增）。
+
+---
+
+## 2026-09-11 G1 修复 · `inject` 未声明 `hostServices` → /health 探测静默缺失
+
+> 用户重启后实测 `/health`：`plugins` 34→**35**（bundle 已加载），但 count 仍 **7**、无 `memory.files`。
+> 根因：cordis 服务**必须在插件 `inject` 数组里声明**，apply 里才能用 `ctx.X` 读到；否则是
+> `undefined`、探测注册被静默跳过。`dsh-memory-files` 原来只声明 `['systemPrompt']`，而 apply 里
+> 直接读 `ctx.hostServices`。仓库内 5 个既有消费方（file-explorer / model-whitelist / remote-workspace /
+> vision-engine / skills-manager）全部正确声明 —— 本插件是唯一漏网。
+> **注入本体（systemPrompt）声明正确、不受影响**；坏的只是自证探测。
+
+- 修复：`inject = ['systemPrompt']` → `['systemPrompt', 'hostServices']`（原子写，sha `16f651b8`→`a106c75c`，`node --check` 过）。
+- 同类排查（铁律 3）：扫全部插件「用 `ctx.{hostServices,notify,workspaceRegistry,webServer,slots}` 但未声明」→ **0 个**其他命中。
+- 契约锁：`memory-files.test.mjs` 的 inject 断言改为 `['systemPrompt','hostServices']` 并注明教训。
+- 验证：单测 **115/115** · `startup-verify` **10/10**。
+- **需再次重启生效**；重启后 `/health` 应 8 项，`memory.files.detail` 会直接报「N source(s), N chars injected」（`~/.dsh/memory/MEMORY.md` 已播种，可端到端证明收集管线）。
+  ✅ **17:14 二次重启实测：count 7→8，`memory.files` ok=true，detail=`1 source(s), 922 chars injected`，
+  hit=`~/.dsh/memory/MEMORY.md`（718 字符，未截断）——「读文件→收集→渲染→探测」整链端到端证实。G1 至此生效。**
+- 回滚：把 inject 改回单元素即可（一行）；fix 前文件 sha `16f651b8…`。
+
+---
+
+## 2026-09-11 T2 · 技能市场修复（安装死路错误 + 源升级 v1.1.0→v1.6.0）
+
+> 用户报告：技能市场点「安装」→「操作失败：同名 skill 已存在（本地或系统），可用更新或先卸载」。
+> 复核结论：这不是文案问题，而是**三源真相**下的**死路**——提示给出的两个补救动作（更新 / 卸载）
+> 都要求一份**不存在的**市场安装记录，用户无路可走。
+
+**根因（实测）**
+1. **市场源陈旧**：`~/.dsh/.skills-market/state.json` 只注册 `@v1.1.0`（19 项，几乎全是 anthropic 官方），
+   而本地 `~/.dsh/skills` 有 **61** 个 skill、其中 **46** 个同名 → 想装的几乎都已存在。
+2. **`installed: []` 为空** → 市场不知道自己装过什么，UI 给每张卡片都渲染「安装」（无「更新/卸载」）。
+3. **预检只知其一**：`install()` 只判断「本地有同名」，不知道「来源不是市场渠道」→ 抛死路错误。
+
+**管理不规范（用户直接问到）= 两条安装通道 + 一次磁盘扫描 = 3 个数据源**
+
+| 通道 | 写入目标 | 自己的记录 | 现状 |
+|---|---|---|---|
+| hub 直装（`tools/dsh-skills-hub/scripts/install-hub-skills.mjs`） | `~/.dsh/skills/<name>/SKILL.md` | `~/.dsh/skills/.hub-install-manifest.json` | 仅记 **12/61** |
+| 市场安装 | **同一目录** | `.skills-market/state.json` 的 `installed[]` | **空** |
+| 磁盘扫描 | — | 无 | 61 个的实际情况 |
+
+附带不一致：hub 的 README/PUBLISH 写安装目标 `~/.agents/skills/`，代码实际写 `~/.dsh/skills`（rank400）。
+
+**修复（代码 · 3 文件）**
+- `lib/market/api.js`：`list()` 叠加本地扫描，为每项标注真实来源（`:183` `localMap`、`:188-189` `localExists`/`localSource`）；
+  `install()` 预检分流——`:217` 市场已装 → 提示用「更新」；`:224` 本地同名且非市场渠道 → 明确告知来源，
+  并指向「先在 Skills 管理器卸载同名本地 skill 后再安装」。
+- `lib/client.js`：卡片三态（`:317` `localOnly`、`:324` 新增「本地已存在」warn 徽标、`:330` 用说明文字替代按钮）
+  → 从 UI 层消灭死路点击。
+- `tests/market-integration.mjs`：+2 回归（`:207` list 标注本地已存在 / `:214` install 拒绝本地同名非市场渠道）。
+
+**源升级（配置 · 非代码 · 已即时生效）**：市场源 `dsh-skills-hub@v1.1.0` → **`@v1.6.0`**（**19 → 70** 项），
+旧源记录移除，`installed[]` 未动。重叠分析：70 项 ↔ 本地 61 → **46 重叠 / 24 新增可安装**。
+
+**验证（全部实测）**
+
+| 项 | 结果 |
+|---|---|
+| `node --check` × 3 文件 | exit 0 |
+| `market-smoke.mjs` | **21/21** |
+| `market-integration.mjs` | **11/11**（9 基线 + 2 新增） |
+| `POST /skmg/api` → `market.list`（新源） | `items=70` / `cacheStatus=fresh` |
+| `state.json` 落盘 | 1 源、selected、endpoint `…@v1.6.0/skills-index.json` |
+
+**故障注入**：新增回归 `:214` 复现的正是原始故障场景（本地有同名、市场无记录）——修复前必失败、
+修复后通过，证明覆盖的是**原故障路径**而非仅正常路径。
+
+**记录/回滚**：备份 `_backups/skill-market-reconcile-20260911-155103/`（改前 `api.js`/`client.js`/
+`market-integration.mjs`/`state.json` + 旧缓存，已用「新特征串不出现于备份」反向核验为改前版本）
+＋ `OPERATION-LOG.md`（计划兼操作日志）。回滚：覆盖回 3 个代码文件即可，配置可单独换回 v1.1.0 源。
+**代码需重启 DSH 加载（等用户指示）；配置层已即时生效。**
+
+**遗留（未做）**：① 统一两条通道为单源真相（改动面大，另案）；② hub 文档安装目录与实际不符；
+③ 孤儿缓存 `cache/rec-44ljzaz7mtihov1g.json`（旧源遗留，已被忽略、无害）。
+
+---
+
+## 2026-09-11 T1 · 插件装配/注销工具化（`register-plugin.mjs` + `deregister` 补第 4 处）
+
+> G1 复盘的直接产出：G1 上线时漏模板（V2 报 runtime-only）、首次写运行态 package.json 时
+> Windows 路径反斜杠被当 JSON 转义写出非法文件（靠备份字节还原救回）。两起事故的根因都是
+> 「装配/删除协议靠手工执行」。本批把协议沉淀为工具对，与 `deregister-plugin.mjs` 对称。
+
+**新增 `scripts/register-plugin.mjs`（装配协议工具，~330 行零依赖）**
+- 一次装配 **4 处**：运行态 deps `link:` / 运行态 `dsh.profile.bundles` / 运行态 junction / **模板 `profile/<p>/package.json`（deps+bundles）**。
+- 护栏：默认只读预检（--yes 才写）；task-lock 全程持锁（fail-closed exit 2）；双备份（runtime/template 各一份，带 tag 防同名）；**先验后写**（预检阶段就验改写文本 JSON.parse，写前再验）；原子写；幂等（已装配项跳过，junction 缺失自愈）；写后 5 项断言 + template==runtime bundles 一致性断言；自动跑 `startup-verify`（--no-verify 关闭）。
+- **写入文本一律经 `JSON.stringify` 生成** → 从根上消灭 G1 的路径转义类 bug。
+- 锚点 = **最后一条 `@dsh-external/*` 元素行**（现存 36 条未排序，追加语义，无硬编码插件依赖）；区块无同类元素时回退「内联空区块展开 / 多行空区块插入」，逗号归属由「其后是否还有元素」决定（JSON 禁尾逗号）。
+- 插件 `package.json` 的 `name` 必须等于 `@dsh-external/<n>`，不符即拒。
+
+**`scripts/deregister-plugin.mjs` 扩展（3→4 处）**
+- 分析/执行/锁资源/预检报告全链路补上**模板** `profile/<p>/package.json` 的 deps+bundles 清理（源码工件，无 junction）；模板不存在则静默跳过（并非每个 profile 都有）。
+- 备份文件名带 `runtime`/`template` tag（同 profile 两文件防同名覆盖）；新增写后断言「template 已无引用」。
+- 环境变量新增 `DSH_TEMPLATES_ROOT`（测试隔离用，默认 `<repo>/profile`）。
+
+**验证（沙箱 8 用例 + 全量门禁）**
+- 沙箱（临时 `DSH_PROFILES_ROOT`/`DSH_REPO`/`DSH_BACKUPS_DIR`，零接触真实 profile）：预检只读 ✔ / --yes 4 处 ✔（追加在末位、EOL 保持 LF、缩进随锚点行）/ 幂等重跑零改动 ✔ / 锚点回退（无外部条目 + 内联空区块）✔ / 冲突 fail-closed ×3（junction 指向别处、真实副本占用、包名不匹配 → 均 exit 3 且零写入）✔。
+- **回退路径测试两次真实兜底**：锚点回退初版漏逗号、内联展开初版多逗号，均被预检护栏拦下（exit 3 零写入）后修复——先验后写设计的实证。
+- 新增 `tests/plugins/register-plugin.test.mjs`（7 用例，含 register→deregister **往返**：4 处全清含模板）；全量单测 **108 → 115/115**。
+- `startup-verify` **10/10**；`scan-dangling --strict` **0**；`verify-plugin-imports` **125 文件/330 说明符/0 违规**；`lint-skills` **146 PASS / 0 FAIL**（基线不变）。
+- AGENTS.md：O10 锁清单 2→3 个工具；删除协议补「反向装配」入口。
+
+**记录/回滚**：备份 `_backups/fix-register-tool-20260911150434/`（改前 deregister 从 git HEAD 41b1737 提取，diff 已核对仅含本批 7 处编辑）；本批不在 UPGRADE-EXECUTION-PLAN 清单内（G1 复盘衍生项），计划文档无对应置位项。
+
+---
+
+## 2026-09-11 G1 · 文件型长期记忆接线（新插件 `dsh-memory-files`）
+
+> 审计 G1「长期记忆读写」。市场插件 `@openviking/dsh-memory-plugin` 已装 active，但检索 MCP
+> 工具面未接通（无 `ov.conf`/`ovcli.conf`、无凭据环境变量、端口 1933 未监听、`~/.openviking` 只剩
+> `pending/` 失败队列）—— 需外部服务，离线单机不可行。用户在 D2 选型中确认走 **B 方案：文件型记忆**。
+> **W2「接通与归档」至此全绿**（F14/F18 · G2 · O6 · O10 · 本项 G1）。
+
+**新插件 `plugins/dsh-memory-files/`（bundle 形态 · 零依赖 · ~200 行）**
+
+会话构建系统提示词时，把磁盘上的长期记忆文件作为**只读上下文**注入
+（`ctx.systemPrompt.context({ name:'dsh-memory-files', order:110, text })`），
+使跨会话连续性不再依赖人肉 HANDOVER 文档。
+
+| 项 | 值 |
+|---|---|
+| 来源（按序） | ① `<DSH_HOME>/memory/MEMORY.md`（user，跨项目）② `<cwd>/.dsh/memory/MEMORY.md` ③ `<cwd>/.workbuddy/memory/MEMORY.md` ④ `config.extraFiles[]` |
+| 不存在时 | **静默跳过**；全空 → 返回空串（= 完全不注入） |
+| 字符预算 | 默认 **2000**（所有来源共享），超预算**截断并在正文标注** |
+| 写入能力 | **无**。纯只读：不创建/不修改/不删除任何文件 |
+| 缓存 | 按 `mtime+size`；`text()` 每轮调用也不重复读盘 |
+| fail-safe | `apply()` 全路径 try/catch，异常一律不上抛（注入失败只是少一段上下文） |
+| 自证 | 经 host-services 注册 `/health` 探测项 **`memory.files`**（缺文件时 `ok:true`，detail 说明原因）——G1 是否生效可由门禁直接读到，不必翻日志 |
+
+**装配 4 处（第 4 处是本次新学到的）**：
+1. 运行态 `~/.dsh/profiles/desktop/package.json` 的 `dependencies`（`link:`）
+2. 运行态同文件的 `dsh.profile.bundles`
+3. 运行态 `node_modules/@dsh-external/dsh-memory-files` **junction**
+4. ★ **模板 `profile/desktop/package.json` 必须同步**（deps + bundles）—— 漏掉会被
+   `startup-verify` **V2（template == runtime bundles）** 抓出。首次运行正是 V2 报
+   `runtime-only: @dsh-external/dsh-memory-files`（9/10），补上模板后 **10/10**。
+
+**过程中两个真实踩坑（已固化为脚本守卫）**：
+- **Windows 路径 → JSON 文本转义**：首版对 `path.join` 产出的**反斜杠**路径做 `split('/')`
+  → 等于没拆 → 写出 `"link:D:\Deep..\.."`，`\D` 是非法 JSON 转义 → 落盘后 `JSON.parse` 炸。
+  正确写法 `LINK_VALUE.replace(/[\\/]/g,'\\\\')`。**已加「先验后写」：新内容必须 `JSON.parse`
+  通过才允许落盘**。
+- **断言口径必须用「解析后的真实值」**：第二版拿 `JSON.parse` 后的值（单反斜杠）去比 JSON 文本
+  形态（双反斜杠）→ 误报失败。改为 `parsed.dependencies[PKG] === 'link:' + TARGET`。
+- 两次失败**均未污染运行态**：第一次已写坏 → 立即从备份**字节级还原**（sha256 断言回到
+  `450ff01a…`，`parses:true`、49 deps / 42 bundles）；第二次止于断言，文件本身正确。
+
+**验证（全部实测，全绿）**：
+| 门禁 | 结果 |
+|---|---|
+| 新插件单测 | **21/21 PASS**（含 1 条专门锁「探测不得读 `process.cwd()`」的回归用例） |
+| 全量插件单测 | **108/108 PASS / 0 fail**（11 文件；此前 87/87） |
+| `node --check` | 0（check-all Step 1 自动纳入 `plugins/*/lib/*.js`） |
+| `startup-verify` | **10/10 PASS**（V9 `link plugins=36 files=87`；V10 `bundles=43 all declared + patch present`） |
+| `scan-dangling --strict` | 0 发现（DANGLING / STALE-DECL / ORPHAN / NOT_INSTALLED 全 0） |
+| `verify-plugin-imports` | **125 files / 330 specifiers / 0 违规**（原 124/327；+1 文件 +3 说明符 = `node:fs`/`node:path`/`node:os`） |
+| `verify-bundle-manifest` | 11/11 OK / 0 problem |
+| 运行态解析探针 | 从 `profiles/desktop/` 内 `import('@dsh-external/dsh-memory-files')` **成功**（`name`/`inject`/`apply`/11 个导出均可达）；探针文件用完即删 |
+
+**写锁**：改运行态与模板 `package.json` 全程持 `scripts/lib/task-lock.mjs`（`channel=core`，
+资源 = 两文件 + `@dsh-external` 目录），改完 `release`，`status.locks` 无残留。
+
+**用户级记忆已播种**：新建 `~/.dsh/memory/MEMORY.md`（用户偏好 + 环境索引；刻意不重复项目记忆，
+保持精简）。
+
+**生效方式**：**需一次重启**（bundle 在启动时装配）。未重启前运行态行为零变化。
+
+**回滚**：`node scripts/deregister-plugin.mjs --yes dsh-memory-files`（三处逆操作）+ 模板手动回退。
+备份：`_backups/g1-memory-files-20260911040559/`（运行态 orig）、
+`_backups/g1-memory-files-template-20260911040727/`（模板 orig），均含原文件 sha256。
+
+**边界（刻意不做）**：只注入、不整理 —— 记忆的沉淀仍由 agent 手工写入（与四件套记录纪律一致），
+避免自动改写用户记忆带来的不可控风险。
+
+---
+
+## 2026-09-10 O10 · 写锁强制落地（窄切：只锁两条真实写路径，读路径零改动）
+
+> 审计 O10/DATA-4：「写锁未强制——`deregister-plugin.mjs`、`startup-verify.mjs` 未持锁」。
+> 经用户风险问询后确认**窄切**方案：并发写风险只存在于两条真实写路径，
+> **常规 V1-V10 / check-all / health-check 读路径一行不改** —— 否则会把「并行会话在途」的
+> 已知漂移（V2/V4 会自愈的那种）变成硬失败，也会碰 `--json` stdout 契约（R1 级风险）。
+
+**新增 `scripts/lib/task-lock.mjs`（约 120 行，零依赖）**：脚本侧写锁助手，双通道——
+① 直连 `plugins/dsh-task-scheduler/lib/core.js`（CLI 首选：锁记录脚本自身 pid，崩溃可被 stale-reclaim 回收）；
+② HTTP `POST /task-scheduler/*` 兜底（F1：DSH 沙箱内直写锁库被 EPERM；此时 pid 是应用进程，靠 **10 分钟短 TTL** 兜底）。
+两通道操作同一文件锁库，混用安全。仅 `code:'ERROR'`（通道级故障）才降级，`BUSY` 属正常业务结果原样返回。
+
+**锁边界**：
+| 脚本 | 持锁点 | 资源（与既有会话锁口径一致） |
+|---|---|---|
+| `deregister-plugin.mjs` | 仅 `--yes` 执行段（预检只读不加锁） | 受影响 profile 的 `package.json` + junction 路径 |
+| `startup-verify.mjs` | 仅 `--repair` 分支。**注意：R1 清悬空 bundle 引用无 `--yes` 也会写 package.json**（本次核实） | runtime `package.json` + `node_modules/@dsh-external` |
+
+fail-closed：锁拿不到（BUSY/通道故障）→ 打印持有者详情 + **exit 2** 拒绝写；逃生口 `DSH_ALLOW_UNLOCKED=1`（响亮告警）。释放走 `finally`（任何路径含中途异常）。
+
+**验证（全部实测）**：
+- **R1 守卫**：`startup-verify --json` 改动前后 stdout **同为 1718 字节**、parse OK、keys/shape 一致（10/10 PASS）、stderr 为空 → 门禁链与 SLO 看板零影响。
+- **fail-closed**：外来锁持有 sandbox profile 时，`--repair` 与 `deregister --yes` 均 **exit 2**、目标文件**未被触碰**，stderr 带持有者全量信息。
+- **正常路径**：锁获取→操作→释放（`channel=core`），`nothing to repair` / 注销完成各就各位。
+- **helper 单测**：acquire OK → 二次 acquire **BUSY**（带 holder.who）→ release（released:1）→ 再 acquire OK。
+- **无泄漏**：全部测试后 `status.locks` 仅剩本批次自身的 5 个资源锁。
+- `node --check` ×3 = 0；**全量单测 87/87 pass / 0 fail**（含 deregister 5 项与 startup-verify 导入 TLA 模块的用例）。
+- 改动面：`+41/−3`（deregister）、`+32/−0`（startup-verify）、新增 `scripts/lib/task-lock.mjs`。
+
+**回滚**：`_backups/o10-write-lock-20260910160746/`（orig/ 两份改动前文件 + MANIFEST.json）。
+⚠️ 这两个文件的 F13 修复**未提交**，**git HEAD 不是有效回滚基线** → orig 由「精确逆向编辑」确定性重建，并断言：每个 marker 恰命中 1 次、`node --check` 通过、无 O10 残留、F13 标记保留。（首版重建曾被断言抓出多余 `}`，已修正——断言的价值实证。）
+
+---
+
+## 2026-09-10 G2 + O6 · `outputs/` 归档约定落地 + 统一 `/health` 聚合端点（7 项）
+
+> W2「接通与归档」的两项：**G2** 让产出可追溯（"生成了什么、在哪、最新是哪份"永远可回答），
+> **O6** 补上全仓缺失的统一健康端点（审计原文：阶段 3/6 的门禁全部被"没有 `/health`"卡住）。
+> 另含本批一并处理的 **SLO 历史清污** 与 **F20 看板口径更正**。
+
+### G2 · `outputs/` 归档约定
+
+**现状证据**：`diagrams/` 下 41 个文件，大量**同名 + 不同时间戳**的近似副本（`架构全景-20260907-004009/004556/005035.svg`…），另有一个遗留 `.tmpdir/*.tmp` → 没人说得清哪份最新、哪份被引用过。
+
+**交付**：
+| 文件 | 作用 |
+|---|---|
+| `outputs/README.md` | 约定本体：`<日期>-<类型>-<主题>/` 命名 + 受控类型词表（report/diagram/table/slide/doc/data/export）+ 唯一入口文件 + 「产出即可查看」硬规则 + 「历史只增不改」 |
+| `outputs/INDEX.md` | 登记表（最新在前）；`diagrams/` 标为 **legacy**（内容保留、不再新增） |
+| `scripts/new-output.mjs` | 脚手架：校验类型/主题 → 建目录 → 生成占位 `README.md` → 在 `INDEX.md` 首行插入登记行；支持 `--dry-run`/`--root`；**输出纯 ASCII** |
+
+**⚠️ 脚手架自身的一个 bug（由临时根目录测试查出，已修）**：登记行插入位置靠"找表头分隔行"定位，
+原正则 `/^\|[\s:-]+\|$/` 的字符类**漏了 `|` 本身**，多列分隔行 `|---|---|---|---|---|---|` 永远匹配不上 → 脚本报 `FAIL could not locate the table separator` 并以 1 退出。
+修正为 `/^\|[\s:|-]+\|$/` 并加注释锁定原因。**价值**：该 bug 只在真表上才会暴露，说明"先 dry-run/临时根验证再落真仓库"这一步是必须的（测试同时断言 `realRepoUntouched=true`）。
+
+### O6 · 统一 `/health` 聚合端点
+
+**为什么放在 `dsh-host-services`（而不是已有 `/health/dashboard` 的 `dsh-health-dashboard`）**：host-services 在 profile `bundles` 列表中**最靠前**、被 6+ 插件依赖，只要进程活着它必定已挂载 → `/health` 的**可用性下界最高**，不会被任何下游插件的失败拖垮。
+
+**7 项内建探测**（全部只读，逐项独立 try/catch + 2s 单项硬超时）：
+| 探测 | 判定 | 实测值 |
+|---|---|---|
+| `webserver` | HTTP 层在（能返回本响应即真） | `http layer up` |
+| `sessions` | `~/.dsh/sessions` 可读 + 条目数 | 18 entries |
+| `disk` | DSH_HOME 卷剩余 ≥ 512 MB（可配） | 34.9 GB free |
+| `patches` | `patches/bundles/MANIFEST.md` 在场 + 补丁数 | 8 bundles, manifest present |
+| `plugins` | 每个含 `package.json` 的插件目录必须有 `lib/index.js` | 34 plugins, **0 missing** |
+| `logs` | DSH_HOME **可写** + 顶层 `*.log` 新鲜度 | writable, 2 log files |
+| `preflight` | `.health/startup-history.jsonl` 可解析 + 样本数/成功率 | 16 samples, **100% pass** |
+
+> **口径说明（6 → 7）**：审计 O6 行原文写"聚合端点（6 项）"，括号里的清单（webserver/sessions/disk/patches/plugins/logs）是我当时的**估计**。实测 `~/.dsh` **没有 `logs/` 目录**（日志是顶层 `*.log`），且把"预检历史"接进来才真正打通与 SLO 看板的关系 → 定为 **7 项**，`logs` 改为"状态目录可写性 + 日志新鲜度"，另加 `preflight`。仅比原估计多 1 项、覆盖面更全。
+
+**设计约束（对齐本项目长期取向）**：
+- **注册表 + 内建探测双层**：内建 7 项保证零配置可用；其它插件可 `ctx.hostServices.registerHealthProbe(id, fn)` **追加**（可扩展），不必改本文件。
+- **`/health` 自身绝不 500**：探测抛错/超时/返回非对象都被兜住，最差也返回一份带 `error` 字段的 JSON。
+- **目录不存在 = `skipped:true`（仍算绿）**：绝不因为"这台机器没有这个子系统"（非源码部署、无补丁目录）而永久报红 —— 否则看板就成了狼来了（F20 同源教训）。
+- **路径不硬编码**：状态目录 = `DSH_HOME || ~/.dsh`；repo 根由本文件位置推导；二者均可经 config 覆盖（`health.home` / `health.repoRoot` / `health.route` / `health.minFreeBytes` / `health.enabled`）。
+- **HTTP 语义**：全绿 **200** / 存在红项 **503** → 门禁可直接判状态码。
+- **顺带规范化**：把 `/host-services/status` 与新 `/health` 的注册逻辑抽成同一个 `registerExactRoute()`，避免样板分叉。
+
+**验证**（沙箱内 mock ctx 全量功能测试 + 全门禁回归）：
+- 7 项**全绿**、`failed:[]`、`count:7`；`GET /health → 200`，`POST → 405`，非本机 Host `→ 403`。
+- **扩展性**：自定义探测被接受（7→8）、非法入参被拒（`false`）、失败探测 → 整体 `ok:false` 且 `failed:[...]`、**抛错探测被兜住**（`{ok:false,error:"boom"}`）且 `/health` 仍返回 503 而非 500。
+- `node --check` exit 0；**全量单测 87/87 pass / 0 fail**；`startup-verify` exit 0（V9 `link plugins=35 files=86 all ok`、V10 bundles=42）；**导入门禁 124 文件 / 327 说明符 / 0 违规**（+2 = 新增 `node:url`/`node:os`）；`syncheck-plugins` 57 文件 none；`verify-bundle-manifest` 11/11 OK。
+- **改动面审计**：`git diff --numstat` = **+255 / −12**，逐行核对 **12 行删除全部是我有意替换的**（2 行 import、`apply` 签名、`apis` 列表、status 注册块、末行日志、1 空行）→ **无附带删除**；UTF-8、无 BOM、LF。
+
+**✅ 已重启生效（2026-09-11 00:22 用户重启后实测）**：`GET /health → 200`，`ok=true / count:7 / failed:[]`，7 项全绿（webserver up 49s · sessions 18 · disk 34.9GB · patches 8 bundles+manifest · plugins **34 个 0 缺失** · logs writable · preflight **16 样本 100%**）；`/host-services/status` 的 `apis` 已含 `health`/`registerHealthProbe`（证明加载的是新代码）；`/health/dashboard` 仍 200（插件级端点无回归）；`startup-verify` **10/10 PASS / 0 warn**。
+**回滚**：`_backups/o6-health-endpoint-20260910152720/`（`orig/` 取自 `git HEAD 5eda7638` 的原版 10034 B + `MANIFEST.json` 含双向 SHA-256 与回滚指令）。或 `health.enabled:false` 单独关掉端点（其余服务不受影响）。
+
+### SLO 历史清污 + F20 看板口径更正
+
+- **F20 更正**：审计曾假设"每日 09:05 计划任务会自动采样"。实测**该任务从未安装**（`install-health-task.ps1` 是 OPTIONAL 且需管理员；用户已决定不装）→ `startup-history.jsonl` **没有任何自动采样源**，那 2 条 F17 前遗留的 FAIL 行（并行会话在途所致的瞬时漂移）**永远不会归零** = 永久假告警。经用户同意**备份后清除**。
+  - 备份：`_backups/slo-history-cleanup-20260910-231224/startup-history.jsonl.bak`（sha256 `E19B1CEF…` = F17 基线，逐字节）。
+  - 结果：18 → **16 行，`failAfter=0`**，看板 **100%**（16 PASS / 0 FAIL）。原子写 + 回读断言。
+- **`scripts/health-check.mjs` 看板口径更正**：删掉"采样源: 每日计划任务 09:05"这句**不成立**的描述，改为诚实版：
+  `采样源: **手动**（无自动采样；每日计划任务未安装）` + `最新样本: <ts>（N 天前）→ 样本可能过期，本看板是"手动仪表"不是"监控"`。
+  → 不再有"看着像监控、其实没有采样"的误导。
+
+---
+
+## 2026-09-10 F18 · 17 个 probe 脚本修复失效路径；F19 经核实「不改」+ 门禁退出排除态
+
+> 由 **F14 新建的导入解析门禁首跑即报 17 项 `RELATIVE_MISSING`** 而发现（门禁的第一次实战产出）。
+> `dsh-routing-suite/preset/probe/` 下 17 个脚本引 `'../router-standard/preset/router-core.mjs'`，
+> 该路径**已不存在**；真实文件是 `preset/preset/router-core.mjs`。
+
+**先证真再改**：17 个文件全部只引 `{ personaFor }`（逐个 grep 确认），目标文件 `router-core.mjs:88` 确有该导出 → 正确路径 `'../preset/router-core.mjs'`，**17 处完全同构、无歧义**。原子写 + 回读断言，每文件 **−16 字节**（带引号 43→27，逐字节可解释），17 个全部命中。
+
+**随后移除了门禁里的 `SCOPE_EXCLUSIONS` 条目** —— 这正是该机制的设计生命周期（修好 → 移出排除 → 重新纳入）：门禁覆盖从 **89 文件恢复到 124 文件**，`excluded=[]`、`stale=[]`（无残留告警）。
+
+**⚠️ F19 更正：我上一轮建议「改相对路径」是错的，已撤回，代码维持原样。**
+`dsh-modlens-autoread/lib/index.js:95` 是**显式设计为可选**的依赖（注释明写「加载失败/未安装时静默跳过」），裸说明符**本身就是「该插件是否已安装」的探测机制** —— 解析失败 → `try/catch` 吞掉 → 静默跳过。改成相对路径会改为**直接从磁盘加载**，即使插件已注销/禁用也会执行 `recordUsage`，**把「可选」变成「总是尝试」，改变语义**。
+改为把理由**写进门禁本身**：动态导入若以 `@dsh-external/` 开头，输出会明写「通常是有意的可选依赖探针（F19），**不要**改成相对路径」，防后人顺手"修"掉它。
+
+**验证**：门禁 **124 文件 / 325 说明符 / `bare 0` / 0 违规 / exit 0**；`node --check` 门禁脚本 exit 0；**故障注入复跑**（门禁脚本本轮有改动）→ 夹具 **FAIL 2 项 / exit 1**、删除后 **PASS / exit 0**、夹具已清；全量单测 **87/87 pass**；`startup-verify` **10/10 PASS**。
+**回滚**：`_backups/f18-stale-probe-paths-20260910-221049/`（`orig/` 18 份 + `MANIFEST.json` + `AFTER.json` + `diag/` 7 份 + `F18-OPERATION-LOG.md`）。**无需重启**（probe 非运行时入口；门禁脚本仅被 check-all 调用）。
+
+---
+
+## 2026-09-10 F14 · 插件隐性依赖修复 + 新增静态导入解析门禁（Step 1.11）
+
+> 4 个插件裸引用 `@dsh-external/dsh-host-services/shared-utils` 却**未声明该依赖**。之所以一直没暴露：
+> `profile/desktop/package.json` 把两者 `link:` 进同一 `@dsh-external/` 作用域目录（共 35 个链接），
+> Node 从 symlink 路径向上查找**正好撞见兄弟包** —— 纯属偶然。host-services 一旦注销，4 个插件**同时** import 失败。
+> 而单测走 realpath（无兄弟目录）→ 必然 `ERR_MODULE_NOT_FOUND`，这正是全量单测**唯一失败项**的来源。
+
+**更正方案文档**：原记「仅 `dsh-session-hygiene` 一处」。实测**爆炸半径 = 4 个插件**：`dsh-session-hygiene:29`、`dsh-instance-janitor:29`、`dsh-self-maintenance:38`、`dsh-health-dashboard:25`（全仓 `from '@dsh-external/` 仅这 4 处命中，同一模式被复制 4 次）。目标包本身正常（`"./shared-utils"` 确在 `exports` 内）→ **缺的是解析链接，不是导出**。
+
+**修法（为何不「补声明」）**：Node 解析不读 `dependencies`，补声明直跑测试照样红；且根 `package.json` 是 `dsh-plugin-desktop` 的**发布清单**（无 `workspaces`），塞本地插件依赖属架构错误。故改为**相对深路径** `'../../dsh-host-services/lib/shared-utils.js'`（与仓库既有先例一致 —— `tests/plugins/http-guard.test.mjs:11` 正如此引）。实测**两种解析模式下均可达**（realpath → `plugins/` 同级；symlink 保留 → profile 兄弟目录）→ **严格增强而非等价替换**。4 文件各 +96 字节（注释 96 + 换行 − 说明符短 1，逐字节可解释），并加注释防止后人改回裸引用。
+
+**新增 `scripts/verify-plugin-imports.mjs`（接入 check-all Step 1.11）**：插件静态说明符必须为 ① Node 内置 ② 宿主命名空间 `@deepseek-ai/*`（仓库根**没有**该安装，由宿主提供）③ 客户端外壳同侪 `react`/`react-dom` ④ **真实存在的相对/绝对路径**；其余（尤其 `@dsh-external/*` 兄弟插件）FAIL，合法例外走 `WAIVERS`（须写理由）。
+- **用 V8 真解析器 `vm.SourceTextModule.moduleRequests`，不用正则**（关键决策，勿回退）：`dsh-routing-suite/injector/lib/index.js` 是代码生成器，字符串字面量内含 `import type ... from 'cordis'/'tsdown'/'schemastery'`；正则会把它们当真导入**误报**，解析器正确地只报 6 个 `node:*`。仅解析、**从不执行**。
+- 需 `--experimental-vm-modules` → 脚本**自我重执**补 flag，调用方无感；API 若消失则**显式 SKIP** 而非误红。
+- **输出纯 ASCII**（PowerShell 码页会把 `—` 渲染成 `鈥?`）。
+- **作用域排除「公告制」**：`SCOPE_EXCLUSIONS` 每次运行打印目录+理由+跟踪号，失效项报 stale —— 防「门禁看起来绿，其实已不看了」。
+
+**验证**：门禁修前 **21 违规**（`BARE_NOT_ALLOWED=4` + `RELATIVE_MISSING=17`）→ 修后 **PASS 0 违规**（`bare 0`，原 4）；**故障注入**临时夹具 → **FAIL 2 项 / exit 1**，删除后复跑 PASS / exit 0 且夹具已清；`node --check` ×4 全 0；`session-hygiene.test.mjs` **22/22**（原 import 期 ERR_MODULE_NOT_FOUND）；**全量单测 87/87 pass / 0 fail**（原 9/10 文件）；`startup-verify` **10/10 PASS**（V9 `files=86 all ok` 覆盖 4 个改动文件）；`check-all.ps1` AST **0 error**、非 ASCII 字节改动前后**均 486**、无 BOM、LF。
+> 完整 `check-all` 未端到端跑完（Step 1 逐文件 `node --check` 子进程在本沙箱极慢，同 F13/F17 环境限制），改用「门禁单跑 + AST 校验 + 编码核验」等价证据链。
+
+**回滚**：`_backups/f14-implicit-dep-20260910-193404/`（`orig/` 5 个改动前文件 + `MANIFEST.json` + `AFTER.json` + `diag/` 19 份 + `F14-OPERATION-LOG.md`）。门禁脚本与 Step 1.11 可整体删除。**无需重启**（仅改 import 说明符与 `scripts/`，下次加载走新路径）。
+
+**门禁顺带查出、但本次未修（超出授权，待决策）**：
+- **F18**：`dsh-routing-suite/preset/probe/` 下 **17 个 probe 脚本**引 `'../router-standard/preset/router-core.mjs'`，该路径**已不存在**（真实文件在 `preset/preset/router-core.mjs`）。该目录是研究/实验脚手架，非插件运行时入口图 → 已列入 `SCOPE_EXCLUSIONS`（公告制，带跟踪号）。
+- **F19**：`dsh-modlens-autoread/lib/index.js` 以**动态** `import()` 引 `'@dsh-external/dsh-vision-engine/lib/index.js'` —— 与 F14 同类耦合，但动态导入 → 门禁只报 INFO。
+
+---
+
 ## 2026-09-10 ZR-02 修复 · command-guard v1 审计失效（session/event → tools/result 迁移）
 
 > 同类平台限制修复：`session/event` 对 `@dsh-external/*` 插件不可用（ZR-01 实测发现），

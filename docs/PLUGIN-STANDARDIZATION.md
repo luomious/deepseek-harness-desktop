@@ -1,5 +1,9 @@
 # 本地插件统一规范（Interface Standardization）
 
+> ⚠️ **计数口径已过时（2026-09-12 实测修正）**：本文写于 2026-09-02，所述「共 30 个本地插件」为当时快照。
+> 当前实测 = **`plugins/` 下 35 个**（35/35 都含 `lib/index.js`）+ **根级 3 个**（`dsh-context-lifecycle` / `dsh-stuck-loop-guard` / `dsh-vision-rotator`(deprecated)）。
+> 复算：`GET http://127.0.0.1:43120/health`（`plugins` 探测）· 台账 `plugins/INVENTORY.md`。**规范内容与试点记录保留不动**，仅计数勿直接引用。
+
 > 创建 2026-09-02。目的：把 `D:\Deepseek-Harness\plugins\` 与顶层 `dsh-*` 共 30 个本地插件
 > 收敛到一套可读、可维护、可迭代、可扩展的统一接口规范。
 > 本文档是只读规划 + 试点记录；任何对装配方式的改动都须分批、备份、重启验证。

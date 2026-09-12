@@ -5,7 +5,7 @@
  * 功能：
  *   1. 运行 startup-verify（装配预检）并捕获 PASS/FAIL 结果
  *   2. 追加结构化记录到 ~/.dsh/.health/startup-history.jsonl（轮转 200 条）
- *   3. 汇总最近 N 次：启动成功率 / 失败详情 / 连续失败检测（≥3 提示）
+ *   3. 汇总最近 N 次：预检成功率 / 失败详情 / 连续失败检测（≥3 提示）
  *   4. 输出健康报告（人类可读 / --json）
  *
  * 设计原则（长期稳定 / 可维护 / 可迭代）：
@@ -14,10 +14,26 @@
  *   - 有界历史：200 条轮转，防止无限增长
  *   - 契约：记录行 { ts, profile, total, pass, fail, warn, elapsedMs, source }
  *
+ * 采样源说明（F17 · 2026-09-10 定案；F20 · 2026-09-10 更正，改这里前请先读）：
+ *   - 本文件是 startup-history.jsonl 的**唯一写入者**（记录 source='health-check'）；
+ *     应用真实启动**不**写该文件（electron-runtime.ts 里的同名词是渲染进程故障计数）。
+ *     因此看板口径是「预检成功率」，不是「应用启动成功率」。
+ *   - ⚠️ **F20（2026-09-10 实测更正）：每日计划任务「DSH Health Check」并未安装**
+ *     （`scripts/install-health-task.ps1` 是 OPTIONAL 且需管理员权限，用户已决定不装）。
+ *     ⇒ **当前没有任何自动采样源**，历史只在有人手动跑 `node scripts/health-check.mjs`
+ *     （不带 --no-record）时才增长；样本可能过期，看板是"手动仪表"而非"监控"。
+ *     若将来要谈真正的启动 SLO，第一步是**先解决采样源**，而不是先调指标。
+ *   - **门禁类调用（check-all Step 1.5）必须加 `--no-record`**：否则"跑一次门禁"
+ *     会被记成一次采样、计入连续失败链，进而触发与实际启动无关的误告警
+ *     （实际发生过：并行会话的 V2 瞬时漂移被记成连续失败 2/3；那 2 条已于 F20
+ *     备份后清除，因为无采样源意味着它们**永远不会归零**）。
+ *
  * 用法：
- *   node scripts/health-check.mjs            # 运行 startup-verify + 记录 + 报告
- *   node scripts/health-check.mjs --json     # JSON 报告
- *   node scripts/health-check.mjs --summary  # 仅汇总（不重新运行）
+ *   node scripts/health-check.mjs              # 运行 startup-verify + 记录 + 报告
+ *   node scripts/health-check.mjs --json       # JSON 报告（计划任务用这个）
+ *   node scripts/health-check.mjs --summary     # 仅汇总（不重新运行，不记录）
+ *   node scripts/health-check.mjs --no-record   # 运行 + 报告，但**不写入历史**（门禁用）
+ *                                               # 退出码与默认模式完全一致 → 门禁语义保留
  */
 
 import { spawnSync } from 'node:child_process'
@@ -125,6 +141,12 @@ function summarize(rows, n = 50) {
 // ── main ────────────────────────────────────────────────
 const jsonMode = process.argv.includes('--json')
 const summaryOnly = process.argv.includes('--summary')
+// F17（2026-09-10）：门禁类调用（check-all Step 1.5）用 --no-record。
+// 关键：仍然运行 startup-verify 并计算 record → 第 176 行的退出码与默认模式**完全一致**，
+// 门禁（check-all 的 $LASTEXITCODE 判定）语义不变；只是跳过 appendHistory，
+// 避免把"跑了一次门禁"记成一次采样、污染看板并触发连续失败误告警。
+// 注意不要改成复用 --summary 来做这件事：--summary 下 record 恒为 null → 恒退出 0 → 门禁被静默废掉。
+const noRecord = process.argv.includes('--no-record')
 
 let record = null
 if (!summaryOnly) {
@@ -142,7 +164,7 @@ if (!summaryOnly) {
     error: result.error ?? null,
     elapsedMs: result.elapsedMs ? Date.now() - result.elapsedMs + 1 : null,
   }
-  appendHistory(record)
+  if (!noRecord) appendHistory(record)
 }
 
 const rows = readHistory()
@@ -156,12 +178,21 @@ if (jsonMode) {
   console.log('=== DSH SLO 健康看板 ===')
   console.log(`历史记录: ${rows.length} 条 (${HISTORY})`)
   console.log(`采样窗口: 最近 ${summary.sampled} 次`)
-  console.log(`启动成功率: ${summary.passRate === null ? 'N/A' : summary.passRate + '%'} (${summary.passCount} PASS / ${summary.failCount} FAIL)`)
+  console.log(`预检成功率: ${summary.passRate === null ? 'N/A' : summary.passRate + '%'} (${summary.passCount} PASS / ${summary.failCount} FAIL)`)
+  // F20: there is NO automatic sampler (the optional daily task is not installed by
+  // user decision), so a board with no freshness indicator would silently imply data
+  // that does not exist. Always show how old the newest sample is.
+  const lastTs = rows.length ? rows[rows.length - 1].ts : null
+  const ageText = lastTs
+    ? `${lastTs}（${Math.floor((Date.now() - Date.parse(lastTs)) / 86400000)} 天前）`
+    : '（无样本）'
+  console.log(`采样源: **手动**（无自动采样；每日计划任务未安装）。check-all 以 --no-record 调用，不采样`)
+  console.log(`最新样本: ${ageText} → 样本可能过期，本看板是"手动仪表"不是"监控"`)
   if (!summaryOnly && record) {
     console.log(`本次: ${record.ok === true ? 'PASS' : record.ok === false ? 'FAIL' : 'INCONCLUSIVE (env-blocked)'} (total=${record.total}, pass=${record.pass}, fail=${record.fail}, warn=${record.warn}${record.error ? ', error=' + record.error : ''})`)
   }
   if (summary.consecutiveFailed) {
-    console.log(`⚠️ 连续 ${summary.consecutiveFails} 次启动检查失败 — 建议：导出诊断 (菜单→帮助→导出诊断) 或回滚 (docs/UPGRADE-EXECUTION-LOG.md)`)
+    console.log(`⚠️ 连续 ${summary.consecutiveFails} 次预检失败 — 建议：导出诊断 (菜单→帮助→导出诊断) 或回滚 (docs/UPGRADE-EXECUTION-LOG.md)`)
   } else if (summary.consecutiveFails > 0) {
     console.log(`注意: 已连续 ${summary.consecutiveFails} 次失败（阈值 ${CONSECUTIVE_FAIL_LIMIT}）`)
   }

@@ -50,7 +50,8 @@
     "@dsh-external/dsh-tool-renderers": "link:D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers",
     "@openviking/dsh-memory-plugin": "0.3.0",
     "@dsh-external/dsh-diagram-renderer": "link:D:\\Deepseek-Harness\\plugins\\dsh-diagram-renderer",
-    "@dsh-external/dsh-crashpad-hygiene": "link:D:\\Deepseek-Harness\\plugins\\dsh-crashpad-hygiene"
+    "@dsh-external/dsh-crashpad-hygiene": "link:D:\\Deepseek-Harness\\plugins\\dsh-crashpad-hygiene",
+    "@dsh-external/dsh-memory-files": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-files"
   },
   "dsh": {
     "profile": {
@@ -96,7 +97,8 @@
         "@dsh-external/dsh-tool-renderers",
         "@openviking/dsh-memory-plugin",
         "@dsh-external/dsh-diagram-renderer",
-        "@dsh-external/dsh-crashpad-hygiene"
+        "@dsh-external/dsh-crashpad-hygiene",
+        "@dsh-external/dsh-memory-files"
       ]
     }
   }

@@ -9,6 +9,11 @@
  * 用法:
  *   node scripts/startup-verify.mjs          # 人类可读报告
  *   node scripts/startup-verify.mjs --json   # JSON 报告
+ *   node scripts/startup-verify.mjs --repair [--yes]   # 修复残留（**写路径**，需写锁）
+ *
+ * 退出码：0=全过 / 1=有 FAIL（供 check-all 门禁使用） / 2=--repair 写锁不可用（fail-closed，DATA-4）
+ * 锁边界（O10 · 2026-09-10）：只有 --repair 分支持锁；常规 V1-V10 纯只读不加锁，
+ * 否则会把「并行会话在途」的已知漂移变成硬失败。
  *
  * 8 项检查:
  *   V1 插件 bundles 存在性    —— @dsh-external 插件顶层目录在位（内核 @deepseek-ai 走 pnpm 布局，用 require.resolve 探测）
@@ -28,6 +33,7 @@ import os from 'node:os'
 import { createRequire } from 'node:module'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { acquireLock, releaseLock } from './lib/task-lock.mjs'
 
 // 2026-09-06 审计修复：REPO 兜底原硬编码 'D:\\Deepseek-Harness'，改为从脚本位置推导。
 const REPO = process.env.DSH_REPO || path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -339,6 +345,26 @@ try {
 //   R2 孤儿 @dsh-external junction：--yes 才删，仅删「目标已缺失」的链接，
 //      目标目录存在即中止（防误删真实包）。
 if (process.argv.includes('--repair')) {
+  // O10（2026-09-10）：repair 是**写路径**——R1 无 --yes 也会改 runtime package.json，
+  // R2 会删 junction → 必须持写锁（fail-closed，DATA-4）。资源与既有会话锁口径一致。
+  const lockResources = [path.join(runtime, 'package.json'), path.join(PROFILES_ROOT, 'node_modules', '@dsh-external')]
+  const repairLock = await acquireLock({
+    resources: lockResources,
+    who: 'startup-verify:repair',
+    task: 'startup-verify --repair 写 runtime profile（R1/R2）',
+    waitMs: 3000,
+  })
+  if (!repairLock.ok && process.env.DSH_ALLOW_UNLOCKED === '1') {
+    console.error('[repair] WARNING DSH_ALLOW_UNLOCKED=1 - continuing without write lock: ' + (repairLock.holder ? JSON.stringify(repairLock.holder) : repairLock.error))
+  } else if (!repairLock.ok) {
+    console.error('[repair] 无法获取写锁，拒绝修复（fail-closed，DATA-4）。')
+    console.error('  资源: ' + lockResources.join(' ; '))
+    if (repairLock.holder) console.error('  持有者: ' + JSON.stringify(repairLock.holder))
+    if (repairLock.error) console.error('  通道错误: ' + repairLock.error)
+    console.error('  排查: node scripts/task-scheduler.mjs status ；紧急逃生: DSH_ALLOW_UNLOCKED=1 重跑')
+    process.exit(2)
+  }
+  try {
   const pkgPath = path.join(runtime, 'package.json')
   const pkg = readJson(pkgPath)
   const repairs = []
@@ -412,6 +438,12 @@ if (process.argv.includes('--repair')) {
   if (repairs.length === 0) console.log('[repair] nothing to repair')
   else for (const r of repairs) console.log('[repair] ' + r)
   console.log('[repair] re-run without --repair to confirm the checks pass after repair')
+  } finally {
+    if (repairLock.ok) {
+      const rel = await releaseLock({ resources: lockResources, token: repairLock.token, who: 'startup-verify:repair', summary: 'startup-verify --repair done' })
+      console.log('[repair] lock released (' + rel.channel + (rel.ok ? '' : '; release failed: ' + (rel.error || 'unknown')) + ')')
+    }
+  }
 }
 
 // ---------- 报告（仅直接运行时执行；import 用于测试时不执行） ----------
