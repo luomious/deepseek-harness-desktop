@@ -1,0 +1,24 @@
+{
+  "name": "@dsh-external/dsh-memory-guard",
+  "version": "0.1.0",
+  "description": "进程内存哨兵：周期性检测进程内存风暴（如 YOLO 训练 dataloader 集群）并按阈值回收，防止内存耗尽/蓝屏（零依赖 host 模式）",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "BSD-3-Clause",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-external/dsh-diff-guard",
+  "version": "0.1.0",
+  "description": "edit/write 文件改动风险门禁：tools/pre-execute 对高危 diff（敏感路径/大段删除）执行前经 approval 审批（fail-closed，无 approval 服务即拒绝）；与 dsh-command-guard 的命令拦截互补。阶段 1 无 LLM、零网络/占用。",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5",
+    "schemastery": "^3.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

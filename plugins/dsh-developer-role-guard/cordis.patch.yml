@@ -1,0 +1,10 @@
+# dsh-developer-role-guard bundle patch: 非 OpenAI 上游的 developer 角色护栏。
+# 定位：把 2026-09-15「ModelScope 流式 400: developer is not one of [...]」事故
+# 的配置级修复（settings.yaml 里逐路由补 compat.supportsDeveloperRole:false）
+# 固化为**结构性能力** —— 新增提供商/新增模型不再依赖人工记得写那一行。
+# 顺序无关（不注入其它插件的服务，llm 由内核 bundle 提供），健康探测是可选能力。
+- insert:
+    - id: dsh-developer-role-guard
+      name: '@dsh-external/dsh-developer-role-guard'
+      config:
+        enabled: true

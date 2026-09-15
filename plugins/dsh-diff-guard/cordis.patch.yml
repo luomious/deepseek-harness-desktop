@@ -1,0 +1,11 @@
+# dsh-diff-guard bundle patch: file-mutation risk gate (complements dsh-command-guard).
+# 阶段2：可选 LLM 语义评审（默认关；endpoint/model/timeout 用代码默认值）。
+# 装配路径：cordis include loader 依赖本 insert 块创建 fiber。
+- insert:
+    - id: dsh-diff-guard
+      name: '@dsh-external/dsh-diff-guard'
+      config:
+        enabled: true
+        llm:
+          enabled: false
+          autoAllow: false

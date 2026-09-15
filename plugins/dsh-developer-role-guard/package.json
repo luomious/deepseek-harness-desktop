@@ -1,0 +1,24 @@
+{
+  "name": "@dsh-external/dsh-developer-role-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "files": [
+    "lib"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "description": "Protect every non-OpenAI route from the `developer` role: pi-ai defaults supportsDeveloperRole to true for any endpoint it does not recognize, so a newly added third-party OpenAI-compatible route (ModelScope et al.) sends role:\"developer\" on the system prompt and gets rejected in streaming mode. This plugin forces that compat switch off for every route that is not a genuine OpenAI endpoint, falling back to the universally accepted `system` role.",
+  "license": "MIT",
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  }
+}

@@ -1,0 +1,10 @@
+# dsh-memory-guard bundle patch: process-memory sentinel.
+# 定位：把 2026-09-14/15「YOLO 训练集群打爆 16GB 内存 → DSH 崩溃 + 0x50 蓝屏」事故的
+# 会话内临时守卫（guard-yolo*.ps1）固化为常驻能力。装配后每 intervalMs 一轮，
+# 命中阈值即回收内存风暴进程；放行闸门 = ~/.dsh/memory-guard/paused 文件。
+# 顺序无关（不依赖其它插件），但必须在 dsh-host-services 之后（用其 shared-utils）。
+- insert:
+    - id: dsh-memory-guard
+      name: '@dsh-external/dsh-memory-guard'
+      config:
+        enabled: true
