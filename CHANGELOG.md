@@ -26,7 +26,7 @@
   - 全量单测 **36 个文件 / 441 tests / 441 pass / 0 fail**；
   - `check-all.ps1` 最终 **ALL PASS（exit 0）**——4 FAIL → **0 FAIL**；
   - preflight 由 INCONCLUSIVE 转 **PASS(10/10)**、skill-inventory 恢复正常、未登记门禁转绿。
-- `startup-verify.mjs`：**9/10 PASS**（V1-V8/V10 全绿，bundles=48 模板=运行态、无孤儿、junction 健康；V9 语法预检需沙箱外跑）。
+- `startup-verify.mjs`：**10/10 PASS**（V1-V10 全绿：bundles=48 全可解析、模板=运行态、无孤儿、junction 健康、V9 插件语法 **41 个 link 插件 / 103 文件全 ok**）。首轮 V9 因沙箱 EPERM 被跳过，放开权限后真实跑通。
 - `/health`：**10/10 探针全绿**（webserver/sessions/disk/patches/plugins/logs/preflight/memory.files/memory.guard/developerRole.guard），磁盘 24.4GB 空闲，运行态 39 插件 0 缺失。
 - 插件专项复验：orchestrator 六套件 **150/150**（client54/gate14/scheduler19/ledger38/host10/tool15，与台账声称一致）、守卫+门禁+孤儿回收 **70/70**、failover 单测+集成 **4/4**、diff-guard smoke **1/1**。
 
