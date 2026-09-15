@@ -1,0 +1,6 @@
+# dsh-orchestrator bundle 补丁层：编排工作台装配行。
+# 适配说明：desktop profile 已由 scripts/register-plugin.mjs 装配 4 处；
+# 本文件供 web profile / 其它自动装配流使用。
+- insert:
+    - id: orchestrator
+      name: '@dsh-external/dsh-orchestrator'

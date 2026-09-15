@@ -1,0 +1,29 @@
+{
+  "name": "@dsh-external/dsh-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "编排工作台（阶段 1-A 快速壳）：在主区 conversation.view 注册「编排工作台」tab，展示全部存活 agent 的实时快照；host 侧提供 /orchestrator/state 只读快照端点",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  }
+}
