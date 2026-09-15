@@ -801,6 +801,122 @@ function webBase(ctx) {
   return `http://${h.includes(':') ? '[' + h + ']' : h}:${port}`
 }
 
+/**
+ * Auto-quote Mermaid node labels that contain unquoted special characters.
+ *
+ * In Mermaid flowchart syntax, | is reserved for edge labels and { } ( ) are
+ * shape delimiters.  When these characters appear inside a node label written
+ * as  ID[text...]  without surrounding quotes, the parser throws a PIPE /
+ * SQE / TAGSTART error.  This function detects such labels and wraps them in
+ * double quotes so the characters are treated as literal text.
+ *
+ * Strategy: walk the string tracking bracket depth.  When we see a '[' that
+ * is NOT already inside a quoted label, we scan forward to the matching ']'.
+ * If the inner text contains bare | { } ( ) and is not already quoted, we
+ * wrap it in double quotes.
+ *
+ * @param {string} code  Mermaid source
+ * @returns {string}      Sanitized source (unchanged if no fix needed)
+ */
+function sanitizeMermaidLabels(code) {
+  if (!code || typeof code !== 'string') return code
+  var out = ''
+  var i = 0
+  var len = code.length
+  while (i < len) {
+    // Skip quoted strings (double or single quotes) — they are already safe
+    if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+      var q = code[i]
+      out += code[i++]
+      while (i < len && code[i] !== q) {
+        if (code[i] === '\\') { out += code[i++] }   // skip escaped char
+        out += code[i++]
+      }
+      if (i < len) out += code[i++]   // closing quote
+      continue
+    }
+    // Skip line comments (%%)
+    if (code[i] === '%' && i + 1 < len && code[i + 1] === '%') {
+      while (i < len && code[i] !== '\n') out += code[i++]
+      continue
+    }
+    if (code[i] !== '[') { out += code[i++]; continue }
+    // We have a '[' — find the matching ']'
+    var start = i
+    var depth = 1
+    var j = i + 1
+    while (j < len && depth > 0) {
+      if (code[j] === '"') { j++; while (j < len && code[j] !== '"') { if (code[j] === '\\') j++; j++ }; j++; continue }
+      if (code[j] === "'") { j++; while (j < len && code[j] !== "'") j++; j++; continue }
+      if (code[j] === '[') depth++
+      if (code[j] === ']') depth--
+      if (depth > 0) j++
+    }
+    if (depth !== 0) { out += code[i++]; continue }   // unmatched, leave as-is
+    var inner = code.substring(start + 1, j)
+    var needsQuoting = /[|{}()]/.test(inner) && !/^\s*["']/.test(inner)
+    if (needsQuoting) {
+      var escaped = inner.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      out += '["' + escaped + '"]'
+    } else {
+      out += code.substring(start, j + 1)
+    }
+    i = j + 1
+  }
+  return out
+}
+
+/** Scene type → color mapping (reused by tree mode). */
+var TREE_TYPE_COLORS = {
+  frontend: '#0891B2', backend: '#059669', data: '#7C3AED', core: '#4F46E5',
+  bus: '#EA580C', security: '#E11D48', cloud: '#D97706', person: '#2563EB',
+  device: '#0D9488', external: '#64748B'
+}
+
+/**
+ * Normalize a tree/mind-map payload (recursive).
+ * Input: { name, desc?, type?, children?: [...] }
+ * Returns null when unusable; otherwise a normalized tree with auto-assigned ids.
+ * Limits: max depth 8, max total nodes 100.
+ */
+function normalizeTree(tree, depth, counter) {
+  if (!tree || typeof tree !== 'object') return null
+  if (depth === undefined) depth = 0
+  if (counter === undefined) counter = { n: 0 }
+  if (depth > 8 || counter.n >= 100) return null
+  var name = String(tree.name || tree.label || '').trim().slice(0, 80)
+  if (!name) return null
+  counter.n++
+  var myId = 'tn' + counter.n
+  var type = TREE_TYPE_COLORS[tree.type] ? tree.type : 'core'
+  var desc = tree.desc ? String(tree.desc).slice(0, 160) : ''
+  var children = []
+  if (Array.isArray(tree.children)) {
+    for (var i = 0; i < tree.children.length; i++) {
+      var child = normalizeTree(tree.children[i], depth + 1, counter)
+      if (child) children.push(child)
+    }
+  }
+  var node = { id: myId, name: name, type: type }
+  if (desc) node.desc = desc
+  if (children.length > 0) node.children = children
+  return node
+}
+
+/**
+ * Build collapsible tree HTML from normalized tree data.
+ * Uses <details>/<summary> for native collapse/expand with CSS transitions.
+ * Returns a complete HTML document string (not just a fragment) because the
+ * client-side TreeViewer will parse and render it as React components.
+ */
+function buildTreeHtml(tree, title) {
+  // We embed the tree data as JSON in a <script> tag so the client can
+  // parse it and render as React components (not static HTML).
+  // The client's TreeViewer handles all interactivity.
+  var data = JSON.stringify(tree)
+  return '<div data-dsh-tree="1" data-title="' + escXml(title) + '">' + data + '</div>'
+}
+
 export function apply(ctx) {
   registerDiagramFilesRoute(ctx)
   registerVendorRoute(ctx)
@@ -814,6 +930,7 @@ export function apply(ctx) {
       board: { type: 'object', additionalProperties: true, description: '进度/里程碑类内容**必传**（替代手写 svg）。结构 { overall?: {label?,pct}|number, items: [{ label, pct, status?, note? }] }；status 取 done/active/blocked/pending（也接受中文「完成/进行中/阻塞/未开始」，缺省按 pct 自动推断）；overall 缺省=各 item 均值。配合 stages 可做时间线 + 当前阶段看板' },
       scene: { type: 'object', additionalProperties: true, description: '应用场景/系统架构类内容**必传**（车间/产线/应用层架构、信号流、数据流）。v9 结构 { title, subtitle?, theme?, layout?, preset?, actors:[{ id?, name, desc?, type?, icon?, highlight? }], groups?: [{ id?, name, members:[actorId], color? }], flows:[{ from, to, label?, kind? }], footer?, showFooter? }。type 取 frontend/backend/data/cloud/security/bus/external/person/device/core——决定语义配色+图标（缺省按 icon 推断，旧 icon 库全兼容）；flow kind 取 data/sensor/control/event/security——决定线型与箭头色；theme 取 auto（默认·深浅自适应）/light/dark；layout 取 auto（默认·内容推断）/vertical（分层）/horizontal（泳道）/radial（辐射）；preset 取 auto（默认·类型推断）/paper（暖纸）/blueprint（蓝图）/editorial（杂志）/signal（信号流）；groups 表达层/边界/泳道分区（未入组节点自动成末组）。footer 要点面板默认不渲染，需显式 showFooter:true（≤6 条）。' },
       stages: { type: 'array', description: '可选（仅配 svg 使用）：分步交互图阶段列表（WorkBuddy 上一步/下一步/播放体验）。每项：{ id?, title, description?, layers?, board? }。layers 引用 SVG 中 <g data-stage="..."> 分组名（data-stage="all" 常显）；缺省 layers 时该阶段显示全图。配 board 使用时每项可带 board 快照（只需写变化量，按 index 与基线合并），实现「进度随时间/阶段演进」的动态看板' },
+      tree: { type: 'object', additionalProperties: true, description: '可选：树形/思维导图类内容（可折叠展开）。结构 { name, desc?, type?, children?: [...] }。type 取 frontend/backend/data/cloud/security/bus/external/person/device/core（复用 scene 语义色彩），缺省 core。支持无限层级嵌套（上限 8 层、100 节点）。适用于层级结构、思维导图、组织架构、知识树等。' },
       fileName: { type: 'string', description: '可选保存文件名词干，缺省从 title 生成' }
     },
     output: {
@@ -824,8 +941,8 @@ export function apply(ctx) {
       try {
         const title = String((args && args.title) || '').trim().slice(0, MAX_TITLE) || 'Diagram'
         const cwd = (exec && exec.agent && exec.agent.session && exec.agent.session.header && exec.agent.session.header.cwd) || process.cwd()
-        const mermaidCode = String((args && args.mermaid) || '').trim()
-        // 优先级：mermaid > scene > board > 手写 svg（数据驱动永远先于手写）
+        let mermaidCode = String((args && args.mermaid) || '').trim()
+        // 优先级：mermaid > scene > board > tree > 手写 svg（数据驱动永远先于手写）
         // v9：默认走语义渲染内核；scene.engine==='v8' 显式退回旧引擎（逃生门）
         const useLegacyScene = !!(args && args.scene && args.scene.engine === 'v8')
         const sceneData = useLegacyScene ? normalizeScene(args && args.scene) : normalizeSceneV2(args && args.scene)
@@ -838,6 +955,11 @@ export function apply(ctx) {
         if (!sceneData && (args && args.board) && !boardData) {
           return '错误：board 参数无效，至少需要 items: [{ label, pct }]，且 label 不能为空'
         }
+        // Tree mode: collapsible mind-map / hierarchical view
+        const treeData = (!sceneData && !boardData) ? normalizeTree(args && args.tree) : null
+        if ((args && args.tree) && !treeData) {
+          return '错误：tree 参数无效，至少需要 { name }，且 name 不能为空（上限 8 层、100 节点）'
+        }
         const stages = normalizeStages(args && args.stages)
         // v7.1：effectiveBoard = base 与最后阶段合并（默认展示最新进度）
         const effectiveBoard = (boardData && stages && stages.length > 0 && stages[stages.length-1] && stages[stages.length-1].board)
@@ -849,6 +971,16 @@ export function apply(ctx) {
         if (mermaidCode) {
           if (/<script/i.test(mermaidCode)) return '错误：mermaid 代码不允许包含 script'
           if (Buffer.byteLength(mermaidCode, 'utf8') > 200 * 1024) return '错误：mermaid 代码过长（上限 200 KB）'
+          // Sanitize unquoted special characters in node labels.
+          // Mermaid reserves | for edge labels and treats { } ( ) as shape
+          // delimiters; bare occurrences inside [ ... ] break the parser.
+          // Auto-wrap in double quotes to fix, and warn the agent.
+          var sanitized = sanitizeMermaidLabels(mermaidCode)
+          var mermaidWarn = ''
+          if (sanitized !== mermaidCode) {
+            mermaidWarn = '⚠️ 已自动为含特殊字符（| {} () 等）的节点标签添加双引号。\n'
+            mermaidCode = sanitized
+          }
           const mStem = safeFileStem((args && args.fileName) || title)
           const mFileName = `${mStem}-${ts(new Date())}.mmd`
           const mDir = join(cwd, 'diagrams')
@@ -860,7 +992,23 @@ export function apply(ctx) {
           savedSvgs.set(mFileName, { abs: mAbs, mime: 'text/plain' })
           const mBytes = Buffer.byteLength(mermaidCode, 'utf8')
           const meta = { v: 1, type: 'mermaid', title, path: `diagrams/${mFileName}`, bytes: mBytes }
-          return `Mermaid 图已生成并保存：diagrams/${mFileName}（${(mBytes / 1024).toFixed(1)} KB）。刷新页面后，交互卡（自动布局 · 代码/图表切换 · 全屏）将出现在回复下方。\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${mermaidCode}\n<!--dsh-diagram:end-->`
+          return `${mermaidWarn}Mermaid 图已生成并保存：diagrams/${mFileName}（${(mBytes / 1024).toFixed(1)} KB）。刷新页面后，交互卡（自动布局 · 代码/图表切换 · 全屏）将出现在回复下方。\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${mermaidCode}\n<!--dsh-diagram:end-->`
+        }
+        // Tree mode: generate JSON data envelope (client renders as React TreeViewer)
+        if (treeData) {
+          const treeHtml = buildTreeHtml(treeData, title)
+          const tStem = safeFileStem((args && args.fileName) || title)
+          const tFileName = `${tStem}-${ts(new Date())}.tree.json`
+          const tDir = join(cwd, 'diagrams')
+          await mkdir(tDir, { recursive: true })
+          const tAbs = join(tDir, tFileName)
+          const tTmp = join(tDir, `.${tFileName}.tmp-${process.pid}-${Date.now()}`)
+          await writeFile(tTmp, JSON.stringify(treeData, null, 2), 'utf8')
+          await rename(tTmp, tAbs)
+          savedSvgs.set(tFileName, { abs: tAbs, mime: 'application/json' })
+          const tBytes = Buffer.byteLength(JSON.stringify(treeData), 'utf8')
+          const meta = { v: 1, type: 'tree', title, path: `diagrams/${tFileName}`, bytes: tBytes }
+          return `树形图已生成并保存：diagrams/${tFileName}（${(tBytes / 1024).toFixed(1)} KB）。刷新页面后，可折叠思维导图卡片将出现在回复下方。\n<!--dsh-diagram:begin ${JSON.stringify(meta)}-->\n${JSON.stringify(treeData)}\n<!--dsh-diagram:end-->`
         }
         if (svgRaw.indexOf('<svg') === -1 || svgRaw.indexOf('</svg>') === -1) {
           return '错误：svg 参数必须包含完整的 <svg ...>...</svg> 元素'

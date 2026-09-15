@@ -153,6 +153,12 @@ window.__ModuleLoader__.load({
         if (meta && meta.type === 'mermaid') {
           return { type: 'mermaid', code: String(bodySeg || '').trim(), meta: meta }
         }
+        if (meta && meta.type === 'tree') {
+          var treeData = null
+          try { treeData = JSON.parse(bodySeg) } catch (e) { /* try to parse from meta */ }
+          if (!treeData && meta.tree) treeData = meta.tree
+          return { type: 'tree', tree: treeData, meta: meta }
+        }
         svg = extractSvg(bodySeg)
         if (!svg && bodySeg && bodySeg.indexOf('<svg') !== -1) svg = bodySeg.trim()
         if (!svg) svg = extractSvg(unescapeStrict(text))
@@ -1588,12 +1594,12 @@ function StageViewer(props) {
               actorLineColor: '#888780', signalColor: '#2C2C2A', signalTextColor: '#2C2C2A',
               labelBoxBkgColor: '#CECBF6', labelBoxBorderColor: '#534AB7',
               noteBkgColor: '#F1EFE8', noteBorderColor: '#888780',
-              fontSize: '13px',
+              fontSize: '15px',
               fontFamily: "'Segoe UI','Microsoft YaHei',system-ui,sans-serif"
             }
             mm.initialize({
               startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: palette,
-              flowchart: { useMaxWidth: true, curve: 'basis', nodeSpacing: 55, rankSpacing: 60, diagramPadding: 10 },
+              flowchart: { useMaxWidth: true, curve: 'monotoneX', nodeSpacing: 80, rankSpacing: 80, diagramPadding: 16 },
               sequence: { useMaxWidth: true }, gantt: { useMaxWidth: true }
             })
           } catch (eInit) { /* keep going: engine still usable */ }
@@ -1612,16 +1618,43 @@ function StageViewer(props) {
       var [err, setErr] = useState('')
       var [svgOut, setSvgOut] = useState('')
       var [showCode, setShowCode] = useState(false)
+      var [menuOpen, setMenuOpen] = useState(false)
       useEffect(function () {
         var cancelled = false
         setErr('')
         loadMermaid().then(function (m) {
           if (cancelled) return
           var id = 'mmd' + Math.random().toString(36).slice(2)
-          return m.render(id, code).then(function (r) {
-            if (cancelled) return
+          // Use an offscreen container so mermaid's error-SVG side-effects
+          // (it injects into the container or body on parse failure) never
+          // leak into the visible page.
+          var tmp = document.createElement('div')
+          tmp.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:0;height:0;overflow:hidden;pointer-events:none;'
+          document.body.appendChild(tmp)
+          function cleanup() {
+            try { if (tmp.parentNode) tmp.parentNode.removeChild(tmp) } catch (_) {}
+            // mermaid v11 also creates sibling tmp elements (i<id>, d<id>) in body
+            try {
+              var stray = document.getElementById('i' + id)
+              if (stray && stray.parentNode) stray.parentNode.removeChild(stray)
+            } catch (_) {}
+            try {
+              var stray2 = document.getElementById('d' + id)
+              if (stray2 && stray2.parentNode) stray2.parentNode.removeChild(stray2)
+            } catch (_) {}
+          }
+          return m.render(id, code, tmp).then(function (r) {
+            if (cancelled) { cleanup(); return }
+            var svg = (r && r.svg) || ''
+            // mermaid v11 resolves (not rejects) for syntax errors with an error SVG
+            if (svg.indexOf('Syntax error in text') !== -1 || svg.indexOf('class="error-icon"') !== -1) {
+              cleanup()
+              if (!cancelled) setErr('Mermaid 语法错误：图表代码无法解析。常见原因：节点标签含未引号的特殊字符（| { } ( ) 等需加双引号，如 A["text|with|pipe"]）。')
+              return
+            }
+            cleanup()
             if (hostRef.current) {
-              hostRef.current.innerHTML = r.svg
+              hostRef.current.innerHTML = svg
               try {
                 // WorkBuddy look: rounded node/cluster rects, softer borders.
                 var rects = hostRef.current.querySelectorAll('g.node rect, g.cluster rect')
@@ -1633,10 +1666,21 @@ function StageViewer(props) {
                 for (var pi = 0; pi < polys.length; pi++) polys[pi].setAttribute('stroke-width', '1.5')
               } catch (eRr) { /* cosmetic only */ }
             }
-            setSvgOut(r.svg)
+            setSvgOut(svg)
           })
         }).catch(function (e) {
-          if (!cancelled) setErr(String((e && e.message) || e))
+          if (!cancelled) {
+            var msg = String((e && e.message) || e)
+            // Distinguish engine load failure from render-time errors.
+            // Engine load failure mentions the specific load error; syntax errors
+            // in m.render() rejection are rare in mermaid v11 (it resolves with
+            // error-SVG instead), but if they occur, show actionable guidance.
+            if (/引擎|load|fetch|network|CDN|vendor/i.test(msg)) {
+              setErr('Mermaid 引擎加载失败（需要本地 /diagram-vendor 或网络 CDN）：' + msg)
+            } else {
+              setErr('Mermaid 渲染失败：' + msg)
+            }
+          }
         })
         return function () { cancelled = true }
       }, [code])
@@ -1700,7 +1744,7 @@ function StageViewer(props) {
           else if (el.requestFullscreen) { el.requestFullscreen() }
         } catch (e) { /* noop */ }
       }, [])
-      var smallBtn = { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '11.5px', padding: '3px 10px', fontFamily: 'inherit' }
+      var smallBtn = { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '4px 11px', fontFamily: 'inherit' }
       var bar = React.createElement('div', {
         style: {
           display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
@@ -1708,13 +1752,31 @@ function StageViewer(props) {
         }
       },
         React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: P.ink, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, title || 'Mermaid Diagram'),
-        React.createElement('button', { type: 'button', onClick: goFull, style: smallBtn }, '全屏预览'),
-        React.createElement('button', { type: 'button', onClick: function () { setShowCode(function (v) { return !v }) }, style: smallBtn }, showCode ? '图表视图' : '查看代码'),
-        React.createElement('button', { type: 'button', onClick: savePng, disabled: !svgOut, style: Object.assign({}, smallBtn, { opacity: svgOut ? 1 : 0.5 }) }, '保存为图片'),
-        React.createElement('button', { type: 'button', onClick: downloadSvg, disabled: !svgOut, style: Object.assign({}, smallBtn, { opacity: svgOut ? 1 : 0.5 }) }, '下载'),
-        React.createElement('button', { type: 'button', onClick: copyCode, style: smallBtn }, '复制代码'))
+        React.createElement('button', { type: 'button', onClick: goFull, style: smallBtn }, '⛶ 全屏'),
+        React.createElement('button', {
+          type: 'button', title: '更多操作', 'aria-label': '更多操作',
+          onClick: function () { setMenuOpen(function (v) { return !v }) },
+          style: {
+            border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2,
+            borderRadius: '8px', cursor: 'pointer', width: '28px', height: '28px',
+            fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+          }
+        }, '⋮'))
+      var menu = menuOpen ? React.createElement('div', {
+        style: {
+          position: 'absolute', top: '44px', right: '12px', zIndex: 20,
+          background: P.card, border: '0.5px solid ' + P.line, borderRadius: '10px',
+          boxShadow: '0 6px 24px rgba(44,44,42,0.16)', overflow: 'hidden', minWidth: '160px'
+        }
+      },
+        React.createElement('button', { type: 'button', onClick: function () { setShowCode(function (v) { return !v }); setMenuOpen(false) }, style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: P.ink, fontSize: '12.5px', fontFamily: 'inherit' }, onMouseEnter: function (e) { e.currentTarget.style.background = P.hover }, onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' } }, showCode ? '图表视图' : '查看代码'),
+        React.createElement('button', { type: 'button', onClick: function () { savePng(); setMenuOpen(false) }, style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: svgOut ? P.ink : P.ink3, fontSize: '12.5px', fontFamily: 'inherit' }, onMouseEnter: function (e) { e.currentTarget.style.background = P.hover }, onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' } }, '保存为图片 (PNG)'),
+        React.createElement('button', { type: 'button', onClick: function () { downloadSvg(); setMenuOpen(false) }, style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: svgOut ? P.ink : P.ink3, fontSize: '12.5px', fontFamily: 'inherit' }, onMouseEnter: function (e) { e.currentTarget.style.background = P.hover }, onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' } }, '下载 SVG'),
+        React.createElement('button', { type: 'button', onClick: function () { copyCode(); setMenuOpen(false) }, style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: P.ink, fontSize: '12.5px', fontFamily: 'inherit' }, onMouseEnter: function (e) { e.currentTarget.style.background = P.hover }, onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' } }, '复制代码')
+      ) : null
       var body = err
-        ? React.createElement('div', { style: { padding: '10px 14px', color: C.err, fontSize: '12px', whiteSpace: 'pre-wrap' } }, 'Mermaid 渲染失败（引擎需联网加载）：' + err)
+        ? React.createElement('div', { style: { padding: '10px 14px', color: C.err, fontSize: '12px', whiteSpace: 'pre-wrap' } }, err)
         : React.createElement('div', { ref: hostRef, style: { padding: '16px', display: 'flex', justifyContent: 'center', background: '#ffffff' } })
       var codeView = showCode
         ? React.createElement('pre', {
@@ -1733,7 +1795,7 @@ function StageViewer(props) {
           margin: '6px -24px 6px -24px', width: 'calc(100% + 48px)',
           background: P.card, overflow: 'hidden'
         }
-      }, bar, body, codeView)
+      }, bar, body, menu, codeView)
     }
 
     // ---- keyed toolview entry -----------------------------------------
@@ -1776,6 +1838,467 @@ function StageViewer(props) {
         if (typeof v === 'string' && v !== '') return firstLine(v)
       }
       return ''
+    }
+
+    // ---- TreeViewer: collapsible mind-map / tree view --------------------
+    var TREE_TYPE_COLORS = {
+      frontend: '#0891B2', backend: '#059669', data: '#7C3AED', core: '#4F46E5',
+      bus: '#EA580C', security: '#E11D48', cloud: '#D97706', person: '#2563EB',
+      device: '#0D9488', external: '#64748B'
+    }
+
+    function TreeNode(props) {
+      var node = props.node
+      var expanded = props.expanded
+      var onToggle = props.onToggle
+      var depth = props.depth || 0
+      var hasChildren = node.children && node.children.length > 0
+      var isExpanded = expanded.has(node.id)
+      var color = TREE_TYPE_COLORS[node.type] || TREE_TYPE_COLORS.core
+      var toggleBtn = hasChildren
+        ? React.createElement('span', {
+            onClick: function (e) { e.stopPropagation(); onToggle(node.id) },
+            style: {
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 18, height: 18, borderRadius: 4, cursor: 'pointer',
+              background: isExpanded ? P.hover : 'transparent',
+              color: P.ink2, fontSize: '11px', marginRight: 6, flexShrink: 0,
+              transition: 'transform 200ms ease, background 200ms ease',
+              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'
+            }
+          }, '▶')
+        : React.createElement('span', {
+            style: {
+              display: 'inline-block', width: 6, height: 6, borderRadius: 3,
+              background: color, marginRight: 12, flexShrink: 0, opacity: 0.7
+            }
+          })
+      var nameEl = React.createElement('span', {
+        style: { fontWeight: hasChildren ? 500 : 400, color: P.ink, fontSize: hasChildren ? '13px' : '12.5px' }
+      }, node.name)
+      var descEl = node.desc
+        ? React.createElement('span', { style: { color: P.ink3, fontSize: '11.5px', marginLeft: 8 } }, node.desc)
+        : null
+      var typeBadge = node.type && node.type !== 'core'
+        ? React.createElement('span', {
+            style: {
+              fontSize: '10px', color: color, background: color + '18',
+              border: '0.5px solid ' + color + '40', borderRadius: 4,
+              padding: '1px 5px', marginLeft: 6, flexShrink: 0
+            }
+          }, node.type)
+        : null
+      var childrenEl = (hasChildren && isExpanded)
+        ? React.createElement('div', {
+            style: {
+              marginLeft: 16, paddingLeft: 12, borderLeft: '1.5px solid ' + P.line,
+              overflow: 'hidden'
+            }
+          }, node.children.map(function (child) {
+            return React.createElement(TreeNode, { key: child.id, node: child, expanded: expanded, onToggle: onToggle, depth: depth + 1 })
+          }))
+        : null
+      return React.createElement('div', { style: { paddingTop: depth === 0 ? 0 : 4 } },
+        React.createElement('div', {
+          onClick: hasChildren ? function () { onToggle(node.id) } : undefined,
+          style: {
+            display: 'flex', alignItems: 'center', padding: '6px 8px', borderRadius: 8,
+            cursor: hasChildren ? 'pointer' : 'default',
+            background: 'transparent',
+            transition: 'background 150ms ease'
+          },
+          onMouseEnter: function (e) { e.currentTarget.style.background = P.hover },
+          onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' }
+        }, toggleBtn, nameEl, typeBadge, descEl),
+        childrenEl
+      )
+    }
+
+    // ---- MindMapView: XMind-style horizontal mind map -------------------
+    // Root centered, children branch left/right, curved bezier connectors,
+    // type-colored node cards with left accent bar.
+    var MM = { H_GAP: 120, V_GAP: 24, NODE_H: 56, PAD: 100, MIN_W: 180, MAX_W: 360 }
+
+    function mmMeasure(node, expanded) {
+      if (!node) return { w: 0, h: 0 }
+      var nameW = Math.min(MM.MAX_W, Math.max(MM.MIN_W, node.name.length * 13 + 40))
+      var hasChildren = node.children && node.children.length > 0
+      var isExpanded = expanded.has(node.id)
+      if (!hasChildren || !isExpanded) return { w: nameW, h: MM.NODE_H }
+      var childTotal = 0
+      var childMaxW = 0
+      for (var i = 0; i < node.children.length; i++) {
+        var cm = mmMeasure(node.children[i], expanded)
+        childTotal += cm.h + (i > 0 ? MM.V_GAP : 0)
+        if (cm.w > childMaxW) childMaxW = cm.w
+      }
+      return { w: nameW + MM.H_GAP + childMaxW, h: Math.max(MM.NODE_H, childTotal) }
+    }
+
+    function mmLayout(node, x, y, expanded, depth, dir, positions) {
+      if (!node) return
+      var nameW = Math.min(MM.MAX_W, Math.max(MM.MIN_W, node.name.length * 13 + 40))
+      var m = mmMeasure(node, expanded)
+      var cy = y + m.h / 2
+      var nodeX = dir === 'right' ? x : x + m.w - nameW
+      positions.push({ node: node, x: nodeX, y: cy - MM.NODE_H / 2, w: nameW, h: MM.NODE_H, depth: depth, dir: dir })
+      var hasChildren = node.children && node.children.length > 0
+      var isExpanded = expanded.has(node.id)
+      if (!hasChildren || !isExpanded) return
+      var childX = dir === 'right' ? x + nameW + MM.H_GAP : x - MM.H_GAP
+      var cy2 = y
+      for (var i = 0; i < node.children.length; i++) {
+        var cm = mmMeasure(node.children[i], expanded)
+        mmLayout(node.children[i], childX, cy2, expanded, depth + 1, dir, positions)
+        cy2 += cm.h + MM.V_GAP
+      }
+    }
+
+    function MindMapView(props) {
+      var tree = props.tree
+      var expanded = props.expanded
+      var onToggle = props.onToggle
+      // v2 mindmap: hooks MUST precede any early return (React rules of
+      // hooks). Connectors are drawn from REAL DOM geometry — after the node
+      // cards paint, getBoundingClientRect() gives the true card edges, so
+      // the bezier lines always touch the boxes exactly, regardless of
+      // padding/border/box-sizing. `positions` is a hoisted var assigned
+      // later in this render pass; the closure reads it after render.
+      var containerRef = useRef(null)
+      var connSvgRef = useRef(null)
+      var posMapRef = useRef({})
+      useLayoutEffect(function () {
+        try {
+          if (!containerRef.current || !connSvgRef.current) return
+          if (!positions || !positions.length) return
+          var cRect = containerRef.current.getBoundingClientRect()
+          var nodes = containerRef.current.querySelectorAll('[data-mm-node]')
+          var posMap = {}
+          for (var ni = 0; ni < nodes.length; ni++) {
+            var nid = nodes[ni].getAttribute('data-mm-node')
+            var nr = nodes[ni].getBoundingClientRect()
+            posMap[nid] = {
+              left: nr.left - cRect.left, top: nr.top - cRect.top,
+              right: nr.right - cRect.left, bottom: nr.bottom - cRect.top,
+              cy: (nr.top + nr.bottom) / 2 - cRect.top
+            }
+          }
+          posMapRef.current = posMap
+          // O(n) lookup: map node-id → layout position once (the old inner
+          // loop re-scanned `positions` per child — O(n²) on big trees).
+          var posById = {}
+          for (var ki = 0; ki < positions.length; ki++) posById[positions[ki].node.id] = positions[ki]
+          var svg = connSvgRef.current
+          while (svg.firstChild) svg.removeChild(svg.firstChild)
+          var SVG_NS = 'http://www.w3.org/2000/svg'
+          for (var pi = 0; pi < positions.length; pi++) {
+            var p = positions[pi]
+            if (!p.node.children || !expanded || !expanded.has(p.node.id)) continue
+            var pp = posMap[p.node.id]
+            if (!pp) continue
+            for (var cj = 0; cj < p.node.children.length; cj++) {
+              var childPos = posById[p.node.children[cj].id]
+              if (!childPos) continue
+              var cp = posMap[childPos.node.id]
+              if (!cp) continue
+              // Direction keyed off the CHILD's side — the ROOT (dir 'root')
+              // must leave from the edge FACING each child, not always its
+              // left edge (old bug: right-branch lines crossed the root box).
+              var x1, x2
+              if (childPos.dir === 'left') { x1 = pp.left; x2 = cp.right } else { x1 = pp.right; x2 = cp.left }
+              var y1 = pp.cy
+              var y2 = cp.cy
+              var dx = Math.abs(x2 - x1) * 0.5
+              var cx1 = x1 + (x2 > x1 ? dx : -dx)
+              var cx2 = x2 - (x2 > x1 ? dx : -dx)
+              var color = TREE_TYPE_COLORS[childPos.node.type] || TREE_TYPE_COLORS.core
+              var path = document.createElementNS(SVG_NS, 'path')
+              path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + cx1 + ' ' + y1 + ' ' + cx2 + ' ' + y2 + ' ' + x2 + ' ' + y2)
+              path.setAttribute('data-conn', p.node.id + ' ' + childPos.node.id)
+              path.setAttribute('fill', 'none')
+              path.setAttribute('stroke', color)
+              path.setAttribute('stroke-width', '2.5')
+              path.setAttribute('stroke-linecap', 'round')
+              path.setAttribute('opacity', '0.7')
+              svg.appendChild(path)
+            }
+          }
+        } catch (e) { /* connectors are cosmetic — never break the card */ }
+      })
+      if (!tree) return null
+      var rightChildren = []
+      var leftChildren = []
+      if (tree.children) {
+        for (var i = 0; i < tree.children.length; i++) {
+          if (i % 2 === 0) rightChildren.push(tree.children[i]); else leftChildren.push(tree.children[i])
+        }
+      }
+      // Measure each side's max subtree width and total height
+      var rightMaxW = 0, rightH = 0
+      for (var ri = 0; ri < rightChildren.length; ri++) {
+        var rm = mmMeasure(rightChildren[ri], expanded)
+        rightH += rm.h + (ri > 0 ? MM.V_GAP : 0)
+        if (rm.w > rightMaxW) rightMaxW = rm.w
+      }
+      var leftMaxW = 0, leftH = 0
+      for (var li = 0; li < leftChildren.length; li++) {
+        var lm = mmMeasure(leftChildren[li], expanded)
+        leftH += lm.h + (li > 0 ? MM.V_GAP : 0)
+        if (lm.w > leftMaxW) leftMaxW = lm.w
+      }
+      var rootW = Math.min(MM.MAX_W, Math.max(MM.MIN_W, tree.name.length * 14 + 50))
+      // Center the root: left subtree | GAP | root | GAP | right subtree
+      var rootX = leftMaxW + MM.H_GAP
+      var totalContentW = leftMaxW + MM.H_GAP + rootW + MM.H_GAP + rightMaxW
+      var maxSideH = Math.max(rightH, leftH, MM.NODE_H)
+      var rootY = (maxSideH - MM.NODE_H) / 2
+      var positions = []
+      positions.push({ node: tree, x: rootX, y: rootY, w: rootW, h: MM.NODE_H, depth: 0, dir: 'root' })
+      // Right children: start at rootX + rootW + H_GAP
+      var rStartX = rootX + rootW + MM.H_GAP
+      var ry = 0
+      for (var rj = 0; rj < rightChildren.length; rj++) {
+        mmLayout(rightChildren[rj], rStartX, ry, expanded, 1, 'right', positions)
+        ry += mmMeasure(rightChildren[rj], expanded).h + MM.V_GAP
+      }
+      // Left children: right-aligned so their right edge is at rootX - H_GAP
+      var lEndX = rootX - MM.H_GAP
+      var ly = 0
+      for (var lj = 0; lj < leftChildren.length; lj++) {
+        var ljm = mmMeasure(leftChildren[lj], expanded)
+        mmLayout(leftChildren[lj], lEndX - ljm.w, ly, expanded, 1, 'left', positions)
+        ly += ljm.h + MM.V_GAP
+      }
+      var totalW = 0
+      var totalH = 0
+      for (var vi = 0; vi < positions.length; vi++) {
+        var ex = positions[vi].x + positions[vi].w
+        var ey = positions[vi].y + positions[vi].h
+        if (ex > totalW) totalW = ex
+        if (ey > totalH) totalH = ey
+      }
+      var svgW = totalW + MM.PAD * 2
+      var svgH = totalH + MM.PAD * 2
+      // parent-of map + expanded-ancestor chain for hover highlighting:
+      // hovering a node lights up its incoming/outgoing connector edges.
+      var parentOf = {}
+      for (var hi = 0; hi < positions.length; hi++) {
+        var hp = positions[hi]
+        if (hp.node.children) {
+          for (var hj = 0; hj < hp.node.children.length; hj++) parentOf[hp.node.children[hj].id] = hp.node.id
+        }
+      }
+      function connEdgesOf(nid) {
+        // returns array of 'parent child' data-conn values this node touches
+        var edges = []
+        if (parentOf[nid]) edges.push(parentOf[nid] + ' ' + nid)
+        for (var hi2 = 0; hi2 < positions.length; hi2++) {
+          var q = positions[hi2].node
+          if (q.id === nid && q.children) {
+            for (var hj2 = 0; hj2 < q.children.length; hj2++) edges.push(nid + ' ' + q.children[hj2].id)
+          }
+        }
+        return edges
+      }
+      function highlightEdges(on, nid) {
+        if (!connSvgRef.current) return
+        try {
+          var wanted = connEdgesOf(nid)
+          var paths = connSvgRef.current.querySelectorAll('path[data-conn]')
+          for (var i = 0; i < paths.length; i++) {
+            var dc = paths[i].getAttribute('data-conn')
+            var hit = false
+            for (var w = 0; w < wanted.length; w++) { if (dc === wanted[w]) { hit = true; break } }
+            paths[i].setAttribute('stroke-width', hit && on ? '3.5' : '2.5')
+            paths[i].setAttribute('opacity', hit && on ? '1' : '0.7')
+          }
+        } catch (e) { /* cosmetic */ }
+      }
+      var nodeEls = []
+      for (var ni = 0; ni < positions.length; ni++) {
+        var pos = positions[ni]
+        var nd = pos.node
+        var color = TREE_TYPE_COLORS[nd.type] || TREE_TYPE_COLORS.core
+        var hasKids = nd.children && nd.children.length > 0
+        var isExp = expanded.has(nd.id)
+        var nameSize = pos.depth === 0 ? '14px' : (pos.depth === 1 ? '13px' : '12px')
+        var nameWeight = hasKids ? 500 : 400
+        var nodeId = nd.id
+        nodeEls.push(React.createElement('div', {
+          key: nodeId,
+          'data-mm-node': nodeId,
+          onClick: hasKids ? (function (nid) { return function (e) { e.stopPropagation(); onToggle(nid) } })(nodeId) : undefined,
+          onMouseEnter: (function (nid) { return function () { highlightEdges(true, nid) } })(nodeId),
+          onMouseLeave: (function (nid) { return function () { highlightEdges(false, nid) } })(nodeId),
+          style: {
+            position: 'absolute', left: (MM.PAD + pos.x) + 'px', top: (MM.PAD + pos.y) + 'px',
+            width: pos.w + 'px', height: pos.h + 'px',
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '0 14px', borderRadius: pos.depth === 0 ? 12 : 10,
+            background: pos.depth === 0 ? (color + '18') : P.card,
+            border: (pos.depth === 0 ? '2px solid ' + color : '1px solid ' + P.line),
+            cursor: hasKids ? 'pointer' : 'default', overflow: 'hidden',
+            boxShadow: pos.depth === 0 ? '0 4px 16px ' + color + '25' : '0 1px 4px rgba(0,0,0,0.06)',
+            zIndex: 2
+          }
+        },
+          React.createElement('div', { style: { width: 4, height: 28, borderRadius: 2, background: color, flexShrink: 0 } }),
+          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', minWidth: 0, flex: '1 1 0' } },
+            React.createElement('span', {
+              style: { fontSize: nameSize, fontWeight: nameWeight, color: P.ink,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }
+            }, nd.name),
+            nd.desc ? React.createElement('span', {
+              style: { fontSize: '11px', color: P.ink3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }
+            }, nd.desc) : null
+          ),
+          hasKids ? React.createElement('span', {
+            style: { fontSize: '9px', color: P.ink3, flexShrink: 0, transform: isExp ? 'rotate(90deg)' : 'none',
+              transition: 'transform 200ms ease' }
+          }, '▶') : null
+        ))
+      }
+      return React.createElement('div', {
+        ref: containerRef,
+        style: { position: 'relative', width: svgW + 'px', minHeight: svgH + 'px', margin: '0 auto' }
+      },
+        React.createElement('svg', {
+          ref: connSvgRef,
+          width: svgW, height: svgH,
+          style: { position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 1 }
+        }),
+        nodeEls
+      )
+    }
+
+    function TreeViewer(props) {
+      var tree = props.tree
+      var title = props.title
+      var rootRef = useRef(null)
+      var pairMenu = useState(false)
+      var menuOpen = pairMenu[0]; var setMenuOpen = pairMenu[1]
+      var pairFull = useState(false)
+      var isFull = pairFull[0]; var setIsFull = pairFull[1]
+      var pairMsg = useState('')
+      var actionMsg = pairMsg[0]; var setActionMsg = pairMsg[1]
+      var pairExpanded = useState(function () {
+        var s = new Set()
+        if (tree) s.add(tree.id)
+        if (tree && tree.children) {
+          for (var i = 0; i < tree.children.length; i++) s.add(tree.children[i].id)
+        }
+        return s
+      })
+      var expanded = pairExpanded[0]; var setExpanded = pairExpanded[1]
+      // Auto-detect: wide/shallow trees → mindmap, deep/narrow → list
+      function detectMode(t) {
+        if (!t || !t.children) return 'list'
+        var topN = t.children.length
+        var maxDepth = 0
+        function walk(n, d) { if (d > maxDepth) maxDepth = d; if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i], d + 1) }
+        walk(t, 1)
+        return (topN >= 4 || maxDepth <= 3) ? 'mindmap' : 'list'
+      }
+      var pairMode = useState(function () { return detectMode(tree) })
+      var viewMode = pairMode[0]; var setViewMode = pairMode[1]
+
+      useEffect(function () {
+        function onFs() { setIsFull(!!document.fullscreenElement) }
+        document.addEventListener('fullscreenchange', onFs)
+        return function () { document.removeEventListener('fullscreenchange', onFs) }
+      }, [])
+
+      function flash(msg) { setActionMsg(msg); setTimeout(function () { setActionMsg('') }, 1600) }
+      function toggleNode(id) {
+        setExpanded(function (prev) {
+          var next = new Set(prev)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return next
+        })
+      }
+      function expandAll() {
+        var all = new Set()
+        function walk(n) { if (!n) return; all.add(n.id); if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i]) }
+        walk(tree)
+        setExpanded(all)
+        flash('已全部展开')
+      }
+      function collapseAll() {
+        var s = new Set()
+        if (tree) s.add(tree.id)
+        setExpanded(s)
+        flash('已全部折叠')
+      }
+      function toggleFull() {
+        try {
+          if (!rootRef.current) return
+          if (document.fullscreenElement) document.exitFullscreen()
+          else if (rootRef.current.requestFullscreen) rootRef.current.requestFullscreen()
+        } catch (e) { /* noop */ }
+      }
+      function copyData() {
+        try {
+          var text = JSON.stringify(tree, null, 2)
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { flash('已复制') }, function () { flash('已复制') })
+          } else { flash('已复制') }
+        } catch (e) { flash('复制失败') }
+      }
+
+      var barBtn = { border: '0.5px solid ' + P.line, background: P.canvas, color: P.ink2, borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '4px 11px', fontFamily: 'inherit' }
+      var bar = React.createElement('div', {
+        style: {
+          display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px',
+          borderBottom: '0.5px solid ' + P.line, background: P.card, borderRadius: '12px 12px 0 0'
+        }
+      },
+        React.createElement('span', { style: { fontWeight: 700, fontSize: '13px', color: P.ink, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, title || 'Tree'),
+        actionMsg
+          ? React.createElement('span', { style: { fontSize: '11px', color: P.ok, whiteSpace: 'nowrap', flex: 'none' } }, actionMsg)
+          : null,
+        React.createElement('button', { type: 'button', onClick: function () { setViewMode(function (v) { return v === 'mindmap' ? 'list' : 'mindmap' }) }, style: barBtn, title: viewMode === 'mindmap' ? '切换为列表' : '切换为思维导图' }, viewMode === 'mindmap' ? '☰' : '🧠'),
+        React.createElement('button', { type: 'button', onClick: expandAll, style: barBtn }, '展开全部'),
+        React.createElement('button', { type: 'button', onClick: collapseAll, style: barBtn }, '折叠全部'),
+        React.createElement('button', { type: 'button', onClick: toggleFull, style: barBtn }, '⛶'),
+        React.createElement('button', {
+          type: 'button', title: '更多操作',
+          onClick: function () { setMenuOpen(function (v) { return !v }) },
+          style: {
+            border: '0.5px solid ' + P.line, background: 'transparent', color: P.ink2,
+            borderRadius: '8px', cursor: 'pointer', width: '28px', height: '28px',
+            fontSize: '16px', lineHeight: '1', fontFamily: 'inherit', padding: 0,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+          }
+        }, '⋮')
+      )
+      var menu = menuOpen ? React.createElement('div', {
+        style: {
+          position: 'absolute', top: '44px', right: '12px', zIndex: 20,
+          background: P.card, border: '0.5px solid ' + P.line, borderRadius: '10px',
+          boxShadow: '0 6px 24px rgba(44,44,42,0.16)', overflow: 'hidden', minWidth: '160px'
+        }
+      },
+        React.createElement('button', { type: 'button', onClick: function () { copyData(); setMenuOpen(false) }, style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', color: P.ink, fontSize: '12.5px', fontFamily: 'inherit' }, onMouseEnter: function (e) { e.currentTarget.style.background = P.hover }, onMouseLeave: function (e) { e.currentTarget.style.background = 'transparent' } }, '复制数据 (JSON)')
+      ) : null
+      var body = !tree
+        ? React.createElement('div', { style: { padding: '20px', color: P.ink3, textAlign: 'center' } }, '无数据')
+        : viewMode === 'mindmap'
+          ? React.createElement('div', { style: { padding: '12px 8px', overflow: 'auto', maxHeight: '78vh' } },
+              React.createElement(MindMapView, { tree: tree, expanded: expanded, onToggle: toggleNode })
+            )
+          : React.createElement('div', { style: { padding: '16px 20px' } },
+              React.createElement(TreeNode, { node: tree, expanded: expanded, onToggle: toggleNode, depth: 0 })
+            )
+      return React.createElement('div', {
+        ref: rootRef,
+        style: {
+          position: 'relative', border: '0.5px solid ' + P.line, borderRadius: '12px',
+          margin: '8px -24px 8px -24px', width: 'calc(100% + 48px)',
+          background: P.card, overflow: 'hidden',
+          boxShadow: '0 2px 14px rgba(44,44,42,0.10)'
+        }
+      }, bar, body, menu)
     }
 
     // Compact summary row for non-diagram tools that dispatch through the
@@ -1863,6 +2386,11 @@ function StageViewer(props) {
           React.createElement(MermaidWidget, { code: parsed.code, title: cardTitle })
         )
       }
+      if (parsed.type === 'tree') {
+        return React.createElement('div', { style: { margin: '6px 0' } },
+          React.createElement(TreeViewer, { tree: parsed.tree, title: cardTitle })
+        )
+      }
       return React.createElement('div', { style: { margin: '6px 0' } },
         React.createElement(DiagramViewer, {
           svg: parsed.svg, title: cardTitle, fileBase: basename(cardFile), stages: stages
@@ -1927,7 +2455,7 @@ function StageViewer(props) {
         if (!parsed) return st
         if (parsed.type === 'mermaid') {
           if (!parsed.code || parsed.code.length < 8) return st
-        } else if (isBoardPayload(parsed)) {
+        } else if (parsed.type === 'tree' || isBoardPayload(parsed)) {
           // v7 进度看板：数据驱动，豁免 real-SVG 门槛（否则合法看板会被误杀）
         } else if (!looksLikeRealSvg(parsed.svg)) return st
         var calls = Object.assign({}, st.calls)
@@ -1935,6 +2463,8 @@ function StageViewer(props) {
         var item
         if (parsed.type === 'mermaid') {
           item = { type: 'mermaid', code: parsed.code, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '' }
+        } else if (parsed.type === 'tree') {
+          item = { type: 'tree', tree: parsed.tree, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '' }
         } else {
           item = { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '', path: (parsed.meta && parsed.meta.path) || '', stages: (parsed.meta && parsed.meta.stages) || undefined, board: (parsed.meta && parsed.meta.board) || undefined }
         }
@@ -1955,6 +2485,8 @@ function StageViewer(props) {
         var key = (d.path || d.title || 'diagram') + '#' + i
         if (d.type === 'mermaid') {
           children.push(React.createElement(MermaidWidget, { key: key, code: d.code, title: d.title }))
+        } else if (d.type === 'tree') {
+          children.push(React.createElement(TreeViewer, { key: key, tree: d.tree, title: d.title }))
         } else if (d.board) {
           children.push(React.createElement(ProgressBoardViewer, { key: key, board: d.board, stages: d.stages, title: d.title, svg: d.svg, fileBase: basename(d.path) }))
         } else {
@@ -2035,6 +2567,8 @@ function StageViewer(props) {
                 seen[key] = true
                 if (pr.type === 'mermaid') {
                   out.push({ type: 'mermaid', code: pr.code, title: (pr.meta && pr.meta.title) || '', path: (pr.meta && pr.meta.path) || '' })
+                } else if (pr.type === 'tree') {
+                  out.push({ type: 'tree', tree: pr.tree, title: (pr.meta && pr.meta.title) || '', path: (pr.meta && pr.meta.path) || '' })
                 } else {
                   out.push({ svg: pr.svg, title: (pr.meta && pr.meta.title) || '', path: (pr.meta && pr.meta.path) || '', stages: (pr.meta && pr.meta.stages) || undefined })
                 }
@@ -2109,6 +2643,7 @@ function StageViewer(props) {
           try { parsed = parseEnvelope(outputText, true) } catch (e) { parsed = null }
           if (!parsed) return
           if (parsed.type === 'mermaid') { if (!parsed.code || parsed.code.length < 8) return }
+          else if (parsed.type === 'tree') { /* tree mode: always render */ }
           else if (!isBoardPayload(parsed) && !looksLikeRealSvg(parsed.svg)) return
 
           // Create diagram container
@@ -2118,14 +2653,17 @@ function StageViewer(props) {
 
           var props = parsed.type === 'mermaid'
             ? { code: parsed.code, title: (parsed.meta && parsed.meta.title) || '' }
-            : { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '',
+            : (parsed.type === 'tree'
+              ? { tree: parsed.tree, title: (parsed.meta && parsed.meta.title) || '' }
+              : { svg: parsed.svg, title: (parsed.meta && parsed.meta.title) || '',
                 fileBase: basename((parsed.meta && parsed.meta.path) || ''),
                 stages: (parsed.meta && parsed.meta.stages) || undefined,
-                board: (parsed.meta && parsed.meta.board) || undefined }
+                board: (parsed.meta && parsed.meta.board) || undefined })
 
           var Component = parsed.type === 'mermaid'
             ? MermaidWidget
-            : (isBoardPayload(parsed) ? ProgressBoardViewer : DiagramViewer)
+            : (parsed.type === 'tree' ? TreeViewer
+            : (isBoardPayload(parsed) ? ProgressBoardViewer : DiagramViewer))
 
           try {
             if (_ReactDOM && _ReactDOM.createRoot) {
