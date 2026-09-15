@@ -20,6 +20,10 @@
  *     --strict      **运行路径**存在 DRIFTED / UNREGISTERED 时 exit 1（门禁用；默认只报告 exit 0）
  *     --strict-all  连 docs/ 与产物类也算失败（默认只提示，避免告警疲劳）
  *     --stdin       从 stdin 读 `git status --porcelain` 输出（沙箱内 node 不能 spawn git 时的通道）
+ *                   ⚠ 必须带 `--untracked-files=all`（简写 `-uall`）：默认模式下 git 会把未跟踪的
+ *                   **新目录折叠成一条 `?? dir/`**，目录内文件不在清单里 ⇒ 若只登记过「目录」就会
+ *                   匹配上并报 REGISTERED，形成**假绿**（2026-09-13 实测踩到）。本脚本已加固：
+ *                   见到折叠目录会**自动展开**并在输出标注，但仍建议调用方带 `-uall`。
  *     --paths       显式给出改动清单（逗号/分号分隔，相对仓库根）
  *     --limit N     时间线读取条数上限（默认 2000）
  *     --all         同时列出被默认忽略的目录（_backups/ outputs/ .workbuddy/ 等）
@@ -30,10 +34,10 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
 const argv = process.argv.slice(2)
@@ -48,6 +52,12 @@ const STRICT_ALL = flag('--strict-all')
 const ALL = flag('--all')
 const QUIET = flag('--quiet')
 const LIMIT = optNum('--limit', 2000)
+
+/**
+ * 直接执行 vs 被 import（后者只取纯函数：不跑巡检、不读 stdin、不 exit）——供回归测试使用。
+ * 用 `process.argv[1]` 比对而非 `import.meta.main`，以便在更老的 Node 上同样成立。
+ */
+const isMain = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 
 /** 与 dsh-task-scheduler/lib/core.js 的 fileHash 同口径（sha1 hex），保证哈希可比。 */
 function fileHash(p) {
@@ -122,13 +132,13 @@ const RUNTIME_DIRS = [/^plugins\//i, /^scripts\//i, /^patches\//i, /^profile\//i
 const RUNTIME_ROOT = /^[^/]+\.(js|mjs|cjs|json|ps1|md|ya?ml)$/i
 const ARTIFACT = /\.(png|jpe?g|gif|webp|ico|svg|zip|gz|log|bak|tmp)$/i
 const INFO_HINT = [/(^|\/)(preview|fixtures|samples)\//i, /^_[^/]*$/]
-function klass(rel) {
+export function klass(rel) {
   if (ARTIFACT.test(rel) || INFO_HINT.some((re) => re.test(rel))) return 'info'
   if (RUNTIME_DIRS.some((re) => re.test(rel)) || RUNTIME_ROOT.test(rel)) return 'runtime'
   return 'info'
 }
 
-function parsePorcelain(out) {
+export function parsePorcelain(out) {
   const rows = []
   for (const line of String(out).split(/\r?\n/)) {
     if (!line.trim()) continue
@@ -142,8 +152,67 @@ function parsePorcelain(out) {
 }
 
 /**
+ * 折叠未跟踪目录的加固展开（2026-09-13 实测缺陷）：
+ *   `git status --porcelain`（**不带** `-uall`）把未跟踪的新目录折叠成一条 `?? dir/`，
+ *   目录内文件根本不在清单里。若时间线里登记过「目录」本身，折叠项会匹配上并报
+ *   REGISTERED ⇒ **假绿**，而假绿正是安全门最危险的失效模式（门禁的全部价值是"不漏"）。
+ *   官方门禁路径（直连 git、check-all.ps1 的 fallback）均带 `-uall`，故仅手工照抄 HINT 时中招；
+ *   但 `--stdin` 不该依赖调用方的自觉 ⇒ 这里见到折叠项就主动展开：
+ *     优先 `git ls-files --others --exclude-standard`（尊重 .gitignore）；
+ *     git 不可用时退化为 fs 遍历（跳过 node_modules/.git 等重目录，带上限）。
+ *   展开后的每一项与普通改动同样参与 REGISTERED/DRIFTED/UNREGISTERED 判定。
+ */
+const WALK_SKIP = /^(node_modules|\.git|\.electron|_backups|outputs|vendor|dist|legacy)$/i
+export const FOLD_CAP = 4000
+/** 默认列举器：优先 git（尊重 .gitignore），git 不可用时退化 fs 遍历。返回 { files, mode }。 */
+function defaultListUntracked(dir) {
+  try {
+    const files = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '--', dir], {
+      cwd: REPO, encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024,
+    }).split(/\r?\n/).filter(Boolean).map((p) => p.replace(/\\/g, '/'))
+    return { files, mode: 'git' }
+  } catch {
+    const walked = []
+    const stack = [join(REPO, dir)]
+    while (stack.length > 0 && walked.length < FOLD_CAP) {
+      const cur = stack.pop()
+      let ents = []
+      try { ents = readdirSync(cur, { withFileTypes: true }) } catch { continue }
+      for (const e of ents) {
+        if (e.isDirectory()) { if (!WALK_SKIP.test(e.name)) stack.push(join(cur, e.name)) }
+        else if (e.isFile()) walked.push(relative(REPO, join(cur, e.name)).replace(/\\/g, '/'))
+        if (walked.length >= FOLD_CAP) break
+      }
+    }
+    return { files: walked, mode: 'fs' }
+  }
+}
+
+/**
+ * @param {Array<{code:string,rel:string}>} rows
+ * @param {(dir:string)=>{files:string[],mode:string}} [listUntracked] 注入点（单测用假列举器）
+ */
+export function expandFoldedDirs(rows, listUntracked = defaultListUntracked) {
+  const isFolded = (r) => r.code.trim() === '??' && /\/$/.test(r.rel)
+  const foldedDirs = rows.filter(isFolded).map((r) => r.rel.replace(/\/+$/, ''))
+  if (foldedDirs.length === 0) return { rows, foldedDirs, mode: null, capHit: false }
+  const expanded = []
+  let mode = null
+  let capHit = false
+  for (const dir of foldedDirs) {
+    const listed = listUntracked(dir) || {}
+    let files = Array.isArray(listed.files) ? listed.files : []
+    if (files.length > FOLD_CAP) { files = files.slice(0, FOLD_CAP); capHit = true }
+    mode = mode || listed.mode || 'injected'
+    for (const f of files) expanded.push({ code: '??', rel: f, expandedFrom: dir })
+  }
+  return { rows: rows.filter((r) => !isFolded(r)).concat(expanded), foldedDirs, mode, capHit }
+}
+
+/**
  * 改动清单来源三通道（沙箱内 node 不能 spawn，见 AGENTS「run-all.js EPERM」同源约束）：
- *   ① 直接 git（真实终端 / check-all.ps1）② --stdin（`git status --porcelain | node ... --stdin`）
+ *   ① 直接 git（真实终端 / check-all.ps1；均带 --untracked-files=all）
+ *   ② --stdin（`git status --porcelain --untracked-files=all | node ... --stdin`；缺 -uall 会折叠未跟踪目录 ⇒ 已内置展开加固）
  *   ③ --paths "a,b"（调用方自备清单）
  */
 function gitChanged() {
@@ -161,51 +230,61 @@ function gitChanged() {
   } catch (e) {
     console.error('[check-unsupervised] 无法直接调用 git（' + String(e.message || e) + '）')
     console.error('[check-unsupervised] 沙箱内属已知限制（node spawn 被 EPERM）。改用：')
-    console.error('  git status --porcelain | node scripts/check-unsupervised.mjs --stdin')
+    console.error('  git status --porcelain --untracked-files=all | node scripts/check-unsupervised.mjs --stdin')
     console.error('  或 node scripts/check-unsupervised.mjs --paths "plugins/a/lib/index.js,scripts/b.mjs"')
     process.exit(2)
   }
 }
 
-const { base, lines: timelineLines, source: timelineFile, missing } = readBaselined()
-const { rows: changedRows, how } = gitChanged()
-const rows = changedRows.filter((r) => ALL || !IGNORE.some((re) => re.test(r.rel)))
+function main() {
+  const { base, lines: timelineLines, source: timelineFile, missing } = readBaselined()
+  const { rows: rawRows, how: rawHow } = gitChanged()
+  const fold = expandFoldedDirs(rawRows)
+  const how = fold.foldedDirs.length > 0 ? `${rawHow}+展开(${fold.mode})` : rawHow
+  const rows = fold.rows.filter((r) => ALL || !IGNORE.some((re) => re.test(r.rel)))
 
-const registered = []
-const drifted = []
-const unregistered = []
-for (const r of rows) {
-  const abs = join(REPO, r.rel)
-  const h = fileHash(abs)
-  if (h == null) continue // 已删除 / 读不到（删除类改动不在此巡检范围）
-  const key = norm(abs.replace(/\\/g, '/'))
-  const b = base.get(key)
-  const k = klass(r.rel)
-  if (!b) unregistered.push({ ...r, hash: h, k })
-  else if (b.hash === h) registered.push({ ...r, by: b.by, k })
-  else drifted.push({ ...r, hash: h, baseHash: b.hash, by: b.by, k })
+  const registered = []
+  const drifted = []
+  const unregistered = []
+  for (const r of rows) {
+    const abs = join(REPO, r.rel)
+    const h = fileHash(abs)
+    if (h == null) continue // 已删除 / 读不到（删除类改动不在此巡检范围）
+    const key = norm(abs.replace(/\\/g, '/'))
+    const b = base.get(key)
+    const k = klass(r.rel)
+    if (!b) unregistered.push({ ...r, hash: h, k })
+    else if (b.hash === h) registered.push({ ...r, by: b.by, k })
+    else drifted.push({ ...r, hash: h, baseHash: b.hash, by: b.by, k })
+  }
+
+  const show = (title, list, extra) => {
+    if (QUIET || list.length === 0) return
+    console.log(`\n--- ${title}（${list.length}）---`)
+    for (const x of list) console.log('  ' + x.rel + (extra ? '  ' + extra(x) : ''))
+  }
+
+  console.log('[check-unsupervised] repo=' + REPO)
+  console.log(`[check-unsupervised] 时间线=${timelineFile}${missing ? '（缺失）' : `（${timelineLines} 条，基线资源 ${base.size} 个）`}`)
+  console.log(`[check-unsupervised] 工作区改动文件=${rows.length}（来源 ${how}；已忽略 _backups/outputs/.workbuddy/vendor 等${ALL ? '（--all 已关闭忽略）' : ''}）`)
+  if (fold.foldedDirs.length > 0) {
+    console.log(`[check-unsupervised] ⚠ 检测到折叠的未跟踪目录 ${fold.foldedDirs.length} 个（输入缺 --untracked-files=all）→ 已用 ${fold.mode} 展开，展开后文件数=${fold.rows.length}${fold.capHit ? `（触及 ${FOLD_CAP} 上限，可能截断）` : ''}`)
+    for (const d of fold.foldedDirs) console.log('    · ' + d + '/  （原折叠项，不改用 -uall 时由其内部文件决定判定）')
+  }
+  const tag = (x) => (x.k === 'runtime' ? '  [runtime]' : '  [info]')
+  show('REGISTERED   已登记且一致', registered, (x) => `← by ${x.by}${tag(x)}`)
+  show('DRIFTED      有基线但哈希已变（改后未再登记）', drifted, (x) => `← 基线 by ${x.by}${tag(x)}`)
+  show('UNREGISTERED 从未登记（插件侧 check 看不见这一类）', unregistered, tag)
+
+  const badRuntime = [...drifted, ...unregistered].filter((x) => x.k === 'runtime')
+  const badInfo = [...drifted, ...unregistered].filter((x) => x.k !== 'runtime')
+  console.log(`\n[check-unsupervised] REGISTERED=${registered.length}  DRIFTED=${drifted.length}  UNREGISTERED=${unregistered.length}`)
+  console.log(`[check-unsupervised] 阻塞项(runtime)=${badRuntime.length}  提示项(info，不阻塞)=${badInfo.length}`)
+  if (badRuntime.length > 0) {
+    console.log('[check-unsupervised] 阻塞项清单（处理：先 acquire 再改、改完 release，summary 入时间线）：')
+    for (const x of badRuntime) console.log('  ! ' + x.rel)
+  }
+  return ((STRICT && badRuntime.length > 0) || (STRICT_ALL && badRuntime.length + badInfo.length > 0)) ? 1 : 0
 }
 
-const show = (title, list, extra) => {
-  if (QUIET || list.length === 0) return
-  console.log(`\n--- ${title}（${list.length}）---`)
-  for (const x of list) console.log('  ' + x.rel + (extra ? '  ' + extra(x) : ''))
-}
-
-console.log('[check-unsupervised] repo=' + REPO)
-console.log(`[check-unsupervised] 时间线=${timelineFile}${missing ? '（缺失）' : `（${timelineLines} 条，基线资源 ${base.size} 个）`}`)
-console.log(`[check-unsupervised] 工作区改动文件=${rows.length}（来源 ${how}；已忽略 _backups/outputs/.workbuddy/vendor 等${ALL ? '（--all 已关闭忽略）' : ''}）`)
-const tag = (x) => (x.k === 'runtime' ? '  [runtime]' : '  [info]')
-show('REGISTERED   已登记且一致', registered, (x) => `← by ${x.by}${tag(x)}`)
-show('DRIFTED      有基线但哈希已变（改后未再登记）', drifted, (x) => `← 基线 by ${x.by}${tag(x)}`)
-show('UNREGISTERED 从未登记（插件侧 check 看不见这一类）', unregistered, tag)
-
-const badRuntime = [...drifted, ...unregistered].filter((x) => x.k === 'runtime')
-const badInfo = [...drifted, ...unregistered].filter((x) => x.k !== 'runtime')
-console.log(`\n[check-unsupervised] REGISTERED=${registered.length}  DRIFTED=${drifted.length}  UNREGISTERED=${unregistered.length}`)
-console.log(`[check-unsupervised] 阻塞项(runtime)=${badRuntime.length}  提示项(info，不阻塞)=${badInfo.length}`)
-if (badRuntime.length > 0) {
-  console.log('[check-unsupervised] 阻塞项清单（处理：先 acquire 再改、改完 release，summary 入时间线）：')
-  for (const x of badRuntime) console.log('  ! ' + x.rel)
-}
-process.exit((STRICT && badRuntime.length > 0) || (STRICT_ALL && badRuntime.length + badInfo.length > 0) ? 1 : 0)
+if (isMain) process.exit(main())

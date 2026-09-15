@@ -51,7 +51,12 @@
     "@openviking/dsh-memory-plugin": "0.3.0",
     "@dsh-external/dsh-diagram-renderer": "link:D:\\Deepseek-Harness\\plugins\\dsh-diagram-renderer",
     "@dsh-external/dsh-crashpad-hygiene": "link:D:\\Deepseek-Harness\\plugins\\dsh-crashpad-hygiene",
-    "@dsh-external/dsh-memory-files": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-files"
+    "@dsh-external/dsh-memory-files": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-files",
+    "@dsh-external/dsh-diff-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-diff-guard",
+    "@dsh-external/dsh-orchestrator": "link:D:\\Deepseek-Harness\\plugins\\dsh-orchestrator",
+    "@dsh-external/dsh-memory-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-guard",
+    "@dsh-external/dsh-developer-role-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-developer-role-guard",
+    "@dsh-external/dsh-model-provider-failover": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover"
   },
   "dsh": {
     "profile": {
@@ -98,7 +103,12 @@
         "@openviking/dsh-memory-plugin",
         "@dsh-external/dsh-diagram-renderer",
         "@dsh-external/dsh-crashpad-hygiene",
-        "@dsh-external/dsh-memory-files"
+        "@dsh-external/dsh-memory-files",
+        "@dsh-external/dsh-diff-guard",
+        "@dsh-external/dsh-orchestrator",
+        "@dsh-external/dsh-memory-guard",
+        "@dsh-external/dsh-developer-role-guard",
+        "@dsh-external/dsh-model-provider-failover"
       ]
     }
   }

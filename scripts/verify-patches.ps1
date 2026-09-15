@@ -64,6 +64,7 @@ $checks = @(
   @{ n = 'market catalogCache persist skipped (source)'; f = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-community-market\src\host\routes.ts'; p = 'DSH-2026-09-03 root-guard' },
   @{ n = 'exit-cleanup guard bypass (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh patch exit-cleanup v1' },
   @{ n = 'exit-cleanup relaunch flag (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = '__dsh_relaunch_in_progress__' },
+  @{ n = 'log-write-guard P2 (skill-filesystem)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-skill-filesystem\lib\index.js'; p = 'dsh patch log-write-guard v1' },
   @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' },
   # ui-perf patches (2026-09-06: better-sidebar collapse gate + vision-engine input light; targets live outside dist)
   @{ n = 'ui-perf: better-sidebar collapse gate'; f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-better-sidebar\lib\client.js'; p = 'state && (state.panelOpen || state.bottomOpen)' },
@@ -142,6 +143,20 @@ if ($profileChunks.Count -ne 1) {
   $srHit = Select-String -Path $profileChunks[0].FullName -Pattern 'DSH-2026-09-03 settings-resilience guard' -SimpleMatch -Quiet
   if ($srHit) { Write-Host 'PASS  settings resilience guard (profile chunk)' -ForegroundColor Green }
   else { Write-Host 'FAIL  settings resilience guard (pattern missing)' -ForegroundColor Red; $fail++ }
+}
+
+# The log-write-guard P1 lives in the content-hashed log-files chunk
+# (file name changes on every rebuild), so verify it dynamically too.
+$logChunks = Get-ChildItem (Join-Path $unpacked 'lib') -Filter 'log-files-*.js' -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -notlike '*.map' }
+if ($logChunks.Count -ne 1) {
+  Write-Host ('FAIL  log-files chunk lookup (found ' + $logChunks.Count + ')') -ForegroundColor Red
+  $fail++
+} else {
+  $lwHit = Select-String -Path $logChunks[0].FullName -Pattern 'dsh patch log-write-guard v1' -SimpleMatch -Quiet
+  if ($lwHit) { Write-Host 'PASS  log-write-guard P1 (log-files chunk)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  log-write-guard P1 (pattern missing)' -ForegroundColor Red; $fail++ }
+  $syntaxSet[$logChunks[0].FullName] = $true
 }
 
 # 2026-09-12 (T13, O14 remainder): syntax integrity pass over the JS patch targets.

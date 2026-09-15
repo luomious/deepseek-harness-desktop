@@ -216,7 +216,9 @@ if (Test-Path $unsupGate) {
   }
   if ($unsupCode -eq 2) {
     Write-Host '  SKIP  environment-blocked (git not callable from node or shell)' -ForegroundColor Yellow
-    Write-Host '  HINT  run: git status --porcelain | node scripts/check-unsupervised.mjs --stdin --strict' -ForegroundColor Yellow
+    Write-Host '  HINT  run: git status --porcelain --untracked-files=all | node scripts/check-unsupervised.mjs --stdin --strict' -ForegroundColor Yellow
+    Write-Host '  HINT  (--untracked-files=all is REQUIRED: without it git folds an untracked new' -ForegroundColor Yellow
+    Write-Host '         directory into a single "?? dir/" line, hiding the files inside -> false green)' -ForegroundColor Yellow
   } elseif ($unsupCode -ne 0) {
     Write-Host ('  FAIL  unregistered runtime changes (' + $unsupCode + ')') -ForegroundColor Red
     Write-Host '  HINT  shared-file edits need: acquire -> edit -> release (summary into the timeline)' -ForegroundColor Yellow
@@ -243,6 +245,54 @@ if (Test-Path $docsIndexGate) {
   }
 } else {
   Write-Host '  SKIP  check-docs-index.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.14: audit-plugin-inventory.mjs (ledger consistency, ADVISORY, 2026-09-13) ----
+# plugins/INVENTORY.md calls itself the single source of truth, yet its numbers drift silently:
+# on 2026-09-13 the title said 35, the table had 31 rows, and disk had 36 dirs with package.json;
+# the stats line claimed "bundle 23 | patch-insert 8" while a scripted recount gave 24/7 (29/8
+# after backfilling 6 rows). Hand-counting is unreliable too: a manual recount produced 30|7
+# where the script gave 29|8. This step cross-checks title/table/stats against the real plugins/
+# directory. ADVISORY ON PURPOSE (same F20 reasoning as 1.13): adding a plugin must not turn the
+# gate red, or the warning gets tuned out. Hard mode is opt-in: --strict exits 1.
+Write-Host ''
+Write-Host '=== Step 1.14: audit-plugin-inventory.mjs (ledger consistency, advisory) ===' -ForegroundColor Cyan
+$invAudit = Join-Path $PSScriptRoot 'audit-plugin-inventory.mjs'
+if (Test-Path $invAudit) {
+  & node $invAudit
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host '  WARN  plugins/INVENTORY.md disagrees with the on-disk plugins/ (advisory; update title/rows/stats to match reality)' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host '  SKIP  audit-plugin-inventory.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.15: audit-developer-role.mjs (developer-role coverage gate, 2026-09-15) ----
+# pi-ai defaults `supportsDeveloperRole` to true for any "standard-looking" OpenAI-compatible
+# baseURL (`!isNonStandard && !isOpenRouter`), so a gateway that only accepts `system` answers
+# 400 on every request whose model carries reasoning (ModelScope incident 2026-09-15; upstream
+# discussion deepseek-harness#551). The fix is one line per route:
+# `compat: { supportsDeveloperRole: false }` -- and it hot-reloads, no restart needed.
+# Why BLOCKING instead of advisory: the failure mode is a hard 400 on every request, the remedy
+# is one line, and within the SAME day two new providers (codecraft, apinex = 15 models) arrived
+# without it and depended silently on the runtime guard plugin. An advisory here would be tuned
+# out (same F20 reasoning as 1.13/1.14, opposite conclusion because the cost asymmetry differs).
+# The runtime guard (plugins/dsh-developer-role-guard) is DEFENCE IN DEPTH, not a substitute.
+# Escape hatch: DSH_ALLOW_DEVELOPER_ROLE_GAPS=1 downgrades to a warning (handled inside the script).
+Write-Host ''
+Write-Host '=== Step 1.15: audit-developer-role.mjs (developer-role coverage gate) ===' -ForegroundColor Cyan
+$devRoleAudit = Join-Path $PSScriptRoot 'audit-developer-role.mjs'
+if (Test-Path $devRoleAudit) {
+  & node $devRoleAudit
+  $devRoleCode = $LASTEXITCODE
+  if ($devRoleCode -ne 0) {
+    Write-Host ('  FAIL  route(s) would send the OpenAI-only `developer` role (' + $devRoleCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  add `compat: { supportsDeveloperRole: false }` to the offending provider (hot-reloads)' -ForegroundColor Yellow
+    Write-Host '  HINT  false positives? genuine OpenAI endpoints are allow-listed in the guard plugin' -ForegroundColor Yellow
+    $totalFail += $devRoleCode
+  }
+} else {
+  Write-Host '  SKIP  audit-developer-role.mjs not found' -ForegroundColor Yellow
 }
 
 # ---- Step 2: verify-patches.ps1 ----
