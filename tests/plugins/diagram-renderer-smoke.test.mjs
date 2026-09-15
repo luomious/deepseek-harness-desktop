@@ -118,7 +118,7 @@ test('render_diagram 工具：名称/描述/参数集锁定', () => {
   assert.equal(t.name, 'render_diagram')
   assert.ok(String(t.description).length > 50, '描述是模型唯一的决策依据，不能为空壳')
   assert.deepEqual(Object.keys(t.parameters).sort(),
-    ['board', 'fileName', 'mermaid', 'scene', 'stages', 'svg', 'title'].sort(),
+    ['board', 'fileName', 'mermaid', 'scene', 'stages', 'svg', 'title', 'tree'].sort(),
     '参数集变化属于接口变更：新增/删除参数请同步更新本断言')
   assert.equal(typeof t.execute, 'function')
   assert.equal(typeof t.output.render, 'function')
