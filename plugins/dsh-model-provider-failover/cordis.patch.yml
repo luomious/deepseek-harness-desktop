@@ -1,13 +1,34 @@
 # dsh-model-provider-failover — provider 级请求故障转移（host-only bundle 插件）
-# 默认 no-op（fallback 为空）。如需启用，在 config.fallback 配置主→备映射。
+#
+# 默认 no-op（fallback 为空）。下面是为本机**实测问题**配置的映射（2026-09-15）：
+#   1) modlens-apinex：免费模型按"加权 token"计**每日额度**（1M/天，00:00 UTC 重置）。
+#      额度耗尽时返回 `402 {"type":"billing_error"}`，内核把它判成 PI_AI_ERROR
+#      ⇒ 不在默认重试码表内 ⇒ **无人重试、无人恢复**，整轮硬失败（2026-09-15 两次实测）。
+#      本插件对此类失败一次即冷却，并**接管一次恢复**（{kind:'retry'}），把该轮救回备用 provider。
+#   2) modlens-tokenrouter：唯一模型 z-ai/glm-5.3-free 实测 `503 No available channel`
+#      ⇒ 上游无渠道（属内核重试码表内的 SERVER，**不接管恢复**，交给 dsh-llm-retry；
+#      冷却 + 内核重试循环会在后续尝试里把请求切到备用 provider）。
+#
+# fallbackModel 强烈建议填：跨 provider 时 model id 通常不存在，必须显式映射，
+# 否则切换后会拿一个不存在的模型再失败一次（这是本插件升级前的真实缺陷）。
 - insert:
     - id: dsh-model-provider-failover
       name: '@dsh-external/dsh-model-provider-failover'
       config:
         enabled: true
-        cooldownMs: 60000
-        maxFailures: 3
-        fallback: {}
-        # 示例：
-        # fallback:
-        #   modlens-tokenrhythm01: modlens-xiaomi-token-plan-cn
+        cooldownMs: 60000        # 冷却时长（毫秒）
+        maxFailures: 3           # 可用性类失败累计阈值（计费类一次即冷却）
+        claimRecovery: true      # 是否接管"内核不重试的计费/配额类失败"
+        maxRecoveriesPerKey: 1   # 同一 turn:step:provider 最多接管几次
+        maxFailoversPerTurn: 3   # 单轮最多切换几次 provider（防 A→B→A 抖动）
+        fallback:
+          modlens-apinex: modlens-tokenrhythm01
+          modlens-tokenrouter: modlens-tokenrhythm01
+        fallbackModel:
+          modlens-apinex: deepseek-v4-flash-0731
+          modlens-tokenrouter: deepseek-v4-flash-0731
+        # 运行时（免重启）调整示例：
+        #   dev_provider_failover_status
+        #   dev_provider_failover_configure {setFallback:"p-a",fallbackTo:"p-b"}
+        #   dev_provider_failover_configure {setFallbackModel:"p-a",fallbackModelTo:"m-b"}
+        #   dev_provider_failover_configure {claimRecovery:false}
