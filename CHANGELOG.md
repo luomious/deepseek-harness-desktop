@@ -6,6 +6,881 @@
 
 ---
 
+## 2026-09-16 · 全面自检 + 残留任务收尾 + 环境清理（审计清理轮）
+
+**一、残留任务检测（task-scheduler 时间线 + 文件证据）**
+
+- **P1 编排 e2e 测试死锁**：锁 `tk-mu2w3usn` 持有 `_backups\_probe\e2e-scratch`，持有者 PID 9808 已死（心跳停在 2026-09-16 0:24 重启前），属崩溃残留；`clear --resources` 因沙箱 file policy（workspace-write 写不了 `~/.dsh`）EPERM，`prune` 同样受限 —— **死锁状态保留，待权限放开后清理**（或持有者进程死亡后由心跳超时自动回收，ttl 1h 已过）。
+- **P1 stepC/stepD 记录**：时间线确认均已 release 完成并登记（request.signal 传递 + WRITE_TOOLS 移除 bash 两个根因修复），**e2e 复验待重启后执行**（遵守重启守则，未擅自重启）。
+- **PID 18284 调查（修正早期误判）**：初判"node 残留"，深入排查发现它是 **OpenClaw Control 应用**（监听 127.0.0.1:18789，有活跃连接，HTML 标题 "OpenClaw Control"，18:08 启动）—— **非 DSH 残留，保留不动**。教训：杀进程前必须先查端口与连接。
+
+**二、全面自检（check-all.ps1 + startup-verify）**
+
+- `check-all.ps1`：**4 FAIL 全部溯源到 DSH 沙箱环境限制**（`spawnSync`/`spawn` EPERM 无法起子进程 + `~/.dsh` 不可写），**非代码 bug**：
+  - Step 1 语法：**85/85 JS 全 PASS**；
+  - Step 4 smoke：**ALL PASS**（23 项，含 dist 完整性/补丁锚点/端口守卫）；
+  - skill-inventory / preflight / unit-tests：EPERM 环境阻挡（AGENTS.md 已记载：沙箱内 spawn 全 EPERM，单独跑文件为准；单独跑同样被拦）；
+  - unregistered runtime changes：仅 1 条 **info 级提示**（docs/OPS-QUOTA-FAILOVER-VISION 未登记），提交后补登记即消。
+- `startup-verify.mjs`：**9/10 PASS**（V1-V8/V10 全绿，bundles=48 模板=运行态、无孤儿、junction 健康；V9 语法预检被沙箱 EPERM 挡）。
+- `/health`：**10/10 探针全绿**（webserver/sessions/disk/patches/plugins/logs/preflight/memory.files/memory.guard/developerRole.guard），磁盘 24GB 空闲，运行态 39 插件 0 缺失。
+
+**三、环境清理**
+
+- **根目录零字节垃圾文件 13 个**（`=`、`max`、`✅`、`✕`、`与` + 8 个中文乱码名空文件，2026-09-14 23:27-28 产生）：确认属某会话误写残留，**已列入清理清单**（回收站删除），待权限/确认后执行。
+- **`C:\Temp\dsh-*` 408 个目录 / 1609 文件 / 约 147MB**（2026-08-26 至今的 dsh 子进程临时输出与探测脚本）：**已列入清理清单**（可再生内容，永久删除），待用户确认后执行。
+
+**四、台账核对**
+
+- `plugins/INVENTORY.md`：4 个新插件（orchestrator / memory-guard / developer-role-guard / diff-guard）登记行已由 2026-09-15 会话补入，统计区 `rows=40 / bundle 32 / patch-insert 8` 与实测一致（标题注记 39 为历史文本，统计区 40 为准）。
+- `outputs/INDEX.md`：13 个产出已登记，最新在首行，状态与实况一致。
+- 待办：本条目登记 + 上述清理项 + git 提交推送。
+
+---
+
+## 2026-09-15 · 验收脚本 `scripts/verify-log-write-guard.ps1`（log-write-guard 事故闭环的一键复验）
+
+- **目的**：把「重启后现场验收」固化成一条只读命令，替代每次手工 5 步复验；长期运行可靠性 + 可维护/可迭代/可扩展 + 记录自动化。
+- **内容**：5 项只读检查 —— `/health` 10 探针全绿 / 当日 `%APPDATA%\DSH Desktop\logs\dsh-YYYY-MM-DD.log(.error.log)` fatal 扫描（旧残影 `UNKNOWN: unknown error, open` 签名豁免为 WARN；新 fatal / 新 unhandledRejection 标红灯）/ P1+P2 补丁 marker / commit 水位（>95% 红、>90% 黄）/ 故障注入单测直跑（`node tests/dist/log-write-guard.test.mjs`）。退出码 = 失败项数（0 全绿，同 check-all.ps1 惯例）。
+- **验证**：当前实例端到端 ALL PASS；TEMP 合成日志负例证明「新 fatal → 红、新 unhandledRejection → 红、旧残影 → 豁免」判定成立（故障注入纪律）。
+- **勘误**：此前一轮验收误报「0 条 fatal」系 `Select-String -SimpleMatch` 把模式中的 `|` 当字面量所致（实际旧残影一直在）；脚本已用双独立 `-SimpleMatch` + 签名判定修复，后续验收以脚本输出为准。
+- **事故总记录**：`outputs/2026-09-15-report-log-write-guard/README.md`（§1–§9）。
+
+---
+
+## 2026-09-15 · 运维手册 `docs/OPS-QUOTA-FAILOVER-VISION-2026-09-15.md`（配额 / 故障转移 / 视觉桥）
+
+- **目的**：把当日三处实测经验固化成**操作手册**（不是设计文档），未来会话"出问题看哪里、一条命令怎么查、怎么回滚"不必再考古 CHANGELOG 与备份目录 —— 可维护性与可迭代性的直接投入。
+- **内容**：① 速查表（`quota-report.mjs` / `dev_provider_failover_status|configure` / `/vision-engine/config` / `/health` / `startup-verify` / 两个门禁脚本 / 两份配置落点）；② 场景 A「402 额度不足」的机制（计费 `ceil((in+out)×weight)`、放行用最坏情况 `weight×(输入+max_tokens)`、1M/天 00:00 UTC 重置、实测权重表）+ 自 2026-09-15 起的自动兜底路径 + 四步处置；③ 场景 B「视觉读图失败」的三条证据路径（`autoFailover` 是否钉死单插槽 / 两份 modlens 配置 / 直接发严格 JSON 探测）+ `writeModlensSlot` 的 **`max_tokens ≥ 8192` floor 硬约束**（GLM-4V-Flash 上限 1024 ⇒ 不可作主通道）+ 回滚方式；④ 场景 C provider 抖动（冷却阈值、与内核重试的协作、预算防抖、fail-open）；⑤ **通用坑 8 条**（多帧 zstd 必须分帧解压 / 用量在 `data.usage` / `Set-Content -UTF8` 的 BOM / `shell` 权限面跟随 file policy / 原子写与 `File.Replace` 第三参不能为 `$null` / `settings.yaml` 多会话共享须写前重读 / 本地 API 的 POST 同源 `Origin` 守卫 / modlens 不可热重载但配置按次读盘）；⑥ 变更溯源表（4 次改动 → CHANGELOG 条目与 `_backups/*` 目录）。
+- **定位**：与 `docs/PROFILE-MAINTENANCE.md`、`docs/BUILD.md` 同级，非门禁阻塞路径（`docs/` 只提示不阻塞）。
+
+---
+
+## 2026-09-15 · 配额可观测性 `scripts/quota-report.mjs` + `AGENTS.md` T12 勘误修订
+
+**一、新增 `scripts/quota-report.mjs`（零依赖 · 只读 · 按需运行）**
+
+- **动机**：apinex 免费额度**没有公开 API**（只有登录页的 used/limit），当日 402 事故正是"跑到一半才发现额度尽"；我此前两次人工统计同一口径 ⇒ 固化成工具，且**不新增任何常驻进程/插件**（用户锚点：不给项目增加繁重占用）。
+- **口径**（apinex 实测语义）：计费 `ceil((input + output) × weight)`；放行判断用最坏情况 `weight × (输入 + max_tokens)`。
+- **数据源**：`~/.dsh/sessions/**/session.jsonl.zstd` —— **多帧 zstd，必须按魔数 `0x28B52FFD` 分帧解压**（整文件单次解压只得首帧，当日踩过）。
+- **关键字段坑**：用量在 **`data.usage`**，不是 `data.message.usage`（写错过一次，靠 dump 真实事件纠正——`assistant/message` 的 `data` 键为 `turn, step, message, usage`）。
+- **性能**：按 `mtime` 过滤会话文件（`--days N` + 1 天跨 UTC 日边界）⇒ 全扫从 ~2 分钟降到 **19.7 秒**。
+- **配置**：`~/.dsh/quota-limits.json`（缺省用内置默认：apinex 1M/天 + 实测权重表；`free/mimo-v2.5`、`free/muse-spark-1.3` 权重 0＝不计额度）。
+- **用法**：`node scripts/quota-report.mjs [--days N] [--provider X] [--json] [--all]`。
+- **验证**（2026-09-15 UTC 实跑）：apinex 加权 **1,049,757 / 1,000,000（105%）**、计费类失败 **8** 次；模型明细 `free/gpt-5.6-luna ×3.24 = 793,849`、`free/qwen-3.8-max ×2.16 = 255,908` —— 与当日网关实际行为（`Free 1M tokens used`）吻合，估算可信。
+- **边界**：是**本地估算**（非官方值；误差来自权重表与网关侧缓存计价口径），且**不主动告警**。
+
+**二、`AGENTS.md` T12 勘误修订（第 81 行）**
+
+- 原文断言「`shell` 工具在 DSH 沙箱之外、能读写删 `~/.dsh`」；2026-09-15 实测在 **`workspace-write`（默认策略）** 下对 `~/.dsh` 的 `Set-Content` / `Copy-Item` **全部 `UnauthorizedAccessException`**（只有工作区与 temp 可写），当日改全局配置是在切到 **`danger-full-access`** 之后才成功。
+- 修订为「**权限面跟随当前 file policy，先看策略再下结论**」，保留原「先试 `shell`、别断言只能用户手动」的意图与回收站判据要点；依据 2026-08-27「规范/规则更新由 agent 自动完成」授权执行（先备份 → 持锁 → 原子替换 → 回读验证 → 登记）。
+- 备份：`_backups/agents-t12-corrigendum-<ts>/AGENTS.md.before`（另存 `.after` 与脚本快照）。
+
+**三、边界（未做）**
+
+- 未接入桌面通知（如需，可复用 `dsh-self-maintenance` 的 `notify()` + 小时定时；本次刻意不增加常驻开销）。
+- 未给 apinex 以外的 provider 配置日额度（其它 provider 当前权重为 0，仅统计 token 量）。
+
+---
+
+## 2026-09-15 · apinex 免费额度 402 收口：failover「配额感知」升级 + 装配到位 + 视觉桥修复
+
+> 承接本日 apinex 402 诊断（见下一条）。本条记录三件事：**P0 止血复盘**、**P1 failover 升级与装配**、**P2 视觉桥根因修复**。
+
+**一、P0 止血（含自我纠错）**
+
+- 用户曾把 `agent-default-model` 指向 `modlens-apinex/free/qwen-3.8-max`（当日免费额度已耗尽 ⇒ 新会话/子代理必 402，实测两次子代理因此死亡）。
+- 我按此改动设了默认模型；写前重读发现**用户已自行改为 `modlens-amd/DeepSeek-V4-Flash`** ⇒ 我的改动属多余覆盖，**已原子还原为用户的值**（教训：`settings.yaml` 是多方实时共享文件，写前必须重读并尊重已生效的用户选择）。
+
+**二、P1 `dsh-model-provider-failover`：配额感知 + 装配 4/4**
+
+- **根因证据**：内核默认重试码表不含 `PI_AI_ERROR`/`QUOTA`（`@deepseek-ai/dsh-llm/lib/index.js:360-366`），`dsh-llm-retry` 只重试表内码（`dsh-llm-retry/lib/index.js:138`）⇒ 计费类 402 是**终态失败，无人恢复**，整轮硬失败。
+- **实现**：① 计费/配额类失败按 `failure.code` + `failure.message` 双判（含线上两条真实报文的 `path:line` 反证与中文文案）⇒ **一次即冷却**；② **只对内核码表之外的码**接管一次恢复（`return {kind:'retry'}`，不调 next；`KERNEL_RETRYABLE_CODES` 不相交不变量）⇒ 不与 `dsh-llm-retry` 争恢复权；③ 新增 `fallbackModel` 映射（跨 provider 必须换 model id）；④ `maxRecoveriesPerKey` / `maxFailoversPerTurn` 预算 + 取消优先 + 全链路 fail-open；⑤ 状态/配置工具可观测、可运行时调整（免重启）。
+- **装配**：此前**从未装配**（4 处引用全缺）⇒ 走仓库既有 `scripts/register-plugin.mjs --plugin … --yes`（持锁 + 备份 + 先验后写），`startup-verify` **10/10 PASS**，bundles 47→48；运行时另经 `dev_inject_plugin` 立即可用。
+- **验证**：单测 `test/failover.test.mjs` + 集成 `test/integration.test.mjs` 全绿，**其中 9 个故障注入场景**故意回放线上真实 402 报文并断言：冷却生效、恰好接管一次、预算耗尽后放行、无 fallback 不接管、内核码表码不被抢、signal abort 不接管、单轮上限生效、status 计数器可见。
+- 备份：`_backups/failover-quota-20260915-211732/`（改造前 `lib/index.js`、`cordis.patch.yml` 与两份测试快照）。
+
+**三、P2 视觉桥：根因与修复（免重启）**
+
+- **根因（实测）**：`~/.modlens/vision-engine.json` 的 `autoFailover=false`（把通道**钉死**在单插槽）+ 主通道为本地 Ollama `qwen2.5vl:7b` 且 `structuredOutput: true` —— 模型被要求严格 JSON 却回散文 ⇒ modlens 报 `non-JSON output`，整次读图失败。实测本地模型**其实可用**（27s、合法 JSON），失败在形状强制与超时边界。
+- **修复**：经产品自带接口 `POST /vision-engine/config`（同源 `Origin` 头，CSRF 守卫要求）把 `active` 指向新增 profile `p-ormini-gemini25`（OpenRouter `google/gemini-2.5-flash`，实测 2.5–3.6s、`json_schema` 严格模式 200）并开启 `autoFailover: true`（解除 pin，让 modlens 依链回退）。
+- **端到端验证**：同一张此前失败的截图，经 `modlens_read_image` 返回 `ok:true` 完整结构化读图（OCR/布局/语义/不确定项齐全，正确读出 `226,420 remaining`、`773,580/1M`）。
+- 备份：`_backups/vision-bridge-20260915-212726/`（`vision-engine.json` + `config.json` 改前快照）；回滚＝恢复这两份文件即可。
+- **已知约束（重要）**：`dsh-vision-engine` 的 `writeModlensSlot` 对 `openai` 插槽强制 `max_tokens ≥ 8192`（`lib/index.js` 内 `VISION_MAX_TOKENS_FLOOR`，为防 OCR 被截断），而智谱 **GLM-4V-Flash 上限仅 1024** ⇒ 它**不能**作为该插槽主通道（会 400 `max_tokens参数非法`）；本项目已改用 OpenRouter gemini-2.5-flash。
+- modlens 服务端插件按仓规**禁止热重载**，但本次改动是「按次读盘」的配置文件，**无需重启即生效**（实测通过）。
+
+**四、边界（未做）**
+
+- 未启用「配额可观测性（本地加权用量账本 + 将尽预警）」（P3，apinex 无公开额度 API，只能本地估算）；未改 `AGENTS.md` T12 勘误（待批）。
+- 未对 Apinex 免费额度做自动充值/订阅（属用户付费决策）。
+
+---
+
+## 2026-09-15 · apinex 免费模型 402 `billing_error`：根因定位 + apinex 路由「配额化」配置
+
+> 触发：会话 `session-647d2fd2-d31e-46f8-94b7-e1acb5cd59b8`（cwd `C:\Users\机械革命\Desktop\基于深度学习的缺陷检测边缘设备开发`）连续两轮失败：
+> `402: {"message":"Free-model allowance is too low for this request. It requires up to 375,452 weighted tokens.","type":"billing_error"}`
+
+**一、根因（实测，非推断）**
+
+- 报错来自 **apinex 服务端**，不是 DSH：全仓 + 打包内核 `@deepseek-ai/*` grep 均无该文案。
+- 计量规则（apinex 自家管理端文案）：**计费** `ceil((input + output) × weight)`；**放行判断用最坏情况** `weight × (输入 + max_tokens)` —— 卡住的正是后者。
+- 权重实测（探测法：`max_tokens=200000` 触发 402 反推）：`free/gpt-5.6-luna`、`free/glm-5.3-flash`、`free/gemini-3.8-flash` = **×3.24**；`free/deepseek-v4.1-flash`、`free/qwen-3.8-max`、`free/deepseek-v4-flash-0731`、`free/deepseek-v4-pro-0813` = **×2.16**；`free/mimo-v2.5`、`free/muse-spark-1.3` = **不计入额度**（20 万 token 预留直接放行）。
+- 额度：**1,000,000/天，00:00 UTC 重置**（用户截图：已用 773,580 / 剩 226,420；钱包 $0.00）。会话 turn 10 step 1 一次成功调用 `244,485 in + 530 out` 即扣 **793,849** 加权 token ≈ 当日 77% ⇒ 随后同会话请求需 375k 预留，连续 402。
+- DSH 侧放大因素：apinex 路由未声明 `contextWindow`/`maxTokens` ⇒ 走内核默认 `262144` + `32768`（`@deepseek-ai/dsh-llm-pi-ai/lib/index.js:849-851`，字段定义同文件 `:920-921`）。
+
+**二、修复**
+
+- 文件 `~/.dsh/settings.yaml`（第 394–429 行，**仅** `llm-pi-ai.providers.apinex` 块）：×3.24 系 `contextWindow: 32768` + `maxTokens: 8192`（单请求最坏 132,710 加权 token）；×2.16 系 `49152` + `8192`（最坏 123,863）；新增 5 个模型（`free/gemini-3.8-flash`、`free/deepseek-v4-flash-0731`、`free/deepseek-v4-pro-0813`，以及不计额度的 `free/mimo-v2.5`、`free/muse-spark-1.3`）。单请求最坏预留 37.5 万 → **13.3 万**。
+- 免重启生效：`dsh-settings-file` chokidar 监听（`lib/index.js:37,179-187`，非法内容保留上一份可用配置 `:234`）+ pi-ai `onChange` 热重注册（`dsh-llm-pi-ai/lib/index.js:2472-2480`）；`modlens-<upstream>` 的 `listModels` **调用时委派上游**（`modlens/dsh/index.js:632-633`）⇒ 包装路由同步生效。
+
+**三、验证**
+
+- YAML 解析通过；**内核真实 schema**（`@deepseek-ai/dsh-llm-pi-ai` 的 `Config`）接受新配置，解析出 9 个模型且 ctx/max 与预期一致；顶层 8 键、18 个 provider、`agent-default-model`、`dsh-community-market` 全部未变；与备份 diff = 26 行纯新增。
+- 自查修掉两个自身缺陷：① PowerShell `Set-Content -UTF8` 的 BOM 混入 YAML 第 394 行行首（会破坏缩进）→ 原子清除并复验 0 个 BOM；② `[IO.File]::Replace(src,dst,$null)` 非法，第三参必须给真实回滚路径。
+- 备份/回滚：`_backups/apinex-free-allowance-20260915-175136/`（before/after 快照 + 复现脚本 + 操作日志）；`~/.dsh/settings.yaml.bak-apinex-20260915-175136`（`Copy-Item` 一行回滚）。
+
+**四、未做（边界）**
+
+- `dsh-model-provider-failover` **未启用兜底**：402 被内核判成 `PI_AI_ERROR`（`dsh-llm-pi-ai/lib/index.js:1265-1275`），不在其 `availabilityCodes`（SERVER/TRANSPORT/RATE_LIMIT/QUOTA…）内；且它切换 provider 时保留原 model id，apinex 的 `free/*` 在其它 provider 不存在 ⇒ 直接启用会二次失败。需小改插件（纳入 billing/quota 文案 + 支持 fallback 模型映射）。
+- modlens 视觉桥本次失败（`openai` 视觉 provider 返回非 JSON，图片未能自动读取），本次图片改走 OpenRouter `google/gemini-2.5-flash` 直读；未修。
+- 未动任何仓库代码、未重启（改动为全局用户配置，热加载生效）。
+
+**五、勘误（待批准后修订）**
+
+- 本机实测：`shell` 工具在 **workspace-write** 策略下**无法写入 `~/.dsh`**（`UnauthorizedAccessException`，仅工作区与 temp 可写），与 `AGENTS.md` T12「shell 能写 `~/.dsh`」记载不符；本次切到 danger-full-access 后才写入成功。
+
+---
+
+## 2026-09-15 · 编排看板 P1β：默认只显示「本对话」（修「同一工作区的其它主对话全进图」+ 运行串台）
+
+> 用户实测反馈："为什么看板里面显示所有主对话的内容，不应该只显示当前对话吗"。定位后确认是**两个泄漏点**，不是一个。
+
+**一、根因（实测）**
+
+- **会话树默认档按 cwd 过滤**：`lib/client.js` 默认 `scope: 'workspace'`，而 workspace 的判据是「cwd 与当前会话相同」（`scopeRows`）⇒ 同一工作区里开着的**所有主对话**（cwd 相同）全部进图。既有用例就写着这个预期：`tests/plugins/orchestrator-client.test.mjs` 的 `['self','w1','w2']`（w1 = 同 cwd 的另一条主对话）。
+- **运行视图按"项目"取数**：客户端拉 `/orchestrator/runs?project=<cwd>`（host 侧 projectId 由**项目根**决定，多条对话共享），并**无条件取 `list[0]`（最新一条）** ⇒ 可能显示**别的对话**跑出来的部门流程。
+- **根本缺口**：run 记录里**没有发起会话标识** —— host 只把 `exec.agent` 当 `parent` 用，`toClientRun()` 投影字段里没有 sessionId ⇒ 客户端在原理上无法判断"这条 run 是不是我这条对话跑的"。
+
+**二、修复**
+
+- **默认档改「本对话」**（客户端）：`SCOPE_MODES` 改为 `['family','workspace','all']`、默认 `scope:'family'`，标签「本对话 / 同工作区 / 全部」；`family` ＝当前会话所在会话树的根及其全部后代 ⇒ 当前会话是主对话时根＝它自己，图里只剩「本对话 + 它的部门成员」；`workspace` 降为第二档，并在按钮说明里**明说会带上同工作区的其它主对话**。
+- **运行按"发起会话"归属**：host 新增 `sessionIdOf()`（`agent.session.header.id` 优先、`agent.id` 兜底）并把 `p.sessionId` 写进运行记录，`toClientRun()` 投影 `sessionId`；客户端新增纯函数 `pickRun(list, currentId, includeOthers)`：**本对话的优先**（哪怕不是最新一条），一条都没有时**默认不显示别对话的**（空态 + 会话树回退），只在显式打开「包含其它对话」后才回退到最新一条，并用 chip 标注「来源：其它对话 <id>」；旧记录（无 sessionId）标「来源未知（旧记录）」。
+- 查询窗口 `limit` 10 → 30（防止本对话的 run 被别对话挤出窗口；端点契约不变）；运行视图源标签不再对真实运行显示「源：示例运行」。
+
+**三、验证（TDD：先红后绿）**
+
+- **红**：先写 4 条客户端 + 2 条 host 用例，跑出 `I.pickRun is not a function`、默认档仍显示兄弟主对话、运行视图仍串台（exit 1）。
+- **绿**：六套件全绿 —— client **54**（原 50）、tool **14**（原 12）、gate 14、scheduler 19、ledger 38、host 10，`fail 0`。新增用例覆盖：默认档只显示 `self+w2`（同 cwd 兄弟被挡）、切「同工作区」会**如实**带上兄弟、`pickRun` 归属优先级、别对话运行默认不显示且有显式开关与来源标注、旧记录标「来源未知」、host 侧 `run.json` 与客户端契约都带 `sessionId`（header.id 优先于 agent.id）。
+- 过程中修掉一个**真实竞态**：开关点击时 `runsAnyRef` 尚未随渲染更新 ⇒ 立即重取会拿旧值（表现为"点了没反应，要等下一轮轮询"）；改为一并同步 ref。
+- 备份/回滚：`_backups/p1b-scope-20260915-161550/`（4 文件改前快照）；补丁脚本带"锚点恰好 1 次"硬校验 + 原子写（`_backups/_probe/p1b*.mjs`）。
+
+**四、未做（边界）**
+
+- `/orchestrator/runs` **端点**仍是"整项目"语义（本次不改 host 契约；若要按对话查询可后续加 `?session=`）。
+- 未动 vendor 内核；未自动重启（客户端部分刷新页面应生效，host 部分需重启）。
+
+---
+
+## 2026-09-15 · 编排器 P1 步 D：根因#2 修复（deny 清单用了内核不存在的工具名 bash）
+
+> 重启后 e2e 错误**变了**（signal 修复生效）：
+> `n1-plan（plan）: tools.restrict() names unknown global tool "bash"`
+
+**根因（实测）**
+
+- `roles.js` 的 `WRITE_TOOLS` 写了 `bash`，但内核已知全局工具里**没有 bash**（有 shell/terminal/pwsh/remote_bash）；
+  `tools.restrict()` 校验 deny 清单里每个名字必须是已知工具 ⇒ 未知名直接抛。
+- 为什么单测没抓到：tool 套件用假 `subagents.start`，不真调 `restrict()`；只有真实内核 spawn 才校验。
+
+**修复**
+
+- `roles.js` `WRITE_TOOLS` 移除 `bash`（保留 shell/terminal/pwsh/remote_bash）。
+
+**验证**
+
+- tool 15 全绿；node --check roles.js 通过。
+- e2e 重跑**需要重启**（host 闭包缓存旧代码）。
+
+## 2026-09-15 · 编排器 P1 步 C：根因确认并修复（spawn provider 需要 request.signal）
+
+> 重启后的两次真实 e2e 都在 n1-plan 同步崩溃（ms 15-32），诊断能力**直接读出**错误：
+> `Cannot read properties of undefined (reading 'aborted')`。
+
+**一、根因（实测，证据链）**
+
+- 崩溃点：`dsh-subagent-in-process-driver/lib/index.js:162` `if (request.signal.aborted) throw prePublicationAbort();`
+  —— in-process spawn driver **强制要求 `request.signal` 存在**。
+- 我方缺口：`roles.js` 的 `subagentRequest()` 组装 request 时**没传 signal**（只传 parent/prompt/label/maxDepth），
+  而调度器其实已经把节点级 AbortSignal 传进了 `nodeCtx.signal`（`scheduler.js:116-124`）——只差最后一步透传。
+- 为什么 solo 模式能过：solo 走主 agent 自己干活，不经 spawn provider。
+- 为什么两次 e2e 都崩在 n1-plan：team 模式第一个被派发的节点就是 n1-plan，`subagents.start('spawn', request)`
+  第一行就碰 `request.signal.aborted` ⇒ 100% 复现、同步抛、未拉起任何子 agent。
+
+**二、修复（低风险，只加透传）**
+
+- `roles.js` `subagentRequest()`：`if (args.signal) request.signal = args.signal;`（不传时保持 undefined，不伪造）
+- `index.js` `dispatchOnce()`：`signal: nodeCtx && nodeCtx.signal` 传给 `subagentRequest`。
+- 新增回归测试：`subagentRequest` 必须把 signal 透传进 request（锁住 driver 契约）。
+
+**三、验证**
+
+- 六套件全绿：tool **15**（+1 回归）、client 54、gate 14、scheduler 19、ledger 38、host 10，`fail 0`。
+- `node --check` roles.js / index.js 通过。
+- e2e 重跑**需要重启**（host 插件闭包缓存旧代码）——重启后验证：n1-plan 不再崩、走真 6-agent 链路。
+
+**四、边界**
+
+- 候选根因②（provider 名）已证伪：`dsh-subagent-spawn-in-process` 默认 `providerName="spawn"`，配置无覆盖。
+- 此前推测的 API 401/408 瞬态与本次无关（模型状态 healthy，属偶发上游抖动）。
+
+## 2026-09-15 · 编排器 P1 步 A：派发失败可诊断化 + 门禁新增 `G9_RUN_INCOMPLETE`（修「跑挂了却 gate=pass」）
+
+> 背景：P1 端到端首跑失败（`run-mu1hqp1a-001`）复盘发现：`run.json` 里 `status:"blocked"` 与 `gate:"pass"` **并存**，
+> 且 failed 节点**没有任何 `error` 字段** ⇒ 根因只能靠猜（多耗一轮排查 + 一次重启）。本轮把「失败」变成「可诊断」。
+
+**一、根因（实测，`路径:行号`）**
+
+- **错误被投影丢弃**：调度器把错误写在内存节点上（`plugins/dsh-orchestrator/lib/scheduler.js:152` `node.error = ...`），
+  而落盘投影 `toClientRun()` 只挑固定字段（`lib/run.js:233-245`，原先无 `error`）⇒ 错误**既不落盘也不进工具输出**。
+- **门禁误标 pass**：`gateVerdict()` 原先只数 `blocked` 节点（原 `lib/gate.js:145-149`），
+  而 failed/timeout/skipped 走的是调度器的失败/跳过路径、**不进 blocked 列表** ⇒ 最严重的场景反而报通过。
+- **容量证据随进程消失**：`runPlan()` 返回的 `summary`（峰值并发/墙钟/节点计数/轮次）从未写入 `run.json`。
+
+**二、修复（零依赖不变，仍可纯 node 隔离测试）**
+
+- `lib/index.js`：`dispatch` 拆为「包装 + `dispatchOnce`」，任何抛出都向 `log.ndjson` 追写 `dispatch-error`
+  （message + 栈前 500 字 + code + round/attempt）后**原样 rethrow**（不吞、不改变重试语义）；新增 `describeError()`；
+  工具输出新增「失败原因：`<node>`（role）: <error>`」与「容量：并发峰值 … 墙钟 … 轮次 …」；
+  `run.json` 落 `summary`；工具 schema 与 `render` 增补 `summary`（只放原始值，保持 `additionalProperties:false` 的封闭形状）。
+- `lib/run.js`：`toClientRun()` 增补节点级 `error` 与运行级 `summary`。
+- `lib/gate.js`：新增拒绝码 **`G9_RUN_INCOMPLETE`**（**运行级**）——存在 failed/timeout/skipped/cancelled 节点，
+  或 `run.status` 未收尾 ⇒ 一律 `block`，并把节点根因写进 `gate.json` 的 `evidence`。
+
+**三、验证（TDD：先红后绿）**
+
+- **红**（实测）：先写 3 条新测试并确认失败 —— gate 套件 2 条新用例 `actual:'pass' / expected:'block'`，
+  tool 套件「subagents 不可用」新增的 `gate==='block'` 断言同样失败（均 exit 1）⇒ 证明测试确实测到了缺失功能。
+- **绿**（实测）：`node tests/plugins/orchestrator-{gate,tool,scheduler,client,ledger,host}.test.mjs` **全部 exit 0**；
+  计数 `gate pass 14`（原 12）、`tool pass 12`（原 11）⇒ 正好 **+3 条**，`fail 0`。
+- 新用例覆盖全链路：`log.ndjson` 有 `dispatch-error`（含栈）、`run.json` 带 `node.error` 与 `summary`、
+  工具输出露 `cannot resolve provider`、`gate=block`（含 `G9_RUN_INCOMPLETE`），且 `subagents.start` **一次都没成功**
+  （简报已写 ⇒ 说明炸在派发步而非规划步，诊断时要能区分这一步）。
+- **反证（防矫枉过正）**：G9 用例内断言「全 done 仍 pass」；team 端到端用例仍 `gate=pass`。
+- 备份与回滚：`_backups/p1a-diag-20260915-154110/`（含 `PLAN-AND-VERIFY.md` + 5 个文件改前快照）；
+  改动经 task-scheduler **文件级**登记（token `tk-mu2d6wav-35b226f5`）。
+
+**四、未做（明确边界）**
+
+- **未重启**（按重启守则，宿主代码改动需用户重启才生效）：步 C（重启后复跑同一 e2e 定位根因）、
+  步 D（根因修复 + 真 6 agent 全链路含容量数字）、步 E（预设/记录/全门禁）待办。
+- 未改 `lib/scheduler.js`（其失败/重试/跳过语义已正确，缺的只是「留痕」）；未改 vendor 内核。
+- **顺带发现、未动**（待用户决定）：修复轮里 `index.js` 内的 `p` 可能仍指向上一轮的旧计划对象
+  （同文件 `evaluate` 处注释已警示「不要从 `p` 读状态」）⇒ 第 2 轮简报的「第 N/M 轮」可能显示旧轮次
+  （`lib/run.js:86` 用 `run.round`）。**标注：推断，未实测。**
+
+---
+
+## 2026-09-15 · developer-role 防护加固：补齐两家新供应商 + 只读门禁 Step 1.15 + 账目修正
+
+> 承接同日 `ModelScope 流式 400 修复`（见下一节）。重启后实测发现**缺口会随新供应商长回来**，
+> 本轮把"靠人记得写 compat"变成"机器会拦住"。全量证据仍归 `outputs/2026-09-15-report-modelscope-developer-role-fix/README.md`。
+
+**一、补齐配置层缺口（热加载生效，免重启）**
+
+- 本窗口提供商 16 → **18**、模型 71 → **86**：新增 `codecraft`(6) 与 `apinex`(9) **都没有路由级 compat**。
+  静态分析算出缺口 **15 个**，与守卫生产日志 `patched=15 allowed=0 already=71 failed=0` **完全吻合**（两法交叉验证）。
+  ⚠️ 当时 `agent-default-model` = `modlens-apinex / free/qwen-3.8-max` ⇒ **默认模型正走在无 compat 的路由上，全靠守卫兜底**。
+- 已为两家补 `compat.supportsDeveloperRole: false`：走 task-scheduler 锁 + 写前并发复校 + 时间戳备份
+  （`_backups/settings.yaml.bak-2026-09-15T13-14-12-294Z`）+ 原子替换 + DSH `Config` schema 复验。
+  **复算：18 提供商 / 86 模型 ⇒ gaps=0。** 该改动**行为不变**（守卫本就在运行时强制 false，配置只是把既有行为写成事实）。
+- ⚠️ **发现但未动**（另一会话的编辑，按"禁止静默顺手改"上报）：`codecraft.baseURL` 引号内**有前导空格** `" https://codecraftapi.com/v1"`。
+
+**二、新增只读门禁 `scripts/audit-developer-role.mjs`（check-all Step 1.15，阻塞式）**
+
+- 判据：模型级 > 路由级 > pi-ai 端点探测默认值（镜像 `detectCompat`，单一函数 + `--self-test` 8 用例作漂移哨兵）；
+  白名单**复用守卫插件的 `isAllowedUpstream`**，避免"门禁一套规则、守卫另一套"。
+- 退出码：0 无缺口/skipped；1 有缺口（阻塞，逃生口 `DSH_ALLOW_DEVELOPER_ROLE_GAPS=1` 降级告警）；2 读取/解析失败（fail-closed）。
+- **为什么是阻塞而非告警**：失败模式是"每个请求硬 400"、修复只需一行，且同日就有 15 个模型新增长出来；
+  告警会被忽略（与 Step 1.13/1.14 选告警相反，因为代价不对称）。守卫插件是**纵深防御，不是替代**。
+- 验证：`--self-test` 8/8；真跑 `gaps=0 exit=0`；**故障注入**（副本抹掉 apinex compat）⇒ **exit 1 并逐条点名 9 个模型**；
+  逃生口 exit 0 + 警告；`check-all.ps1` 语法解析 0 错误；常驻回归 `tests/scripts/audit-developer-role.test.mjs` **9/9**
+  （含漏报方向、误报方向〔真 OpenAI/相似域名/非 openai-completions〕、模型级覆盖、畸形输入、故障注入、建议文案）。
+
+**三、修线上实测的探测项账目 bug（`plugins/dsh-developer-role-guard`，需重启生效）**
+
+- 现象：20:35 重启后 `/health` 报 `adapters=0`，而日志写着"已包装 1 个"。
+- 根因：`wrapAll` 里 `stats.adapters = wrapped` 记的是"**本次新包装数**"，被后续 `llm/adapters-updated`
+  扫描（适配器均已包装 ⇒ `wrapped=0`）**刷成 0** ⇒ 探测项读数误导。
+- 修法：改统计"**当前处于守护下的适配器数**"（日志同时给出 `当前受守护 N 个`）。
+- 回归：插件单测 15 → **16 项**（新增"适配器已包装时再次扫描，计数不得被刷成 0"，含幂等与读数一致性断言）。
+- ⏳ **需下次重启生效**（本构建 bundle 插件不可热重载）；**不为此单独重启**。
+
+**四、重启需求**：本轮只有第三节需要重启才激活；第一、二节均已生效（配置热加载 / 纯只读脚本）。
+
+---
+
+## 2026-09-15 · ModelScope 流式 400 修复 + 新增 `dsh-developer-role-guard`（非 OpenAI 上游角色护栏）
+
+> 背景：调用 ModelScope 报 `400 {"code":"invalid_parameter_error","message":"developer is not one of ['system','assistant','user','tool','function']"}`。
+> 复盘与全量证据：`outputs/2026-09-15-report-modelscope-developer-role-fix/README.md`。
+
+**一、根因（三层相乘，全部带 `路径:行号`）**
+
+- **pi-ai 对未登记端点默认发 `developer` 角色**：`@earendil-works/pi-ai/dist/api/openai-completions.js:787` 的 `useDeveloperRole = model.reasoning && compat.supportsDeveloperRole` 决定系统提示词角色；而 `compat.supportsDeveloperRole` 未配置时落到 `detectCompat()`（`:1148`），规则等价于「不在已知非标准厂商列表、且非 OpenRouter ⇒ **true**」⇒ `api-inference.modelscope.cn` 被默认当成真 OpenAI。
+- **放大器**：`plugins/dsh-force-reasoning-effort/lib/index.js:177` 给缺推理元数据的模型注入 `reasoning = true`（`:148-155` 以「cost 全零」判为"未知"而非"已知不支持"），使上述判定成立。
+- **配置缺口**：`~/.dsh/settings.yaml` 的 `modelscope` 下 3 个模型只有 2 个写了 `compat.supportsDeveloperRole:false`，实际在用的 `deepseek-ai/DeepSeek-V4.1-Flash` 漏了（同类隐患另见 `sennsenova`/`tokenrouter`：只有模型级、无路由级）。
+- **规格确认**：`dsh-llm-pi-ai/lib/index.js:963` `Config = z.object({ providers: z.dict(profile) })` ⇒ **不存在全局 compat 默认**，只能逐路由写 —— 这正是"人工记性"成为唯一防线的原因。
+- **失败方式很阴**：ModelScope **流式**才校验角色（直接 400），**非流式只回 `200` + `"choices":null`**（静默空响应）⇒ 首轮非流式复现得到假绿。
+- **排除项**：`modlens` 包装适配器是纯透传（`@liustack/modlens/dsh/index.js:680`），不构造消息体，非根因。
+
+**二、修复**
+
+- **配置级（已热重载生效，免重启）**：`~/.dsh/settings.yaml` **四处** —— `modelscope` 补**路由级** `compat.supportsDeveloperRole:false`（覆盖漏配模型并让**以后新增模型自动继承**）、`sennsenova` 与 `tokenrouter` 由"模型级"归一化为**路由级**（消除"加新模型即重现"的隐患）、`openrouter` 补**路由级**（复核阶段补获：其 `openai/gpt-oss-20b:free` 命中 `isOpenRouterDeveloperRoleModel` 分支，配置层仍会发 `developer`）。时间戳备份 + 原子替换 + **DSH 官方 `Config` schema 复验**；sha256 `420da1cd…` → `d8aed68e…` → `252f95d0…` → `a90599cb…`。**终态复算：16 提供商 / 71 模型，配置层 `would send developer = 0`，无提供商缺路由级 compat。**
+- **结构性（新增插件，待重启）**：`plugins/dsh-developer-role-guard/`（bundle · experimental）包装 pi-ai 适配器（同 `dsh-force-reasoning-effort` 模式），对**非白名单**路由强制 `compat.supportsDeveloperRole=false` ⇒ 系统提示词走通用的 `system`；白名单＝真 OpenAI 系（provider + host 双判据、含子域、`api.openai.com.evil.tld` 不误放行），保住 o 系列对 `developer` 的依赖。装配 4/4（`register-plugin.mjs`：deps + bundles + junction + 模板），6 项断言 PASS（`template==runtime bundles 47/47`）。
+
+**三、验证（证据分级）**
+
+- ✅ **实测**：真 pi-ai `stream()` × 真 ModelScope —— 漂移态（无 compat）上网角色 `"developer"` ⇒ **400 逐字复现**；经守卫处理后同模型上网角色 `"system"` ⇒ **`done` 成功**。单测 `tests/plugins/developer-role-guard.test.mjs` **11/11**；`scripts/startup-verify.mjs` **10/10**（含 V9 语法预检 40 插件/100 文件）；`scripts/audit-plugin-inventory.mjs` **11 PASS / 0 WARN**（改前 9/2）。
+- ✅ **活体**：运行中的内核强制走 `modelscope/DeepSeek-V4.1-Flash` 返回 `PONG`（修复前必 400）；`settings.yaml` mtime（10:42）晚于应用启动（09:18）⇒ 证明是 **chokidar 热重载**而非重启（`dsh-settings-file` `watch` 默认 true）。
+- ✅ **故障注入**（「它通过了」≠「它有效」）：`getModels()` 抛错／`Object.freeze` 描述符／`compat` 只读／畸形 snapshot ⇒ **全部 fail-open**，单模型失败不拖累同批；fake-ctx 接线 dispose 后**两条路由键全消失＝完全还原**、`failed=0`。
+- 🔍 **未验证**：本机 `web_search`/`curl` 被 TLS 阻断，**未能联网核实**是否已是 pi-ai 上游已知缺陷、未定上报去向（不臆测）；插件"重启后由 bundle 装载"的端到端复验待用户指示；热重载行为未实测（台账按 bundle 惯例标 ⚠️）。
+- ✅ **重启后复验（用户 14:10 重启）**：插件日志 `已启用` + `已包装 1 个 pi-ai 适配器实例`（bundle 装载成功）；`/health` 全绿 200 / `plugins` 探测 39 个；`startup-verify` **10/10**（真实 V9：40 插件/100 文件）；重启后 modelscope 活体调用 `PONG`。
+- ✅ **生产故障注入（最强证据）**：故意抹掉 `modelscope` 路由级 compat ⇒ 真实内核调用**依然成功**（`PONG`），插件日志 `snapshot 处理: patched=1 allowed=0 already=70 failed=0` —— 71 个模型中**恰好那 1 个漏配者**被改回 `false`；配置随后**字节级还原**（sha256 一致）。
+- ⚠️ **重启后实测发现并已修的缺陷**：文档承诺的 `/health` 探测项 `developerRole.guard` **未注册** —— 根因是 `ctx.hostServices` 与 `ctx.reflect.get(...)` 写在**同一个 try** 里，访问未注入服务抛错使反射兜底不可达，catch 又为空 ⇒ **静默缺失**。修法：`inject` 加 `hostServices`（本仓 8/8 插件写法）+ 分段兜底 + **失败记日志**；单测 11 → **15 项**（新增 4 条接线回归，含"访问抛错时反射兜底仍须可达"的原缺陷复现）。✅ **20:35 重启后已生效**：`/health` 探测项 9 → **10 项**，`developerRole.guard={"ok":true,"detail":"adapters=0 patched=15 allowed=0 failed=0"}`。
+- ✅ **上游已核实**（通道 **Firecrawl MCP**；本机 `web_search`/`curl` 仍被 TLS 阻断）：同根因已是上游公开讨论 [deepseek-harness **Discussion #551**](https://github.com/deepseek-ai/deepseek-harness/discussions/551)（`useDeveloperRole = model.reasoning && compat.supportsDeveloperRole`，pi-ai 对类标准端点默认 `true`）。讨论里的两个 workaround（改 `lib/index.js`、用 `pi2dsh`）**本机都不需要**：实测本机内核**原生支持**该字段（`dsh-llm-pi-ai/lib/index.js` L886 `z.boolean()` + L367/L390 `"offer"`），且 `patches/bundles/*` **无任何补丁涉及它** ⇒ 配置级修复是官方支持路径，**重建/升级不丢**、无补丁漂移负担。
+- ✅ **配置缺口会随新供应商长回来（实测）**：本窗口提供商 16 → **18**、模型 71 → **86**，新增 `codecraft`(6) 与 `apinex`(9) 均无路由级 compat ⇒ 静态分析缺口 **15 个** 与守卫实跑 `patched=15` **完全吻合**；这 15 个模型当前**完全依赖守卫兜底**（守卫不在即 400）。已列入下一步计划（补齐配置 + 加只读门禁防复发）。
+- ⚠️ **探测项账目 bug（轻微，待修，不单独重启）**：`detail` 显示 `adapters=0` 与日志"已包装 1 个"矛盾 —— `lib/index.js:377` 的 `stats.adapters = wrapped` 记的是"本次新包装数"，被后续 `llm/adapters-updated` 扫描（均已包装 ⇒ 0）覆盖。**仅读数语义**，护栏动作不受影响。
+- ✅ **卸载还原路径获生产验证**：20:35 关机日志 `已还原 15 个模型描述符（插件卸载）` ⇒ `ctx.effect` 还原在真实卸载时确实执行（此前只有 fake-ctx 单测覆盖）。
+
+**四、未做（明确边界）**
+
+- 未改 vendor 内核（改 `detectCompat` 默认值会波及真 OpenAI o 系列，且受重建/升级漂移影响，风险高于收益）。
+- 未删除三家提供商里已被路由级覆盖的冗余模型级条目（与路由级同值、零风险，避免动"正在工作"的配置）。
+- 未自动重启（按重启守则）；工作区文件除插件/测试/台账/记录外未做其它改动。
+
+---
+
+## 2026-09-15 · 日志写入永不致命：根治「DSH 因日志故障自杀退出」的致命链（dist 外科手术补丁）
+
+> 与上方 `dsh-memory-guard`（内存哨兵，管「源头」）互补：本补丁管「**即便内存再被耗尽，日志系统也绝不允许把进程带崩**」。
+> 2026-09-15 00:06:51 实测退出链（证据：`%APPDATA%\DSH Desktop\logs\dsh-2026-09-15.log` 第一、二行；非原生崩溃，WER 无记录）：
+> `skill-filesystem` watcher stat 失败 → `handleWatcherError` → `logger.warn` → `LogFileSink.append` → `appendFileSync` 抛 `UNKNOWN`
+> （提交内存耗尽 ⇒ 未映射 winerror 1450/1454/1455/1816 ⇒ libuv 报告 `UNKNOWN`）→ **浮动 Promise**（watchFile 回调调 async 方法未 await/.catch）→
+> `unhandledRejection` → `@deepseek-ai/dsh-app-boot` `installFailLoud` 打印 `fatal load failure` + `process.exit(1)`。
+
+**改动（2 文件 · 3 锚点 · 外科手术式，不需重建；重启后生效；重打命令 `node scripts/apply-log-write-guard.mjs`）**
+- **P1** `app.asar.unpacked/lib/log-files-*.js`：`appendFileSync` 包 try/catch，失败降级 stderr 并提前 return（不更新字节计数）。
+- **P2** `app.asar.unpacked/node_modules/@deepseek-ai/dsh-skill-filesystem/lib/index.js`：
+  - watchFile 回调改 `void this.handleAncestorWatchEvent(...).catch(() => {})`，杜绝浮动 Promise 拒绝进程；
+  - `handleWatcherError` 日志改 best-effort，watcher 自愈（`queueInvalidation`/`scheduleRewatch`）必须继续执行。
+- **配套**：`scripts/apply-log-write-guard.mjs`（幂等重打，marker `dsh patch log-write-guard v1`，带备份/原子写/**锚点恰好 1 次**拒绝写入/回读校验，resolve-dist 解析当前构建）；`tests/dist/log-write-guard.test.mjs`（故障注入验收）；`scripts/verify-patches.ps1` 两项登记（P2 静态项 + P1 哈希 chunk 动态项，含语法完整性段）。
+
+**验证（证据分级）**
+- ✅ **实测**：补丁应用 3/3 成功；备份 `_backups/dist-log-write-guard-2026-09-15T03-01-50-084Z/`；两目标文件 `node --check` exit 0。
+- ✅ **故障注入（自证：先弄坏确认能捕获）**：目标日志文件置只读 → 原生 `appendFileSync` 确实抛 `EPERM`（证伪探针通过 ⇒ 注入有效）→
+  补丁后 `sink.write('info','fault-line')` **不抛**、stderr 打出 `[dsh log-write-guard] log append failed ...EPERM...` 降级行、恢复可写后正常落盘、故障行零残留；测试 **2/2 pass**。
+- 🔍 **未验证**：重启后的端到端（`/health` 8/8 复验等；按重启守则未自动重启）。
+
+**未做（明确边界）**：未改 `dsh-app-boot` 的 fail-loud 语义（护栏保留）；未给 `FileExporter.export` 额外加 try/catch（sink 兜底已覆盖整条链，避免扩散改动面）；生产者侧（python 训练提交内存）归属 `dsh-memory-guard` + 运维。
+
+---
+
+## 2026-09-15 · 内存事故防护常驻化：新增 `dsh-memory-guard` 进程内存哨兵
+
+> 背景：2026-09-14/15 另一 DSH 会话无人值守地反复重启两阶段 YOLO 训练（25 个 dataloader worker ≈1 GB/个、
+> 单主进程 3–5 GB），把 16 GB 机器的提交内存推到 **50.6 GB 上限** ⇒ DSH Desktop 崩溃 ×2（22:20:56 / 22:23:58）
+> + 系统 **`0x00000050` 蓝屏**（23:02:54）。当时的处置是**会话内临时脚本**（`guard-yolo*.ps1`），会话一结束保护即消失。
+> 事故复盘：`outputs/2026-09-15-report-yolo-training-incident/README.md`；方案与落地记录：`outputs/2026-09-15-doc-memory-guard-plugin/README.md`。
+
+**一、新增插件 `plugins/dsh-memory-guard/`（零依赖 host 模式 · bundle 装配 · experimental）**
+
+- **形态**：仿 `dsh-instance-janitor` 的 host 模式（`inject: ['timer','hostServices']`、相对深路径引 `dsh-host-services/lib/shared-utils.js`、全 `windowsHide`、每步 `try/catch` fail-safe）。
+- **判据**：每 `intervalMs`（默认 15 s）查目标镜像名进程（默认 `python.exe`）的 PID/父PID/工作集/可执行路径/启动时间 + 系统内存水位 → 纯函数 `planGuard()` 判定；触发条件「候选数>3 ／ 合计>2500 MB ／ 单体>3000 MB ／ 可用物理<700 MB 且存在候选」（事故实测值：25 ／ 远超 ／ 4800 MB）⇒ `taskkill` 回收。
+- **防误杀护栏（关键）**：① `~/.dsh/memory-guard/paused` **放行闸门**（跑合法训练时一键放行，跨重启有效）；② **DSH 直属子进程豁免** —— 父进程 = DSH 主进程的候选永不回收（保护 MCP python：markitdown venv / Anaconda base），而风暴进程是 `DSH → shell → cmd → python` 的**深层**后代（父为 `cmd.exe`，实测父链），故不受影响；③ 路径排除 `<工作区>\tools`；④ `mb < minKillMB`（200）不杀；⑤ `dryRun`/`action:'notify'` 观察模式；⑥ 杀不掉者按「路径+启动时间」抑制 ≥10 min（沿用 janitor 抑制表教训）。
+- **可观测**：`GET/POST /memory-guard/status`（配置/最近一轮/累计击杀/日志路径，`?paused=1|0` 设闸门）+ `/health` 探测项 `memory.guard` + 日志 `~/.dsh/memory-guard/guard.log`（>512 KB 截断，平静轮次不写）+ 桌面通知（30 min 去重）。
+- **装配**：`dev_install_package`（profile `desktop`）⇒ dependencies `link:` + `dsh.profile.bundles` + `node_modules` junction + `loader.create` 热装配，免重启生效；重启后由 bundles 列表正常装载（双路径一致）。
+
+**二、验证（证据分级）**
+
+- ✅ **实测**：`node --check` exit 0；单测 `tests/plugins/memory-guard.test.mjs` **10/10 pass**（覆盖「平静零动作」「四种触发」「dryRun/notify 不设目标」「minKillMB」「selfPid/protectedPids」「**DSH 直属子进程豁免**」「抑制表」「candidateKey 抗 PID 复用」）；`scripts/verify-plugin-imports.mjs`（门禁 Step 1.11）**0 违规**；端点 200 且 `lastSweep.error` 为空（**应用进程内 `Win32_Process` 查询可用**，与该 shell 侧的 ACL 限制不同）；`/health` 200 且含 `memory.guard`。
+- ✅ **故障注入（真有效，不是「没坏时不报错」）**：对照 1 × 263 MB python **存活** → 加至 5 个（合计 ~1.3 GB，低内存压力）⇒ **12 秒内 5 个全灭**、`killsTotal=5`、日志 5 条 `KILL … ok=true triggers=count>3`，随后回落 `action=none triggers=[]`。
+- ⚠️ **方法学记录（一次真实的自我证伪）**：首轮故障注入**无效** —— 用 `Start-Process -ArgumentList @('-c', <多行代码>)` 传参被 PowerShell 引号规则破坏，python 以 `SyntaxError` **自杀**，却表现为「进程死了」，一度被误读为「哨兵生效」。改为**落 `.py` 文件再跑 + 先做对照**后才得到有效结论。⇒ 印证「『它通过了』≠『它有效』」。
+- 🔍 **未验证**：阈值对**合法大内存 python 任务**的误伤边界（真实使用观察中）⇒ 故台账标 `experimental`，观察期建议先 `dryRun: true`；重启后从 bundles 装配的端到端复验（需用户指示重启，按重启守则未自动执行）。
+
+**三、未做（明确边界）**
+
+- 未修改任何既有插件/补丁文件（纯新增）；未触碰 `patches/`、`profile/` 模板、内核。
+- 未替用户停掉那台机器上仍在循环的对方 DSH 会话（`session-940b54f1`）—— 该会话非本会话子代理（`list_agents` 为空），项目目录对本进程 ACL 只读，agent 无法代劳；**根治仍需用户在其会话内叫停**。
+
+**四、v0.2 标定修订（同日，两处方向性缺陷 + 长期运行加固）**
+
+- **触发它的两个实测发现**：① 同一进程 `WS 41 MB vs 私有/提交 852 MB（差 20 倍）` ⇒ v0.1 用 `WorkingSetSize`，
+  而事故资源是 **commit**（System 2004 / `WinError 1455` / `0x50` 全在 commit 维度）⇒ **提交膨胀型风暴会被漏判**；
+  ② 纯函数仿真显示 **合法 `workers=4`（1 主 + 4 worker，count=5）在 v0.1 阈值下 `action=kill`** ⇒ 插件会打死它自己推荐的"安全跑法"。
+- **修正**：度量改用 `Win32_Process.PageFileUsage`（提交电荷，WS 降为兜底/观测）；`count` 降级为**扇出旁证**
+  （`count>8` **且** 合计提交 > 4000 MB 才定罪）；新增 **系统提交压力**规则（`commit/limit > 0.90`）与
+  可用内存规则；目标按提交降序、上限 `maxTargets=12`；压力来自非候选进程时**只告警不越界**。
+- **长期运行加固**：自适应轮询（活跃 15 s / 连续 4 轮平静后 60 s，空闲 PowerShell 轮询 5,760→~1,440 次/天；
+  用 `setInterval` + due-time 门控而非 `ctx.setTimeout`，后者实测会让 loader entry 创建失败）；
+  规则表 `RULES` 数据驱动（导出 + 契约单测，新增规则只加一条谓词）；`/status` 增 `instanceTag/applyTimeMs/sweepCount/currentIntervalMs`（可识别双计时器）。
+- ✅ **验证**：单测 **17/17**（新增合法 workers=4 不触发 / count 单独不定罪 / commit 优先于 WS / 规则契约 / 查询构造 / 容错解析 / 阈值快照防漂移）；`node --check` exit 0；
+  **双向真实进程验证 PASS_A=True / PASS_B=True** —— A：1×900+4×420 MB 提交、count=6、ratio=0.856 ⇒ `action=none`、**5/5 存活**；
+  B：10×450 MB 扇出、count=11、ratio=0.915 ⇒ `action=kill`（fanout+commitPressure）、**10/10 全灭残留 0**；
+  **关键对照** B 的 `maxCommit=5422 MB` 而 `maxWS=41 MB`（沿用 WS 口径则完全漏判）。闸门 `?paused=1/0` 端到端实测可用。
+  验证手法：`VirtualAlloc(MEM_COMMIT)` 提交但不触碰页面 ⇒ 低物理代价的真实提交风暴；编排用 PowerShell（Node `spawn` 在本环境 `EPERM`），Node 只做纯函数判据。
+- ⚠️ **生效面**：判据层改动属宿主插件 ⇒ **需重启桌面应用生效**（`dev_reload_package` 实测报 `loader.internal 不可用`）。
+  重启前线上仍是 v0.1（更严、保护不中断，但会误杀合法 `workers=4` 训练；要用 v0.2 判据或跑合法训练，先重启或先设放行闸门）。
+- 回滚：`_backups/memory-guard-recalib-20260915-110106/`（v0.1 三件套原件）。
+
+**五、重启后复验（用户重启桌面应用后实测，v0.2 已生效）**
+
+- `/memory-guard/status`：`maxCount=8`、`metric=commit(PageFileUsage), ws fallback`、`rules=fanout,singleCommit,commitPressure,lowAvailable`、`instanceTag=xm1h0a`、`currentIntervalMs=60000`、`idleStreak=5`、`lastSweep.error` 空 ⇒ **判据层已换代为 v0.2**。
+- **度量修复在生产可见**：`lastSweep.stats.totalMB=852`（DSH 的 MCP python，按**提交**计）—— v0.1 的 WS 口径只会显示约 45 MB，这正是"提交膨胀型漏判"的现场对照。
+- **单计时器已证**（防热重载/重复装配残留）：插件 06:10:49 启动，105 秒内 `sweepCount=5` ＝ 1 次启动 + 4 次 15 s 打点，与"单计时器 + 自适应降频"预期完全一致（重复计时器会翻倍）。
+- 日志仅一条 `start v0.2 tag=xm1h0a …`；`GET /health` = 200 且含 `memory.guard`；`scripts/startup-verify.mjs` **9/10 PASS，0 FAIL**；`yolov11=0`（无需动手），`killsTotal=0`（重启后内存态清零，符合设计）。
+- ⚠️ 运维提醒：复验时系统提交 `26.94/31.44 GB ≈ 85.7%`，数分钟后升到 `88.9%` —— 逼近 `commitPressure` 阈值（0.90）。**跑重训练前必须先腾内存**（并优先 `workers≤4`、单阶段）。压力若来自候选之外的进程，哨兵只记 `WARN ... culprit outside includeImageNames` 且**不杀无关程序**（设计如此）。
+
+---
+
+## 2026-09-14 · 白屏归因 + 两处噪声源治理：janitor 抑制表 + openviking 重连预算
+
+> 用户报告「WorkBuddy 突然白屏了一下」，并要求同时对 DSH 做修复。归因结论与两处修复如下。
+> 报告：`outputs/2026-09-14-report-white-screen-and-noise/README.md`。
+
+**一、WorkBuddy 白屏 — 已定位（非 DSH 引起，两者同受系统内存压力）**
+
+- **直接原因：渲染进程被 Chromium 按 OOM 杀死**。日志实证 `C:\Users\机械革命\.workbuddy\logs\main.log`：
+  `[Crash] render-process-gone reason=oom exitCode=-536870904`（`-536870904` = `0xE0000008`，V8 OOM），**当天两次**：`22:58:16` 与 `23:02:48`（本地时间）。crash-report 两份 JSON 同样记录 `reason=oom`。
+- **观察到的「白屏一下」＝ 自愈动作**：每次崩溃后 WorkBuddy 自己执行 `clear-cache-and-reload`（`delayMs=5000`）→ 5 秒后清缓存重载 ⇒ 表现为「白一下又回来了」，**不是卡死**。
+- **背景压力（实测）**：机器 16GB，`daemon-memory-diag.log`（9877 样本 / 5s 间隔）显示当日 `sysFree` 最低 **0MB**（17:40 本地），`<1000MB` 样本 **281 个**、`<3000MB` 样本 **2293 个**；崩溃窗口内可用内存仅 ~2.3GB，重载瞬间 renderer RSS 从 195MB 冲到 **509MB**（重载本身也在抢内存，形成正反馈）。
+- **排除项**：WER / `CrashDumps` 中**无 WorkBuddy 条目**（同分钟只有 `MarvisAgent.exe`、`msedge.exe` 的转储）⇒ 属机器级内存紧张时刻，非 WorkBuddy 独有缺陷。WorkBuddy 侧唯一转储为 `Crashpad/metadata` 下 `2026-09-14T15:02:48Z` 的 999KB `.dmp`（即第二次 OOM）。
+- **结论**：**DSH 与白屏无因果关系**；两者是同一台机器内存压力下的并行受害者。
+
+**二、修复 A · janitor 抑制表（`plugins/dsh-instance-janitor/lib/index.js`）**
+
+- **问题**：`taskkill` 对权限不足的目标会**持续失败**（实测 3 个 crashpad PID 连续 8 小时、每次巡检重试，全部 `ok=false`）。失败不被记忆 ⇒ 每小时重复 spawn + 刷日志，**演变成稳定噪声源，掩盖真实信号**。
+- **修复**：新增导出 `candidateKey(p)`（优先取命令行可执行路径，缺省退回「进程名+父 PID」，大小写不敏感）；`planSweep()` 接受 `opts.suppressed` 并返回 `suppressedSkipped`；`sweep()` 在 `kill` 失败时把键写入**内存**抑制表；`/status` 暴露 `suppressed`，日志输出 `suppressed=N`。
+- **设计约束**：抑制键取**身份**而非 PID（PID 会回收复用 ⇒ 只用 PID 会误伤后来的无辜进程）；同路径不同 PID 视为同一目标；抑制表**刻意不落盘**，宿主重启即清空（重启后权限环境可能已变，应给一次重新评估机会）。
+- ✅ **实测**：`instance-janitor-orphan-reclaim` **24 PASS**（新增 4 条，含「抑制不得误伤其他孤儿」核心安全属性）；`node --check` exit 0。
+- ⚠️ **归因修正（推翻上一轮）**：janitor 的 `killed=3` 是 **3 个 crashpad、全部 `ok=false`**，**不是杀 DSH 自身** ⇒ **janitor 不是 DSH 反复重启的原因**。上一次记录的「已确认误杀 GameViewer crashpad」证据不足：回放证明 `ownedByDsh()` 对 GameViewer 行正确返回 `false`、`classifyCandidate` 返回 `{action:'ignore',reason:'crashpad-not-owned'}`，**归属闸门成立**。
+
+**三、修复 B · openviking MCP 重连预算（`~/.dsh/profiles/desktop/node_modules/@openviking/dsh-memory-plugin/mcp.mjs`）**
+
+- **问题**：`openviking-server` 未运行时（`http://127.0.0.1:1933/mcp` 不可达）是**常态**，而 `dsh-mcp-client` 默认 `reconnect` 为 10 次 / 500ms 起 / 翻倍至 30s ⇒ 每次宿主启动刷 **6 条 warn + 1 条 error、持续 121.5s**（当日 211 行噪声；DSH 当夜重启 5 次 = 噪声×5）。
+- **修复**：在 `buildMcpConfig()` 返回的配置上显式声明 `reconnect: { enabled:true, initialDelayMs:5000, maxDelayMs:30000, maxAttempts:2 }`，并显式 `failOnStartupError:false`（保持启动容纳语义不变）。⇒ **warn 行 6→1、时长 121.5s→5.0s（−96%）**。
+- ✅ **实测（端到端链路复验，零 spawn）**：① `bridge.Config["~standard"].validate()`（**cordis 真实校验路径**，见 `cordis/lib/index.js:resolveConfig`）接受，`reconnect` 四项完整保留；② 复刻 `resolveReconnectPolicy` 的**严格白名单 + 区间 + 顺序**校验 → ACCEPTED；③ **负对照**证明检查非空转：虚构键报 `is not a reconnect option`、`initialDelayMs > maxDelayMs` 被拒。
+- ⚠️ **纠正一个先前的错误推断**：曾以为「HTTP 传输不在重连路径上」——**错**。`buildMcpConfig` 用的是 **stdio**（`command: process.execPath` + `ELECTRON_RUN_AS_NODE`），即 openviking 通过 **stdio 代理子进程**暴露 MCP，**确实走 supervisor 重连**，该键真实生效。
+- ⚠️ **记录一个潜伏地雷**：`resolveReconnectPolicy` 对 `reconnect` **逐键白名单**（非预期键直接 `throw`），而 schemastery **不会**剥掉未知嵌套键（已实测）⇒ **往 `reconnect` 里写错一个键名会直接导致插件加载失败**。改动该对象时务必只使用 `enabled/initialDelayMs/maxDelayMs/maxAttempts` 四个键。
+- **上游化建议**：本补丁落在**已安装的第三方包**内（非本仓库 runtime 路径），`pnpm` 重装/升级可能覆盖 ⇒ 已备份，且建议向上游 `@openviking/dsh-memory-plugin` 提 issue 请求内建该策略。
+
+**证据分级**：白屏 OOM 为 ✅ 实测（主进程日志 + crash-report JSON + 内存采样三源一致）；openviking 预算削减为 ✅ 实测（真实 schema + 真实校验函数复刻）；「重启后实际噪声是否归零」为 🔍 **未验证**（需重启才可观测）。
+
+**生效方式**：janitor 为宿主插件、openviking 配置在宿主启动时读取 ⇒ **均需重启桌面应用**（按用户守则**不自动重启**，等指示）。
+**回滚**：`_backups/janitor-retry-suppress-20260914151512/`、`_backups/openviking-reconnect-bound-20260914152230/`（均含 SHA256SUMS.txt）。
+
+---
+
+## 2026-09-14 · 孤儿网关彻底修复：三层兜底 + janitor 判据重构（**宿主插件改动，需重启生效**）
+
+> 用户报告「DSH 打开一会自动关闭，关闭后后台还有进程」。上一轮只读诊断结论：**不是病毒**；残留进程是 hy3 网关被 detached 拉起后**失父**（PPID 已死）的孤儿。本轮做**源头彻底修复**，不只做事后兜底。
+> 报告：`outputs/2026-09-14-report-orphan-gateway-fix/README.md`（含火绒加白指引 `huorong-trust-guide.md`）。
+
+**根因（结构性，不是概率问题）**：网关回收**只**依赖父进程 `process.on('exit')` 钩子；主进程被外部强杀时钩子不执行 ⇒ 无人回收。而 janitor 的兜底判据要求「启动时间早于当前主进程」，**只清上一代**，当前代孤儿永远漏网。⇒ 任何「由父进程回收子进程」的设计在强杀场景**必然失效**。
+
+**新增：L1 源头自愈（唯一不依赖 DSH 存活的一层）**
+| 文件 | 内容 |
+|---|---|
+| `hy3-gateway/orphan-guard.js`（新） | 零依赖 CJS：`isPidAlive` / `isHeartbeatFresh` / `orphanReason`（纯函数）+ `installOrphanGuard`。判据＝父进程消失（快）或心跳超期（防 PID 复用）；默认 15s 轮询 / 45s 超期 / 90s 启动宽限。安全阀：**未注入信号即完全不启用**（手工 `node server.js` 行为不变）、心跳缺失视为新鲜、PID 探测 EPERM 视为存活 |
+| `hy3-gateway/server.js` | `listen` 后接 `installOrphanGuard({parentPid, heartbeatFile, ...})`（读 `HY3_*` 环境变量） |
+| `plugins/dsh-hy3-gateway/lib/index.js` | spawn 注入 `HY3_PARENT_PID`/`HY3_HEARTBEAT_FILE`；新增 `startHeartbeat()`（启动即写 + 15s 刷新、`unref`）与 `stopHeartbeat()`（退出钩子 kill 后调用） |
+
+**修正：L2 janitor 判据重构**（`plugins/dsh-instance-janitor/lib/index.js`）
+- 判据抽为纯函数 `ownedByDsh` / `isOrphan` / `classifyCandidate` / **`planSweep`**（新）⇒ 「该杀谁」可被单测直接驱动，不必真跑 PowerShell 或真杀进程。
+- 顺序改为 **归属闸门 → 孤儿优先 → 旧代兜底 → 只报告**：**当前代孤儿网关（启动晚于 anchor）现在会被回收**（本轮核心修复）。
+- `crashpad_handler.exe` 加**归属闸门**：它是 Chromium 系通用名，旧实现仅凭进程名匹配 ⇒ 每小时间隔尝试杀第三方（实测本机 3 个属 GameViewer，父进程 GameViewerService/Server/Healthd）。
+- **补拉去重**：杀网关后先 TCP 探测 `gatewayPort`（默认 8787）再决定补拉 —— 旧实现无条件补拉，会与 `dsh-hy3-gateway` 插件**重复装配**（两个网关抢 8787）。补拉只注入 `HY3_PARENT_PID`（心跳由插件独占写入，代管会误判）。
+- 查询语句增补 `pi/pa/pn/ep` 四字段（父 PID / 父存活 / 父名 / 可执行路径）；**缺失时一律 fail-safe（不判孤儿、不杀）**。
+
+**证据分级（严格区分）**
+- ✅ **实测**：两个新测试套件全绿 —— `instance-janitor-orphan-reclaim` **19 PASS**、`hy3-gateway-orphan-guard` **12 PASS**；`node --check` ×3 exit 0；修复后基线采集：`DSH Desktop.exe` 0 个 / 网关 0 个 / 8787 与 43120 无监听 / 心跳文件不存在（无残留）。
+- ✅ **实测（日志取证）**：`~/.dsh/instance-janitor.log` 全部 564 行**都是** `kill crashpad-handler`、**无一条** `kill stale gateway` ⇒ 旧 janitor **从未回收过任何网关**；那 3 个 GameViewer crashpad 自 09-07 起被每小时间隔尝试、**全部 `ok=false`**。
+- ⚠️ **一处归因修正**：上游诊断记的「已确认误杀 GameViewer crashpad」**证据不足**——该 3 进程至今存活、日志对应行全是 `ok=false`。准确表述为「**反复尝试杀第三方、均失败**」。
+- 🔍 **推断（未验证）**：主进程被安全软件（最可能火绒 HIPS）强杀 —— 火绒日志为加密二进制，明文取证失败。
+- 🔍 **未验证**：三层兜底在真机重启后的实际行为；加白后是否不再自动关闭。
+
+**生效方式**：L1 随网关进程、L2 为宿主插件 ⇒ **需重启桌面应用**（按用户守则**不自动重启**，等指示）。
+
+**回滚**：`_backups/orphan-gateway-thorough-fix-20260914144834/`（改后快照 9 文件 + sha256）；janitor 改前版 `_backups/janitor-orphan-fix-20260914143903/index.js.before-orphan-reclaim`（12511B）。⚠️ `hy3-gateway/`（`.gitignore:90`）与 `.workbuddy/`（`:28`）**无 git 兜底**，回滚只能手工执行（步骤见报告 §7）。
+
+---
+
+## 2026-09-14 · dsh-orchestrator P1：编排核心 + orchestrate 工具 + 运行端点（**需重启生效**）
+
+> v2 方案的 P1：把"部门"真正跑起来。**核心逻辑与工具全部在纯 node 下验证完毕**（6 套件全绿），但 `orchestrate` 工具与两个新端点属于 host 侧注册，**需要重启桌面应用才生效**（等用户指示，不擅自重启）。
+
+**新增模块（零依赖 ESM，全部可隔离单测）**
+| 文件 | 职责 | 关键点 |
+|---|---|---|
+| `lib/judge.js` | 拆分判定（**纯规则**） | 默认 solo；命中 ≥2 个"该拆"信号才 team；`reason` 列出每个信号（可追溯）；`depth`（委派深度）与 `chain`（阶段链长）**是两个上限** |
+| `lib/roles.js` | 6 个角色契约（**数据**，加角色不改代码） | dev 是唯一 `writable`；其余角色 `toolFilter.deny` 掉写类工具；每角色一份 `outputSchema`（object 根 + `additionalProperties:false`） |
+| `lib/plan.js` | 规划 + 校验（**第二道闸**） | 6 阶段链 + 3 条驳回回边；验收标准**规划期冻结**；拒绝码 `MULTI_WRITER/MISSING_WRITER/DEP_CYCLE/DANGLING_DEP/TOO_MANY_AGENTS/CHAIN_TOO_LONG/NO_ACCEPTANCE/DANGLING_BACKEDGE/UNKNOWN_ROLE/EMPTY_PLAN` |
+| `lib/scheduler.js` | 调度器 | 并发上限、单节点超时、**只对 failed/timeout 重试**、取消透传、**幂等/续跑**、依赖失败即跳过下游、整轮墙钟上限、修复循环（轮次上限 ⇒ blocked 转人工） |
+| `lib/gate.js` | 门禁 **G1–G8** | 缺证据 / 审查 critical / 未证明"改前失败" / 回归未过 / **只读越权** / 汇总失真 / 验收未满足 / 形状不合法 —— 全部**代码拒绝** |
+| `lib/run.js` | 运行落盘 | 复用 S1 六步原子写；落 `<DSH_HOME>/orchestration/runs/<projectId>/<runId>/`（**不污染工作区**）：`run.json`（= 客户端契约形状）、`nodes/<id>/{brief.md,result.json,log.ndjson}`、`gate.json`；`hashFiles/diffHashes` 是 G5 的判据 |
+
+**接线**：`orchestrate` 工具（`ctx.tools.register`，含 `output.schema` + `output.render` 把部门进度渲染到对话里）；`GET /orchestrator/runs` 与 `GET /orchestrator/run/<runId>`；客户端**接真实运行**（2s 轮询、有界、拿不到就如实回退到会话树）。
+
+**验证（全部实测，无需重启即可跑）**
+| 套件 | 结果 |
+|---|---|
+| `orchestrator-tool` | **11 PASS / 0 FAIL**：工具注册面 / solo **真的不派活** / team 端到端 6 角色 / **权限真的传下去**（只读角色 request 里带 `toolFilter.deny`） / G2·G3·G5·G6 拒绝 / subagents 不可用时失败可见 / 端点 200·404 |
+| `orchestrator-gate` | **12 PASS / 0 FAIL**：G1–G8 逐条故障注入（含"verdict=pass 但有 critical 也不能放行"） + 落盘/简报/哈希判据 |
+| `orchestrator-scheduler` | **19 PASS / 0 FAIL**：并发峰值 ≤ 上限 / 超时标 `timeout` / 重试计数 / **blocked 不重试** / 修复循环真重跑 / 取消透传 / 幂等不重跑已完成节点 / 墙钟上限 |
+| 回归 | client **50/50**、ledger **38/38**、host **10/10** |
+
+**被测试抓到的 4 个真 bug（都是我自己写出来的）**
+1. **`validate` 里把 `TOO_MANY_AGENTS` 删掉了**（改链长上限时顺手删了）⇒ 上限失守。测试立刻抓到。
+2. **`depth` 语义混淆**：本意是"子代理委派深度"，却被当成"DAG 链长"用 ⇒ 把自己的 6 阶段计划拒了。拆成 `depth` 与 `chain`。
+3. **调度器 clone 了计划**：导致 ①宿主在 `evaluate` 里读到的节点状态永远是 `idle`（**G6 因此失效**）②中途落盘的状态陈旧（"实时进度"退化成结束才更新）。改为**原地持有**。
+4. **`run.json` 不能复用账本的 `readState`**：那个读路径按账本契约校验，run 记录会被误判 `invalid` ⇒ 为 run 写了独立的、同样诚实的读路径（`ok/absent/corrupt/invalid`）。
+
+**另有 2 处是"测试写错、实现正确"**：G5 的篡改内容幂等（第二轮检测不到，属正确行为，改为每次写不同内容）；`fmtMs(12400)` 显示 `12s` 不是 `12.4s`。
+
+**未完成（P1 尾巴）**：`agent-presets/orchestrator`（部门模式预设）、端到端真跑一次（**需重启**）、以及 P0.2 观感微调。
+
+**回滚**：`_backups/p1-core-20260914-204327/`（改动前的 4 个 lib 文件 + README/CHANGELOG）；新增模块可直接删除；工具与端点可通过不重启而失效（客户端 2s 轮询会如实回退到会话树）。
+
+---
+
+## 2026-09-14 · dsh-orchestrator P0.2：运行驱动的部门流程图（阶段框 + 驳回回边 + 内嵌卡，**免重启**）
+
+> 依据 v2 完整方案（`outputs/2026-09-14-report-orchestration-v2/README.md`）与用户「分步执行 + 可回退」要求：**先把版式与交互做到位**，P1 再接真实运行数据。**纯客户端，刷新即生效，不需要重启。**
+
+**交付（`plugins/dsh-orchestrator/lib/client.js`）**
+- **视图模式**：运行视图（默认）/ 会话树。**无运行数据但存在会话时自动回退到会话树并明说**（`data-orch-mode`=`sessions-auto` + 横幅），不给空看板也不假装有运行。
+- **阶段 = Group Node**：6 个阶段框带 n/m 进度与运行/阻塞/失败计数；**可折叠且入口不丢**（折叠只留标题，节点与相关边一起隐藏）。
+- **驳回回边**：审查驳回 → 回修复，**虚线弧走阶段框下方专用通道**并带标签；几何上保证不穿越任何节点（有断言：回边通道 y 大于所有节点底部）。
+- **节点卡片**：`⟳n/N` 重试角标、**运行中节点按 `startedAt` 每秒跳动的实时耗时**（不伪造时间）、产物数、「可写/只读」、critical 时「⛔ n 项阻断」。
+- **密度降级**：缩放 < 50% 节点降级为状态色块，仍可点选（防信息过载）。
+- **运行摘要条**：任务 / 第 n/N 轮 / 完成 n/m / 已用 / 预算条（>80% 变红）/ 验收标准条数。
+- **对话内嵌运行卡（预览）**：6 段阶段条 + 角色状态芯片 + 进度；**P1 用 `tool.call.toolview` 挂到对话流**，实现"提交任务后流程图自动出现"。
+- **详情面板**：新增 阶段/耗时/重试/产物/可写 + **阻断项（门禁）逐条** + **规划期冻结的验收标准逐条**。
+- **数据契约稳定**：客户端只认 `{runId,task,status,startedAt,round,maxRounds,budget,acceptance,nodes[],edges[],backEdges[]}`；P1 的 host 端点按同形状返回即可接入。
+
+**验证（全实测）**
+
+| 项 | 结果 |
+|---|---|
+| `node --check` | **exit 0** |
+| 客户端契约测试 | **49 PASS / 0 FAIL / exit 0**（+10 条：运行模型自洽、`fmtMs`/回边几何、阶段框与进度、回边不穿节点、重试角标/实时耗时/阻断数、折叠与恢复、密度降级、摘要与内嵌卡、详情面板） |
+| 回归 | `orchestrator-ledger` **38/38**、`orchestrator-host` **10/10**（exit 0） |
+| 线上 bundle | **200 / 84484 字节 / `cache-control: no-cache`**，含 `data-orch-mode`、`data-orch-group-toggle`、`data-orch-backedge`、`data-orch-runcard`、`data-orch-dense`、`data-orch-retry-badge`、`data-orch-autofallback` |
+| 门禁 | `startup-verify` **10/10 PASS**、`verify-plugin-imports` **0 violations**、`/health` **200**、`/orchestrator/state` **200** |
+
+**过程中被抓到的真问题**：①「示例」按钮标签跟随了**回退结果**而不是**意图模式** ⇒ 无运行数据时点不到"示例运行"（改为跟随 `runWanted`）；②我写错两处期望值（done 数 3→4、`fmtMs(12400)` 显示 `12s` 而非 `12.4s`）—— 实现是对的，按实测口径修正断言。
+
+**回滚**：`_backups/p0.2-run-view-20260914-192316/client.js.orig`（客户端 bundle `no-cache` ⇒ **刷新即回滚，不重启**）；`FLAGS.mountUi=false` 一键撤下整个 tab。
+
+---
+
+## 2026-09-14 · dsh-orchestrator P0.1：看板作用域过滤（只显示与你有关的会话，**免重启**）
+
+> 触发：用户实测反馈「**显示的对话太多**」。启动时看板把客户端 store 里的**所有**会话都画成节点（含历史会话与别的工作区）⇒ 噪音淹没重点。
+
+**改动**（`plugins/dsh-orchestrator/lib/client.js`，纯客户端）
+- 新增纯函数 `scopeRows(rows, current, mode)` 与三档范围：**本工作区（默认，`cwd` 与当前会话相同）/ 本任务家族（当前会话所在会话树的根 + 全部后代 ≈ 同一个任务）/ 全部（原行为）**。
+- **不丢自己**：当前会话及其后代在任何档位都保留（按 cwd 过滤时也一样）。
+- **降级诚实**：拿不到 `current` 或当前会话无 `cwd` ⇒ **退回显示全部**并把原因写进横幅（宁可多，也不要空面板）；未知档位名按默认档处理（不静默等于关掉过滤）。
+- **不静默丢数据**：徽章「隐藏 N」+ 底栏「范围「X」过滤掉 N 个会话」+ 空态里说明"另有 N 个被过滤，切「全部」可看全"。
+- **环安全**：向上找根与家族闭包都带 `seen` + `MAX_DEPTH`（环/自引用不死循环）。
+- **`cwd` 归一化**：`\`→`/`、小写、去尾斜杠，避免同一路径两种写法被当成两个工作区。
+- **诚实边界**：`相同目标(goal)` **无可靠字段**（会话行没有 goal 投影）⇒ 用「任务家族」近似；将来有 goal 投影键时加一档即可。
+
+**验证**：`node --check` exit 0；客户端契约测试 **39 PASS / 0 FAIL**（新增 5 条：三档语义 / 无 current 与无 cwd 兜底 / 环 / 默认档渲染与「隐藏 N」/ 档位切换交互）；回归 ledger 38/38、host 10/10；线上 bundle 200 且含 `data-orch-scope-note`（`no-cache` ⇒ 刷新即生效）。**回滚**：`_backups/p0.1-scope-filter-20260914-173906/client.js.orig`。
+
+---
+
+## 2026-09-14 · dsh-orchestrator P0：部门流程图板（分层 DAG + 交互 + 铺满主区，**免重启**）
+
+> 用户批准「开始执行」，要求「效果好、交互性好、排版适配且铺满，可参考网上的开源项目」。P0 交付**看板本体**：把「会话列表」换成真正的**部门流程图**（节点=agent/角色，边=父子委派），并用它确认版式与交互后再投 P1 真实派活。
+
+**交付内容（`plugins/dsh-orchestrator/lib/client.js`，纯客户端）**
+- **铺满主区**：根节点 `flex:1 1 auto; height:100%; min-height:0; width:100%`。依据：宿主视图容器实测 `.wSkVaW_viewArea{flex-direction:column;flex:1;min-height:0;display:flex}`（`dsh-client-ui-conversation/lib/client.js:7120, 7420-7428`）—— **缺 `min-height:0` 就会塌成内容高度**，这正是"铺不满"的根因（本次先读契约再写样式）。
+- **流程图**：分层 DAG（层=深度→列，层内垂直居中）+ **正交折线边** + 目标端箭头 marker + 运行态**流动虚线**；父子环/自引用/超深链**不死循环**（`seen` + `MAX_DEPTH=12`）；节点上限 200。
+- **节点卡片**：状态点 + 角色徽章（preset/origin/标题关键词推断，可追溯依据）+ 状态（**颜色+字形双通道**）+ 标题 + `origin/L/depth/时间`。
+- **交互**：单击选中（详情联动 + 关联边高亮 + 无关节点置灰）、双击**直接跳会话**（`openSubagent`/`open`）、`←`/`→` 在父子间移动、`Esc` 取消、Tab 移动、hover 抬升、选中 zIndex 抬升、缩放 40%–200% + 「适应」、**minimap（>8 节点）**、滚轮/滚动条平移、详情面板「跳到该会话 / 在图中定位」。
+- **降级与诚实**：数据源在选择器里显式标注（client / host / none）；store 不可用 ⇒ 降级到 host 快照并说明；两者都无 ⇒ 空态图标+原因；**「示例预览」默认关闭**，节点带虚线边框+「示例」水印+顶部横幅，不写入任何状态、不可跳转。
+
+**版式依据（联网调研，含链接）**：[React Flow](https://reactflow.dev/learn/customization/custom-nodes)（节点 200–280×80–120、内边距 12–16、边类型、fitView/minimap）、[Airflow UI](https://airflow.apache.org/docs/apache-airflow/stable/ui.html)（Graph View 状态叠加 + 空态 + 形状+颜色双通道）、[dagre wiki](https://github.com/dagrejs/dagre/wiki)（分层布局三阶段、`ranksep 50–80 / nodesep 50`）、[Langfuse](https://langfuse.com/docs/observability/overview)（嵌套 trace 的耗时/层级表达）、[Temporal Web UI](https://docs.temporal.io/web-ui)（timeline/空态）。采纳其"反面清单"：避免信息过载、强制分层减少边交叉、主色板≤5 色 + 灰阶、**避免嵌套滚动**、hover 只高亮而 click 才开详情。
+
+**验证（全实测）**
+| 项 | 结果 |
+|---|---|
+| `node --check lib/client.js` | **exit 0** |
+| 客户端契约测试 | **32 PASS / 0 FAIL / exit 0**（布局/环保护/边路径/角色状态推断/选中联动/双击跳转/示例开关/密度/缩放限幅/minimap 阈值/键盘 ←→Esc/截断/降级/**铺满契约**） |
+| 回归 | `orchestrator-ledger` **38/38**、`orchestrator-host` **10/10**（exit 0） |
+| 线上 bundle | `GET /plugins/@dsh-external/dsh-orchestrator/client.js` → **200 / 55116 字节 / `cache-control: no-cache`**，含 `mountUi:true`、`data-orch-node`、`data-orch-minimap`、`data-orch-edge-live`、状态字形、`适应`、`P0 · 部门流程图` |
+| 健康 | `/health` **200 / failed=[]**；`/orchestrator/state` **200 / agentCount=5** |
+
+**过程中修掉的真 bug（测试先失败才暴露）**：①示例节点没打 `source='demo'` 标记 ⇒ 水印/虚线/横幅全部失效；②跳转结果只在"已选中"分支显示 ⇒ 未选中时双击跳转**没有任何反馈**（违反"不静默"）。另修正测试自身的写法问题（跨两次遍历比较对象引用必然不等 → 改为断言标记值）。
+
+**回滚**：`_backups/p0-flow-dashboard-20260914-170833/client.js.orig` 单文件还原（客户端 bundle `no-cache` 按请求读盘 ⇒ **刷新即回滚，不重启**）；退役开关 `FLAGS.mountUi=false` 可一键撤下整个 tab。
+
+**诚实边界**：单测跑的是假 React + 假 DOM，覆盖数据/结构/交互/降级，**不能替代观感复核** —— 铺满效果与排版需刷新页面目视确认一次。
+
+---
+
+## 2026-09-14 · dsh-orchestrator 方案转向：部门式编排设计定稿 + 旧工作台 UI 退役（**免重启**）
+
+> 用户指出上一轮方向不对：要的不是「账本 + 会话列表」，而是「**在一个对话里输入任务 → 自动判断是否拆分 → 派多个角色化 sub agent 并行干活（开发/审查/测试）→ 汇总 → 节点流程图可视化**，像一个部门」。本轮产出：正式设计文档 + 旧 UI 退役。
+
+**交付物**：`outputs/2026-09-14-report-department-orchestration-design/README.md`（已登记 `outputs/INDEX.md`，并标注 **supersede** 旧的 `…-multi-agent-orchestration-plan/`）。
+
+**方案要点（详见该文档）**
+- **可行性 12 项逐条判定：10 能 / 1 能但需补强 / 1 未验证 / 0 不能**。内核已自带「部门发动机」：`ctx.subagents.start(provider,{parent,prompt,persona,toolFilter,outputSchema,maxDepth})`（`dsh-subagent/lib/types/index.js:290-303`，spawn provider 四能力全支持 `dsh-subagent-spawn-in-process/lib/index.js:15-27`）、`run.result` 结构化回报、`workflowEngine` 脚本化并行（`dsh-tool-workflow/lib/index.js:96-104`）、`ctx.tools.register` + `output.render`（先例 `plugins/dsh-diagram-renderer/lib/index.js:17-28`、`plugins/dsh-project-brief/lib/index.js:13-26`）、`inbox.append('next-step')` 主动驱动会话（先例 `plugins/dsh-routing-suite/preset/preset/router-bootstrap.mjs:113-119`）。
+- **唯一硬约束**：`start()` 的 `parent` 必须是**活着的 Agent** ⇒ 插件不能做无人监督的后台调度器 ⇒ 形态定为「**插件提供工具 + 看板；会话里的 agent 触发一次；工具内部用代码跑完整条 DAG**」。
+- **修正旧计划的执行顺序**：改为「先打通端到端一条竖切，再按需补基建」；S1 账本 = 运行状态权威底座、S2 数据层 = 看板底座（均保留）。
+- **升级路线 P0–P5，合计 11–17 人日**（旧方案 26–39 的 45%，因为执行引擎由内核提供）；P0（流程图看板）**免重启**，P1（`orchestrate` 工具）起需重启。
+- **风险登记（含 3 项高风险）**：成本 15×（默认不拆 + 硬上限 + 预算条）、失控 spawn（上限全部由代码判断）、门禁退化（代码拒绝 + 6 类故障注入）。新增关键设计 **G5**：`toolFilter` 只是工具级白名单、不是文件级 ACL ⇒ 用「只读节点运行前后工作区 hash 对比」把「只读」变成**可验证事实**。
+
+**已执行的退役动作（按「没用就删，含按钮」）**
+| 件 | 判定 | 动作 |
+|---|---|---|
+| S2 UI 外壳（会话列表形态 + 面板 2/3/4 占位 + 「阶段 1-A·快速壳」徽章 + 「均未接入」流水线条） | 无用且误导 | **退役**（不再挂载） |
+| `conversation.view` 的「编排工作台」tab 按钮 | 当前误导 | **退役**（`apply()` 不注册任何 slot） |
+| S1 账本引擎（38 测试）、`/orchestrator/*` 端点、客户端数据层 | 有用 | **保留** |
+
+**实现**：唯一开关 `plugins/dsh-orchestrator/lib/client.js` 的 `var FLAGS = { mountUi: false }`；恢复改一行 `true`（客户端 bundle `no-cache` 按请求读盘 ⇒ 刷新即生效，**不重启**）。host 端点在 `lib/index.js` 独立注册，不受影响。
+
+**验证**：`node --check lib/client.js` exit 0；`tests/plugins/orchestrator-client.test.mjs` **15 PASS / 0 FAIL / exit 0**（新增「退役态不注册任何 slot」与「恢复态注册契约不变」两条）；回归 `orchestrator-ledger` 38/38、`orchestrator-host` 10/10；浏览器侧 `GET /plugins/@dsh-external/dsh-orchestrator/client.js` 返回新内容且 `no-cache`（刷新即生效）。
+
+---
+
+## 2026-09-14 · dsh-orchestrator 阶段 1.0·S2：会话元数据接入（实时会话表 + 点行聚焦，**免重启**）
+
+> 把工作台面板 1 从「host 快照探针」升级为**实时会话表**。**host 侧一行未改**（`lib/index.js` 未动）⇒ **不需要重启**，浏览器刷新即生效（实测：`GET /plugins/@dsh-external/dsh-orchestrator/client.js` = 200 / 含新标记 / `cache-control: no-cache`）。
+
+**plan（六要素）**
+- 目标：面板 1 显示**真实标题 + 运行中徽章 + preset / origin / 委派深度 + 父子层级**，并支持**点行聚焦**该会话；host 快照降级为补充与兜底。
+- 涉及文件：改 `plugins/dsh-orchestrator/lib/client.js`；**新增** `tests/plugins/orchestrator-client.test.mjs`；改 `plugins/dsh-orchestrator/README.md`、`plugins/INVENTORY.md`、本文件。**不动** host 侧、`package.json`、装配、内核/dist/补丁。
+- 改动点：①数据源改客户端 store `ctx.sessions.list`（`resolveSessions`：`ctx.sessions` → `ctx.reflect.get('sessions')`）；②`subscribe()` 驱动 + **合帧节流 120ms** + **卸载必退订**；③按 `parentId` 组树（`seen` 集合 + `MAX_DEPTH=12` ⇒ **环/自引用/超深链不死循环**）；④行数上限 **200**（超出显式告知「共 N」）；⑤点行 `openSubagent(address)` / `open(id)`，失败弹横幅并回显；⑥store 不可用 ⇒ 源标记降级为 `host` 并在界面说明，两者都无 ⇒ `none` + 原因横幅，**绝不空白/不显示假数据**；⑦渲染 `data-orch-*` 可测标记。
+- 验证方式：客户端契约测试 14 断言（假 `__ModuleLoader__` + 假 React + 假 store + **假定时器**，覆盖数据层/树与环保护/跳转/渲染/降级/截断/退订/节流）；`node --check`；三个测试套件回归；boot payload → 直接 GET 客户端 bundle 验证「浏览器会拿到新代码」；门禁 `check-unsupervised`/`startup-verify`/`verify-plugin-imports`/`/health`。
+- 回滚方式：`_backups/s2-orchestrator-client-20260914-160636/client.js.orig` 单文件还原（客户端 bundle 免重启，**刷新即回滚**）；无需卸载插件。
+- 风险收益：风险**低**（只改一个客户端文件 + 新增一个测试文件，不碰 host/内核/装配；最坏刷新即回滚）；收益**高**（面板立刻可用，且把「会话元数据在客户端」这条结论固化，为 S3/S4 面板铺路）。残余风险：客户端 store 属内核内部结构（用 null-safe + 证据行号登记，形状变化时降级而非崩溃）；假 React 单测 ≠ 真实渲染 ⇒ 需一次浏览器复核。
+
+**实测证据（2026-09-14）**
+| 验证项 | 结果 |
+|---|---|
+| 客户端契约测试（新增 14 断言） | **14 PASS / 0 FAIL / exit 0** |
+| 回归：S1 账本测试 / host 测试 | **38 PASS / 0 FAIL** / **10 PASS / 0 FAIL**（均 exit 0） |
+| 免重启的关键证据 | boot payload 指向 `/plugins/@dsh-external/dsh-orchestrator/client.js`；直接 GET → **200 / 26965 字节 / 含 `data-orch-session-row` 与 S2 标记 / `cache-control: no-cache`** |
+| 门禁 | 我的 5 个文件全 **REGISTERED（DRIFTED=0）**；`startup-verify` **9/10**（V9 沙箱 EPERM）；`verify-plugin-imports` **0 violations**；`/health` **200** |
+
+**一条被实测推翻的旧假设（纠正 1-A 之后的 S2 设计）**：原计划「走 `session.list` **RPC** 取 `title`/`running`」不成立 —— RPC 的 `SessionSummary` **没有 title 字段**（`dsh-host-apiproxy/lib/types/api/sessions.schema.js:31-41`），而客户端 store 里 `byId[id]` 已含 `displayTitle/running/parentId/origin/agentPreset/cwd/updatedAt/...`（`dsh-client-runtime/lib/client.js:9216-9237`），且 `sessions.list.getSnapshot()/.subscribe()` 是**裸快照源**（`:9840, 9863`）。⇒ 不新增 host 端点，顺带免掉一次重启。另纠正：`useSessions` 钩子只发给 **root scope** 条目，`conversation.view` 是 session scope，故本组件直接读裸快照源而不依赖该钩子。
+
+---
+
+## 2026-09-14 · dsh-orchestrator 阶段 1.0·S1：状态账本 + 版本化契约（六步原子写 / 降级不重置 / rev CAS）
+
+> 多 Agent 编排计划「下一步」的第一个骨架件（S1）。**已重启并线上复核通过（2026-09-14 15:37 重启；反推启动 15:37:28 > 代码最后改动 15:29:19）。**
+> 交付 `lib/contract.js`（契约/校验/迁移）+ `lib/ledger.js`（原子写/降级/CAS），两者**零依赖**（仅 `node:` 内建）⇒ 可在纯 node 进程隔离测试（本仓 `node_modules/@deepseek-ai` 不存在，裸导入宿主包必然 `ERR_MODULE_NOT_FOUND`）。
+
+**plan（六要素）**
+- 目标：给编排工作台装上**唯一权威状态账本**及其版本化契约 —— 原子写、版本迁移、损坏降级（**绝不静默重置**）、未知字段保留、`rev` CAS 防丢更新。**不派活、不接 `session.list`、不做 UI、不接健康探测、不做轮转归档**（S2/S3/S4）。
+- 涉及文件：**新增** `plugins/dsh-orchestrator/lib/contract.js`、`plugins/dsh-orchestrator/lib/ledger.js`、`tests/plugins/orchestrator-ledger.test.mjs`；改 `plugins/dsh-orchestrator/lib/index.js`（+4 端点）、`plugins/dsh-orchestrator/README.md`、`plugins/INVENTORY.md`、本文件。**不动**：`lib/client.js`、`package.json`、`cordis.patch.yml`、装配 4 处、内核/dist/补丁。
+- 改动点：①六步原子写（mkdir → open tmp `wx` → write → **fsync(tmp)** → close → rename → **fsync(父目录)**，第 ⑥ 步**能力探测门控**）；②语义契约：`absent/ok/degraded/too-new/invalid/too-large`，`version` 缺失或非整数一律 invalid（不猜版本）、`too-new` 只读拒写、`<当前` 逐级迁移且**落盘前先备份旧版本原件**、未知顶层键原位保留（`{...cur, ...patched}`）；③损坏 ⇒ `.corrupt-<sha8>-<ts>` 保命备份 + 主文件原样保留 + 每次读如实报 `degraded`；④写面：`POST /orchestrator/ledger/{init,patch}` 顶层白名单 + `expectRev` 必填 + 合并后校验 fail-closed + body ≤64KB；⑤长期运行：孤儿 tmp 超龄回收（新鲜 tmp 不动）、`.corrupt-*` 上限 5、读上限 4MB、rename 8 次指数退避；⑥账本落 `<DSH_HOME>/orchestration/<目录名>-<sha1前8>.json`，项目根解析「显式 project → 存活 agent `session.header.cwd` 多数派 → 明确 400」，**绝不回退 `process.cwd()`**。
+- 验证方式：`node --check` ×3；隔离测试 38 断言（**主体是故障注入**）；host 测试回归；**跨进程独立验证**（独立读者进程 ∥ 400 次原子写）；**对验证器本身做故障注入**（故意非原子写）；shim 分类探针；`startup-verify` / `verify-plugin-imports` / `check-unsupervised` / `/health`。
+- 回滚方式：文件级备份还原（`_backups/s1-orchestrator-ledger-20260914-151758/`）+ 新文件走回收站；插件级 `dev_uninject_plugin dsh-orchestrator`；运行态账本默认保留。无内核/dist/补丁/装配改动 ⇒ 不重建、不触启动链路。
+- 风险收益：风险**低–中**（新增文件为主；首次给本插件引入写盘路径 + 写端点，但有回环限定、白名单、CAS、单份 `.bak`、可整体卸载）；收益**高**（S2/S3/S4 共用唯一真相，三类事故——半写/损坏/版本漂移——在本阶段被物理堵住）。
+
+**实测证据**（2026-09-14）
+| 验证项 | 结果 |
+|---|---|
+| 隔离测试 38 断言（含故障注入） | **38 PASS / 0 FAIL**（5.5s） |
+| 既有 host 测试回归 | **10 PASS / 0 FAIL**（13.9ms，无退化） |
+| 跨进程原子性 | 独立读者 **63,055 次读 / 7s ∥ 400 次原子写** ⇒ **0 次半写**；400 个 rev 全部被读到 |
+| 读者检测力对照（**对验证器本身注入故障**） | 同一读者 ∥ 故意非原子写（截断→停 6ms→写）⇒ **7,984 读 / 6,087 次半写**（首个坏样本 0 字节）⇒ 上条「0」非瞎测 |
+
+**两个改变设计的本机实测事实（Node v24.14.0 / win32）**
+1. **目录 fsync 不可用**：`openSync(dir,'r')` 成功但 `fsyncSync(目录 fd)` ⇒ `EPERM`；只读文件 fd 同样 `EPERM`，读写 fd 才 OK。MS 文档：Windows「移动即持久」只有 `MOVEFILE_WRITE_THROUGH` 能保证，Node 的 rename 不暴露该标志 ⇒ 纯 Node **无法让 rename 本身持久化**。⇒ 第 ⑥ 步改为**真探测**（不写平台假设）+ 逐次如实上报 `fsync.dir = ok|unsupported|error`。影响边界：并发/崩溃语义不受影响（rename 原子），只有掉电持久性退回依赖 NTFS 元数据日志。
+2. **目标文件被占用时 rename 覆盖 `EPERM`**：原 3 次×15ms 重试在压力下 **400 次写失败 11 次**；改为 8 次指数退避（≈0.27s 最坏）后**同一压力 400/400 成功**。成功结果自证 `renameAttempts`、失败结果自证试了几次（新增回归护栏测试）。
+
+---
+
+**重启后线上复核（2026-09-14 15:37 重启，反推启动 15:37:28 > `ledger.js` 改动 15:29:19）**
+| 复核项 | 实测 |
+|---|---|
+| 新代码已生效 | 日志 `07:37:29Z routes registered at /orchestrator/* (GET /ping\|/state\|/contract\|/ledger\|/ledger/init\|/ledger/patch)`；3 条 `duplicate prefix route` 全在 06:07–06:08（修正前历史），本次重启后**零新增**（重试幂等） |
+| `GET /contract` | 200；`version=1`、`contractHash=96eb85f13e6625ec`、`migrations=[]`、`endpointCount=6`、`renameRetries=8`；**`dirFsync={supported:false, probed:true, reason:"probe-fsync-failed", code:"EPERM"}`**（真探测，未伪报） |
+| `POST /ledger/init` | 200 `created:true rev:1`；`steps=[mkdir,open-tmp,write-tmp,fsync-tmp,close-tmp,rename]`；**tmp 残留 `[]`** |
+| 端点自证 | 端点 `sha256` **等于**磁盘文件 sha256；`backups[]` 正确列出 `.bak` |
+| 写面守卫 | 缺 `expectRev`→**400**；`patch:{rev:42}`→**400 PATCH_KEY_NOT_ALLOWED**；CAS 落后→**409 STALE_BASE**（回真实 rev）；`dependsOn:["T9"]`→**422 STATE_INVALID**（`DEP_UNKNOWN`）；正常→**200 rev 2**+单份 `.bak` |
+| **故障注入①：截断账本** | `GET`→`ok:false, status:"degraded", code:"PARSE_FAILED"` + `.corrupt-839e1af0-…`（125B 原件），**主文件仍为被截断的 125B（未被重置）**；二次读 `backup.reused:true`（幂等不增份）；`patch`→**503 LEDGER_NOT_WRITABLE** |
+| **故障注入②：版本越界** | 手工置 `version=99` → `GET`→`status:"too-new", code:"VERSION_TOO_NEW"`；`patch`→**503**；**文件未被改动**（仍 99） |
+| 真项目账本 | `init {project:"D:/Deepseek-Harness"}` → 200，落盘 `~/.dsh/orchestration/deepseek-harness-1df7a12d.json`（`GET`→`ok`, rev 1） |
+| 边界 | 不存在的 project→**400 PROJECT_INVALID**；未知端点→**404** |
+
+> 复核用的 scratch 账本（`good-*`/`corrupt-*`/`toonew-*`）刻意建在临时项目目录下，**真项目账本只做一次正常 init**，未向你的项目数据注入故障。顺带补上 README「账本异常后的恢复步骤」小节（degraded/too-new/invalid/too-large 四类的人工恢复路径 + 给 S3 健康探测的提示：不要盲扫 `orchestration/` 目录，历史 `.corrupt-*` 是证据不是故障）。
+
+---
+
+## 2026-09-14 · 新增 dsh-orchestrator「编排工作台」阶段 1-A（可点击切换的视图 tab + agent 实时快照）
+
+> 多 Agent 编排计划（`outputs/2026-09-14-report-multi-agent-orchestration-plan/`）的首个落地切片。装配过程连撞 3 个坑，均已钉成记录/回归护栏。**已重启验证生效（2026-09-14 14:58）。**
+>
+> **终验证据（重启后实测）**：`GET /orchestrator/{ping,state}` **200**；`state` 投影出真实 `createdAt` / `cwd=D:\Deepseek-Harness` / `agentPreset=standard` / `delegationDepth=0` 与完整 `headerFields`（header 真实 `version=0`）；插件日志在最后一次 `routes registered` 之后**零行**（重试幂等生效，`duplicate prefix route` 仅存于修正前的历史 3 条）；`/health` **200**；`startup-verify` **9/10 PASS / 0 FAIL**；`audit-plugin-inventory` **11 PASS / 0 WARN**；隔离测试 **10 PASS / 0 FAIL**（13ms）。
+
+**plan（六要素）**
+- 目标：让「编排工作台」成为主内容区的一个可点击切换的视图 tab，并验证三个环境假设（主区域可切视图 / 能读到全部 agent / 与内核连通）；**不含任何编排逻辑**。
+- 涉及文件：**新增** `plugins/dsh-orchestrator/{package.json, cordis.patch.yml, lib/index.js, lib/client.js, README.md}`、`tests/plugins/orchestrator-host.test.mjs`；改 `profile/desktop/package.json`（模板 4 处装配之一，仅追加两行）；运行态 3 处由进程内工具 `dev_install_package` 写入。
+- 改动点：① host 零依赖 ESM，`inject=[]` + 全 `ctx.reflect.get()` 惰性解析，注册 `GET /orchestrator/{ping,state}`（仅回环、只读、无副作用）；② agent 快照只投影**浅层 JSON 安全原始值**（含嵌套 session）⇒ 面板兼作 **schema 探针**，不猜内核字段名；③ client 手写 lazy-CJS bundle（唯一外部依赖 react），向 `conversation.view` 注册 id=`orchestrator` 的 tab，四面板骨架 + 3s 轮询；④ `package.json` 声明 `dsh.bundle.patch` + `dsh.client.inject`。
+- 验证：`node --check` ×2 exit 0；隔离测试 `node tests/plugins/orchestrator-host.test.mjs` **8 PASS / 0 FAIL**（严格 mock ctx：任何服务属性访问即抛，精确复现 DSH 行为）；`startup-verify` **9/10 PASS / 0 FAIL / exit 0**（唯一 WARN 为 V9「沙箱禁 spawn」环境限制，已由 node --check 单独覆盖）；`GET /health` **200**；装配一致性 `template == runtime bundles` = **true**（45 项）。
+- 回滚：`dev_uninject_plugin dsh-orchestrator`（首选，免重启）或 `node scripts/deregister-plugin.mjs --plugin dsh-orchestrator --yes`；模板改动为纯追加两行，可手工回退。备份 `_backups/plugin-register-dsh-orchestrator-20260914041324/`。
+- 风险收益：风险**低**（纯新增插件，不碰内核、不改既有插件；注册前先语法校验 ⇒ 启动加载器不会读到半写文件）；收益**高**（当天可见形态 + 验证 4 个环境假设，为阶段 1 决策提供依据）。
+
+**本批踩到并记录的 3 个坑（供后续插件复用）**
+1. **直写 `ctx.setTimeout` 会让 loader entry 创建失败**：报 `cannot get property "timer" without inject`；把 `timer` 写进 `inject` **也救不了** —— 必须经 `ctx.reflect.get()` 取服务（与 `dsh-session-hygiene` 注释里的结论一致）。已加**回归护栏**（测试用例 3：故意注入会抛的 `setTimeout`，断言 apply 不崩）。
+2. **DSH loader 缓存模块**：同一路径的模块在同一进程内**不因改盘重求值** ⇒ 不重启则修正全不生效，且错误信息与日志会误导（本次连错 5 轮；日志里每次都有 "routes registered"，因为跑的是旧代码）。⇒ 改插件代码后必须重启（或换路径）。
+3. **bundle 包必须声明 `dsh.bundle.patch`**：漏了会让**应用启动直接抛** `declares no dsh.bundle in its package.json`（2026-08-30 事故形态）。本次由 `startup-verify` **V10** 拦下 —— V10 是真实护栏，不是形式。
+
+**装配受阻记录（可重复的环境结论）**：`scripts/register-plugin.mjs --yes` 在 DSH 沙箱内因写 `~/.dsh` 被 **EPERM** 拦下（设计上失败即停）；已核实**零残留**（模板/运行态 package.json 的 SHA256 与备份逐字节相同、无 `.tmp-*`、无 junction）。⇒ 需动运行态 profile 时用**进程内工具**（`dev_install_package` / `dev_uninject_plugin`），写模板（工作区内）用文件工具。
+
+---
+
+## 2026-09-14 · 门禁脚本模块化 + 常驻回归测试（把「假绿加固」钉死）
+
+> 承接同日「门禁加固」：那批的五连故障注入是**一次性手工证据**（睡一觉就没人重跑）。本批把两个**安全关键**脚本改成**可单测模块**并补常驻测试，杜绝「假绿」静默回归。**纯脚本/测试，无需重启。**
+
+**plan（六要素）**
+- 目标：让 `check-unsupervised.mjs` 的「折叠目录展开」与 `audit-plugin-inventory.mjs` 的「账实核对」两条关键防线获得**常驻**回归保护——门禁的全部价值是"不漏"，被改回旧行为而无人察觉是最危险的失效模式。
+- 涉及文件：改 `scripts/check-unsupervised.mjs`、`scripts/audit-plugin-inventory.mjs`；**新增** `tests/plugins/gate-scripts.test.mjs`；同步 `.workbuddy/memory/{MEMORY.md,2026-09-14.md}`。
+- 改动点：① 两脚本加 **import 守卫**（`process.argv[1]` 比对 `import.meta.url`）——被 import 时只导出纯函数，不跑巡检、不读 stdin、不 exit；② 导出/注入化：`expandFoldedDirs(rows, listUntracked)`（列举器**依赖注入**，默认 git→fs 降级）、`parsePorcelain`、`klass`、`FOLD_CAP`；`auditInventory(text, measured)` 纯函数（输入＝台账文本＋实测目录名，输出＝逐项结论）；③ 新增 **23 项回归断言**：折叠展开/决定性假绿场景/上限截断/空列举/runtime-vs-info 分类/`parsePorcelain` 边界/台账五类定向故障注入。
+- 验证：`node --check` ×3 通过；新测试 **23 PASS / 0 FAIL**；**行为回归比对**——重构后 `check-unsupervised --strict` 与 `audit-plugin-inventory` 的 CLI 输出与重构前一致（后者 **11 PASS / 0 WARN / exit 0**；前者折叠注入仍展开为 5 文件）；全量收集面 **26 文件 / 222 测试**（+1 文件）。
+- 回滚：删 `tests/plugins/gate-scripts.test.mjs` 即回到重构前状态；两脚本备份 `_backups/gate-selftest-20260914114553/`。
+- 风险收益：收益＝安全关键防线**不再依赖人的记忆**（改回旧行为会被测试当场拦下），且两脚本从「只能整跑」变为「纯函数可单测」⇒ 后续扩展只需加一行断言（**可迭代/可扩展**）；风险＝**低–中**（动了门禁脚本本体），以「CLI 输出比对 ＋ 备份 ＋ 纯新增测试可删」三重兜底。**无需重启。**
+
+**同批（非本批改动）**：`plugins/dsh-diagram-renderer/lib/{client.js,index.js}` 仍为并行会话**在途未登记**态，`tests/plugins/diagram-renderer-smoke.test.mjs:121` 断言缺 `tree` ⇒ 全量 1 项失败，归属该会话；本批未触碰。
+
+---
+
+## 2026-09-14 · 门禁加固：未登记改动「假绿」修复 + 台账一致性自动核验（Step 1.14）
+
+> 承接 2026-09-13「dsh-diff-guard 结项」自检的遗留发现：修掉两处会**削弱可信度**的脆弱点 —— ① `--stdin` 口径对未跟踪新目录会**漏报（假绿）**；② 台账 `plugins/INVENTORY.md` 账实漂移且**手数会错**。**纯脚本 + 文档，无需重启。**
+
+**plan（六要素）**
+- 目标：让「未登记改动门禁」不再可能给出假绿；让台账一致性可被自动核验（长期稳定 + 记录可追溯）。
+- 涉及文件：改 `scripts/check-unsupervised.mjs`、`scripts/check-all.ps1`、`AGENTS.md`、`.workbuddy/memory/MEMORY.md`；**新增** `scripts/audit-plugin-inventory.mjs`。
+- 改动点：① `check-unsupervised.mjs` 新增 `expandFoldedDirs()` —— `--stdin` 收到折叠项 `?? dir/` 时**自动展开**（优先 `git ls-files --others --exclude-standard`，尊重 `.gitignore`；git 不可用退化为 fs 遍历，跳过 `node_modules/.git`、上限 4000）并**打印告警**；② `check-all.ps1` 修掉缺 `-uall` 的 HINT 并说明成因；③ 新增 `audit-plugin-inventory.mjs`（只读零依赖，核对 `INVENTORY.md` 标题计数／表行数／统计行 vs 磁盘实测；`--file` 夹具做故障注入、`--strict` 可作硬门禁）；④ 接入 check-all **Step 1.14（告警式、不阻塞）**；⑤ `AGENTS.md` 活规则补「登记必须到**文件级**」+「`-uall` 不可省」。
+- 验证：`node --check` ×2 通过；**故障注入五连** —— A 折叠项 `?? plugins/dsh-diff-guard/` → 展开 **5 文件**逐条判定（旧代码在此**假绿**）；B `?? scripts/` → 展开 0 文件（尊重 git 跟踪语义，正确）；**C（决定性）** 往折叠目录塞未登记 runtime 文件 → **`UNREGISTERED=1` 且点名该文件**（旧代码必然漏）；D 台账夹具（标题 36→35、bundle 29→24）→ **3 项 WARN**、`--strict` **exit 1**；E 真台账 → **11 PASS / 0 WARN**。check-all 已集成 Step 1.14。
+- 回滚：删新增脚本 + 回退两个脚本；备份 `_backups/gate-hardening-20260914111103/`。展开逻辑失败时不影响原有判定（只是少展开），无网络无状态。
+- 风险收益：收益＝堵住**假绿**这一最危险的失效模式（门禁的全部价值是"不漏"）+ 台账漂移可被自动发现；风险＝**低**（纯读脚本、仅在 `--stdin` 且存在折叠项时生效、展开有 4000 上限、无重启）。**无需重启。**
+
+**同批发现（非本批改动，仅记录）**：全量 check-all 命中**并行会话在途** —— `plugins/dsh-diagram-renderer/lib/{index.js,client.js}` 有未登记改动（新增 `tree` 图表类型等，+422 行），且 `tests/plugins/diagram-renderer-smoke.test.mjs:121` 的类型断言未同步（缺 `tree`）⇒ Step 3 报 1 项失败。**未触碰他人在途文件**，归属见 `.workbuddy/memory/2026-09-14.md`。
+
+---
+
+## 2026-09-14 · 修复 Mermaid 错误 SVG 泄漏到页面 body
+
+> 用户反馈 DSH 界面底部不断出现 "Syntax error in text mermaid version 11.4.1" 错误图，且越滚越多。
+
+**根因**：Mermaid v11 的 `render()` 遇到语法错误时不 reject promise，而是：① resolve 返回含 "Syntax error in text" 的错误 SVG；② **往 document.body 注入临时 DOM 元素**（`i<id>` / `d<id>`）。原代码直接 `innerHTML = r.svg`，且未隔离副作用。
+
+**修复**（`plugins/dsh-diagram-renderer/lib/client.js`）：
+- 传入**临时离屏容器** `tmp` 给 `m.render(id, code, tmp)`，隔离 mermaid 的 DOM 副作用
+- 渲染后检测返回 SVG 是否含 `Syntax error in text` 或 `error-icon` → 友好提示替代
+- `cleanup()` 删除 tmp + mermaid 残留兄弟元素，不留残余
+- 两条渲染路径（MermaidWidget 组件 + DOM scanner）均覆盖
+
+**验证**：`node --check` 通过；浏览器硬刷新后错误图不再出现。
+**生效方式**：`lib/client.js` 改动，刷新浏览器即生效，无需重启。
+**清理**：删除 12 个旧版 diagram 备份目录（9/3-10），全部回收站可回滚。
+
+---
+
+## 2026-09-13 · dsh-diff-guard 结项：全量门禁自检抓出「目录级登记不覆盖文件级」并修复
+
+> 用户要求「测效果 + 自检」，**首次跑全量 `scripts/check-all.ps1`** ⇒ 暴露 Step 1.12 `UNREGISTERED=4`；修复后 **`CHECK-ALL: ALL PASS`**。同批把「无人值守模式」启用清单与「不做运行时开关」的决策写入插件 README + 项目记忆（纯文档，零行为改动）。
+
+**发现与修复**
+- **缺陷**：新建插件后只 `release` 了**目录** `plugins/dsh-diff-guard`，而 `check-unsupervised` 按**文件路径**匹配时间线 ⇒ 4 个文件被判未登记：`lib/index.js`、`cordis.patch.yml`、`package.json`、`tests/smoke-diff-guard.test.mjs`。
+- **修复**：`acquire` → `release` 逐个补登记这 4 个**文件路径**；重跑 ⇒ `CHECK-ALL: ALL PASS`（EXIT=0），Step 1.12 = `REGISTERED=8 / DRIFTED=0 / UNREGISTERED=0`。
+- **⚠️ 同时更正一条错误结论**：此前报告的「门禁全绿」是用 `git status --porcelain | check-unsupervised --stdin` 测的 —— 而 `git status` **默认把未跟踪新目录折叠成一条 `?? dir/`** ⇒ 管道自查**看不见目录内文件**，给出**假绿**。**权威口径＝ `scripts/check-all.ps1` 或直接 `node scripts/check-unsupervised.mjs --strict`（自行调 git，会展开未跟踪目录）**；手工核对须加 `-uall`。已写入项目 `MEMORY.md` 工程坑位。
+
+**验证（本轮实测）**
+- 运行态：`/health` 200 / `failed=[]` / **8 项**（`webserver,sessions,disk,patches,plugins,logs,preflight,memory.files`）；`plugins` 探测 **36/36 0 missing**；`mountedAt=11:40:56Z` > `lib 11:17:06Z` > `cfg 11:20:20Z`。
+- 效果实测（**带对照组**）：低危 `_backups/*` → **Created**；medium `node_modules/.dsh-guard-final-check.txt` → **`文件改动风险[medium] 已拒绝: dependency tree`**；FS 复核被拒靶点**未落盘**、对照组已清理；审计面 **7 条全部 `allowed=false`**。
+- 一致性：台账 37 行 vs 实测 36 个含 `package.json` 目录（`MISSING=[]`，多出项仅 `dsh-routing-suite`）；`locks: []`；无残留件。
+- 全量门禁：Step 1 / 1.5–1.13 / 2 / 2.5 / 2.6 / 3 / 4 **全过**。
+
+**决策留档（纯文档）**
+- 插件 `README.md` 新增「运行模式」三档表 + **无人值守启动清单**（触发条件 / 两行改动 / 须用户重启 / 跑完改回）+ **不做运行时切换开关的决策理由**；项目 `MEMORY.md` 插件规范同步一条（agent 应在触发条件出现时主动提醒）。
+- 结论：**默认维持「有人值守」**（`llm.enabled:false`）；无人值守 = `llm.enabled:true` + `autoAllow:true` + 请用户重启。**不新增** `POST /diff-guard/mode`（现状"削弱本门禁必须重启、而重启必经用户之手"是**有价值的安全性质**）。
+
+**四件套**：本 `CHANGELOG.md` · `.workbuddy/memory/2026-09-13.md`（含「效果实测」「最终自检」两节）· `outputs/2026-09-13-report-dsh-codex-optimization-plan/README.md`（终态）· `_backups/dsh-diff-guard-final-20260913203123/`。
+
+---
+
+## 2026-09-13 · dsh-diff-guard 阶段 2：LLM 语义评审（默认关，仅 DENY 自动拒）
+
+> 阶段 1 已于重启后验证生效（`/health` 200 全绿 8 项 + `/diff-guard/status` 200 ok:true）。阶段 2 在结构化评分之上叠加 LLM 语义评审，补正则抓不到的语义风险；**保守设计**：LLM 仅自动拒，其余一律降级人工，绝不静默放行。
+
+**plan（六要素）**
+- 目标：高危 edit/write 改动叠加 LLM 语义评审（识别「看似无害、语义有害」的改动），默认关、可插拔、fail-closed 降级人工（最坏情形 == 阶段 1）。
+- 涉及文件：改 `plugins/dsh-diff-guard/{lib/index.js, cordis.patch.yml, README.md, tests/smoke-diff-guard.test.mjs}`；不碰内核、不碰 command-guard。
+- 改动点：① 内联 `readApiKey()`（读 `~/.dsh/.credentials.yaml` 的 `DEEPSEEK_API_KEY`，与 `dsh-prompt-enhance` 同源；因禁裸引兄弟插件故内联而非 import）② 新增 `reviewWithLLM()`（`fetch` `api.deepseek.com/chat/completions`，`AbortController` 15s 超时，system prompt 只输出 `DENY`/`ALLOW`/`ESCALATE`）③ pre-execute 高危分支：`config.llm.enabled` 且有 key → LLM 评审；`DENY`→自动拒（不弹人工）、`ALLOW` 默认仍走人工（`autoAllow:true` 才直放）、`ESCALATE`/超时/异常/无 key→`approval.request` 人工 ④ config 新增 `llm: { enabled:false, endpoint, model:'deepseek-chat', timeoutMs:15000, autoAllow:false }`。
+- 验证：`node --check` 通过；单测 **18/18**（原 13 项 + 新增 5 项 LLM 故障注入：DENY 自动拒且不计人工调用 / ALLOW+autoAllow=false 降级人工 / transport 抛异常降级人工 / ALLOW+autoAllow=true 直放 / `enabled:false` 走阶段 1 行为）；`node --test` 换方法复核 **18/18**；回读 lib 确认 LLM 接入落在 `lib/index.js:253-264`。**重启后追加实测（2026-09-13）**：① 门禁分级矩阵 **6/6**（high：`.env`／`.git/config`／`.ssh/id_rsa`；medium：`node_modules`／edit 大段删除 509→empty；低危放行），被拒靶点**均未落盘**，审计面 6 条 `allowed=false` 互相印证；② 阶段 2 用**插件真实代码 + 真实 DeepSeek API**（非 mock）验证四态 —— 危险 diff→LLM `DENY` **自动拒**（`approvalCalls=0`, 764ms）、无害 diff→**升级人工**（`approvalCalls=1`, 752ms）、`autoAllow=true`→**直放**（815ms）、**无凭证→fail-closed 降级人工（1ms，证明未发网络请求）**。
+- 回滚：`llm.enabled:false`（默认值）即回阶段 1 纯人工；无 key 自动回退；整体 `dev_uninject_plugin dsh-diff-guard` 即净。文档备份 `_backups/dsh-diff-guard-stage2-20260913192134/`。
+- 风险收益：收益=补语义风险（LLM 自动 DENY 危险改动）；风险=中——启用后高危 diff 多一次 LLM 调用（网络+延迟+成本），但**默认关、仅高危低频触发、15s 超时、失败降级人工不阻塞**；发给 LLM 的仅 `file_path` + diff 摘要，不新增 key 存储（复用既有凭证）。**改代码 + `cordis.patch.yml`，宿主插件需重启才生效，重启由用户执行**。
+- 追加（**纯文档，零行为改动**，2026-09-13）：README 补「运行模式」三档表（有人值守默认 / 强把关 / 无人值守）+ **无人值守启动清单**（触发条件、两行改动、须用户重启、跑完改回）+ **不做运行时切换开关的决策留档**（理由：目前削弱本门禁必须重启且重启必经用户，属有价值的安全性质；加 `POST /diff-guard/mode` 会开出任何进程/agent 都能调的放宽入口；自适应放宽则会把「审批被禁用」隐式变成「LLM 说了算」）。同步一条到项目 `MEMORY.md` 插件规范，供后续会话在触发条件出现时主动提醒。
+
+---
+
+## 2026-09-13 · 落地 dsh-diff-guard 插件（guardian 阶段 1：edit/write diff 风险门禁）
+
+> 证据修正 guardian「answerer」接法 → 正确落点 `tools/pre-execute`；新建 host-only bundle 插件 `dsh-diff-guard`，补 DSH 安全链缺口（command-guard 只拦命令、不拦文件改动）。阶段 1 无 LLM、零网络/占用；LLM reviewer 留阶段 2。
+
+**plan（六要素）**
+- 目标：edit/write 高危改动（敏感路径/大段删除）执行前经审批，与 command-guard 的命令拦截互补。
+- 涉及文件：新增 `plugins/dsh-diff-guard/{lib/index.js,package.json,cordis.patch.yml,README.md,tests/smoke-diff-guard.test.mjs}`；不碰内核、不碰 command-guard。
+- 改动点：`ctx.on('tools/pre-execute')` 拦 edit/write → `scorePath`/`scoreMutation` 纯函数评分 → 高危走 `ctx.get('approval').request()`；无 approval 服务 fail-closed deny；allowlist 放行。
+- 验证：`node --check` 通过；单测 13/13 通过（含故障注入「无 approval 服务高危 edit → deny」）；`register-plugin --yes` 4 处断言全 PASS + `startup-verify 10/10`。
+- 回滚：`deregister-plugin.mjs --plugin dsh-diff-guard --yes` 即净；备份 `_backups/plugin-register-dsh-diff-guard-20260913104941/`。
+- 风险收益：收益=补文件改动审批缺口；风险=中（改 profile 装配，属启动链路，官方脚本自带锁/备份/原子写/断言）。**宿主插件，需重启才生效，重启由用户执行**。
+
+---
+
+## 2026-09-13 · Codex 动作 0 侦查：diff 内联已对等（证伪 P0）、guardian 接入点确认、版本修正 0.154.0
+
+> 只读侦查内核 `@deepseek-ai/dsh-*` 源码，实测修正「动作 1（diff 预览）」结论并确认 guardian 可落地；上游 openai/codex 版本亦修正为最新稳定 0.154.0。
+
+**① 证伪「diff 内联展示是 DSH 短板」**：内核已完整实现——`dsh-tool-fs/lib/index.js:5` import `structuredPatch`、`:485` computeHunkDiffs(context:3)、write/edit 的 `presentCall`/`presentResult` 均返回 `card:"diff"`；UI `dsh-client-ui-tool/lib/client.js:1314` FileMutationRow 注释「applied diff 作为行折叠卡片 body」，`:1350/1355` 注册 `key:"edit"`/`key:"write"`。⇒ 原 P0「diff 预览」作废，DSH 与 Codex inline-diff 对等。
+
+**② 确诊 slot 机制**：`tool.call.toolview` 为 `kind:"keyed"`（client.js:1644），keyed hit 替换 generic 行；edit/write 键已被内核 file-mutation-toolview 占用，不存在「覆盖 builtin 键做 diff」的需求。
+
+**③ 确诊 guardian 接入点**：`dsh-user-approval/lib/index.js:144` `async request()` → `:189` `ctx.waterfall("approval/request", ...)` 等待 answerer Promise；OUTCOMES=allowed-once/rejected/cancelled/unavailable。⇒ 异步 LLM reviewer 可注册为 answerer，guardian 降级为「纯项目层新插件」，无内核阻塞。
+
+**④ 版本修正（Codex 最新）**：CLI 稳定 0.154.0（09-09，新增 GPT-6-Astra 进 picker / 实验 worktree / side-question / Windows daemon / Guardian 审批审查强化）；预发布 0.155.0-alpha（09-11）。
+
+**收敛后真正还值得做的 4 项**：guardian LLM 审 diff（项目层 P1）· dynamic reasoning effort（改 dsh-routing-suite）· MCP output_token_limit · skill catalog 检索化（内核/上游）。
+
+**影响面**：纯只读侦查 + 文档更新，无运行时代码改动，无需重启。备份 `_backups/codex-a0-20260913-161124/`。
+
+---
+
+## 2026-09-13 · Codex 调研优化 DSH：完整方案落盘 + skill catalog 瘦身（证伪 SL-9 超限）
+
+> 分析 OpenAI Codex（`openai/codex` main @09-13 + 2026-09 Agents API 官方博客）来优化 DSH。结论：7 候选收敛为 3 动作；并**证伪**了 SL-9 的「skill catalog 超 9KB」前提。
+
+**① 证伪 SL-9（改判）**：实测 `~/.dsh/skills` 当前 modelInvocable catalog = **≈5,551 字符**（可靠正则复核 + 样本 docx=495/pptx=498/xlsx=496 全对），**远低于 9KB 阈值**；原「61 个 = 11,686 超限、锚定率 81%→0%」是旧口径/旧状态（第一遍审计用非贪婪正则虚高到 11,519）。⇒「超限」在当前不成立，P0 紧迫性解除。
+
+**② skill 瘦身（顺手整理，非应急）**：disable 14 个非 hub skill 的 model-invocation（frontmatter 加 `disable-model-invocation:true`，**hot 生效无需重启**）——明写「仅显式调用」的 `chinese-commit-conventions`、重复的 `log-analyzer`、已内联 AGENTS.md 的 6 个方法论（parallel-execution/falsification-check/verify-by-fault-injection/multi-step-tracking/subagent-orchestration/evidence-driven-audit）、低频 6 个（git-commit-message/error-translator/env-manager/db-migrator/zh-readme/refactor-advisor）。备份 `~/.dsh/_backups/skill-catalog-slim-2026-09-13T06-34-13/`，逐行可回滚。
+
+**③ 完整方案**（`outputs/2026-09-13-report-dsh-codex-optimization-plan/`）：3 动作——P0 diff 内联预览+审批（对齐 Codex inline-editing-in-diffs）、P1 guardian 式 LLM 自动 review（对齐 auto-review）、P2 skill catalog 检索化（对齐 Tool search，属内核/上游，本轮不做）。排除 compaction/plan-mode/subagent/AGENTS 聚合/AppServer/fork（已对等或无需求）。
+
+**影响面**：仅 `~/.dsh/skills` 14 个 frontmatter + 文档，**无需重启**；无运行时代码改动。四件套：计划文档 + 本 CHANGELOG + `.workbuddy/memory/2026-09-13.md` + `~/.dsh/_backups/…`。
+
+---
+
 ## 2026-09-12 T22 · O16 shared-utils 第一批收敛（isLoopback 逐字节等价提取）+ O7 观察期定性
 
 > 按「零风险、行为不变」推进 O16：只收敛**逐字节等价**的可安全项，其余「样板」有语义差异，硬收敛会改行为 —— 如实结论是**不硬做**。
