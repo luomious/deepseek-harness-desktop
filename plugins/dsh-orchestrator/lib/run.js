@@ -81,6 +81,11 @@ export function briefFor(node, run) {
     `## 输出格式`,
     `- 必须按本角色的结构化 schema 返回（见工具调用的 outputSchema），不要只给散文。`,
     '- 所有结论都要带证据（`path:line` 或命令与关键输出）。',
+    // ⚠️ 顺序不能反（2026-09-16 源码确证）：`router-standard` 预设的 `router-bootstrap.mjs:67-83` 在会话
+    // **首个 `tool/call` 之前**会把子代理工具目录裁到 coreFor(mode)（read/write/edit/glob/grep）+ shell，
+    // 此时 `structured_output` **不在目录里**；只有出现 `tool/call` 后才返回全量目录。
+    // 所以必须先真的用只读工具取证（首轮产生 tool/call ⇒ 目录提升），最后一步再提交结构化结果。
+    '- **先取证再收尾**：先用只读工具（`read`/`grep`/`glob`，或本角色需要的命令）实际查看/验证，拿到证据；**最后一步**再调用 `structured_output` 提交结果（顺序反了会拿不到报告工具）。',
     '',
     `## 轮次`,
     `- 第 ${run.round || 1}/${run.maxRounds || 2} 轮。` + ((run.history || []).length ? `上一轮被打回的原因：${run.history[run.history.length - 1].reason}` : ''),

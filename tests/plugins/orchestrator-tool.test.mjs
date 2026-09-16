@@ -195,8 +195,14 @@ test('team 端到端：6 个角色依次跑完，门禁 pass，运行记录落�
     assert.ok(byRole.review.outputSchema.required.includes('findings'))
 
     // ② 任务简报自包含
-    assert.match(byRole.review.prompt, /用户任务原文/)
-    assert.match(byRole.review.prompt, /只读/)
+    // prompt 形状硬断言（根因#4：字符串 content 会让子代理 turn 零输出）
+    assert.ok(Array.isArray(byRole.review.prompt) && byRole.review.prompt[0] && byRole.review.prompt[0].type === 'text',
+      'review.prompt 必须是内容块数组 [{type:"text",text}]')
+    const briefText = byRole.review.prompt.map((b) => b.text).join('\n')
+    assert.match(briefText, /用户任务原文/)
+    // 顺序硬约束（根因#5 候选）：先取证再收尾，否则首轮目录里没有 structured_output
+    assert.match(briefText, /先取证再收尾/)
+    assert.match(briefText, /只读/)
 
     // ③ 运行记录落盘（DSH_HOME 下，不污染工作区）
     const runsDir = join(s.env.home, 'orchestration', 'runs')

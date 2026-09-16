@@ -199,6 +199,84 @@
 
 ---
 
+## 2026-09-16 · 编排器 P1 步 D 根因#4：prompt 传字符串 ⇒ 子代理消息 content 不合规（零输出）
+
+**进展**：重启后 `no platform shell in catalog` **已消失**（根因#3 确已修好），错误再变：
+`[turn/end] reason={"kind":"error","error":{"message":"message.content.map is not a function"}}`，仍 `structured:false`/`raw:""`。
+
+**定位链**（全部实测）：
+1. 子代理 session 原文（`9e49a07c`）暴露形状差异——`agent/inbox/spliced` 注入的 user 消息：
+   `content:"# 任务简报 · n1-plan …"`（**裸字符串**）。
+2. **对照实验**：内核 `subagent` 工具（continuable 路径）子代理 session（`25a4f2d7`，正常返回）：
+   `content:[{type:"text",text:"只回复两个字：正常"}]`（**块数组**）⇒ 同一 parent、同一 provider/model
+   （`modlens-tokenrhythm01`/`deepseek-flash`）下，**唯一差异就是 content 形状**。
+3. 源码链：one-shot spawn 的 driver（`dsh-subagent-in-process-driver` `drivePublishedRun`）执行
+   `createUserMessage({ content: prompt })`；`createUserMessage`（`dsh-llm/lib/types/message.js:44`）**原样展开入参、不归一化**
+   ⇒ content 变成裸字符串。服务层 `dsh-subagent` `start()`（`lib/index.js:2607`）只断言 capabilities/maxDepth/outputSchema，
+   **不校验 prompt 类型**、原样透传。
+4. 后果点：`dsh-llm-pi-ai/lib/index.js` 的 `message.content.map(...)`（:70、:184）不判类型 ⇒ 抛错、turn 结束、零输出、G8 拒绝。
+   佐证：`dsh-llm-deepseek/lib/index.js:1036` **有** `typeof content === "string"` 守卫 ⇒ 说明"适配器是否容忍字符串"不一致。
+
+**修复**（插件侧，零 vendor 改动）：`roles.js` 新增 `toContentBlocks(text)`，`subagentRequest()` 产出
+`prompt: [{ type:"text", text }]` —— 与成功路径（内核 `subagent` 工具）收到的形状一致；前向兼容（将来内核若自行归一化字符串，块数组仍正确）。
+连带更新 2 处测试断言（原本断言 prompt 是字符串/用 `assert.match` 直接匹配）。
+
+**验证**：6 套件全绿（client 54 / gate 14 / scheduler 19 / ledger 38 / host 10 / tool 15 = **150 pass / 0 fail**）；
+tool 测试新增 `prompt 必须是内容块数组` 硬断言；`node --check` 通过。
+
+
+**预防性改动（根因#5 候选，源码确证而非猜测）**：`router-standard` 的 `router-bootstrap.mjs:67-83` 在会话**首个 `tool/call` 之前**
+把子代理工具目录裁到 `coreFor(mode)`（`read/write/edit/glob/grep`）+ shell，此时 **`structured_output` 不在目录里**；
+只有出现 `tool/call` 事件后才返回全量目录。而 `childSessionMeta` 的文档明确：子代理的 preset 取自 parent 的 **live scope chain**
+⇒ **无法从插件侧覆盖 preset**（`resolveChildAgentOptions` 只能覆盖 provider/model/maxTokens）。
+若不先发生一次工具调用，子代理"只通过 structured_output 报告"的要求就会落空（→ G8 malformed）。
+**改动**：`run.js` 简报「输出格式」增加一条顺序要求——**先取证再收尾**（先用只读工具实际查看/验证拿到证据，
+**最后一步**再调用 `structured_output` 提交）。这本身也是本仓「证据驱动」纪律的正确要求，不是纯 workaround；
+tool 测试加 `先取证再收尾` 硬断言。
+**同类排查**：`plugins/` 内**只有本编排器**调用 `ctx.subagents.start()`（grep 实证）⇒ 无其他调用方受同一缺陷影响。
+
+**留给上游/补丁体系的两个发现（未改，待定）**：
+- `dsh-subagent-in-process-driver`：one-shot 路径把字符串 prompt 直接当 content，**未归一化**（与 continuable 路径形状不一致）——建议上游修；
+- `dsh-llm-pi-ai`：`message.content.map` **无类型守卫**（deepseek 适配器有）——建议上游加守卫。
+
+**⚠️ 需重启**（host 侧代码；实测 `dev_reload_package` 不可用：`loader.internal 不可用`，状态未变 `[active]` ⇒ 热重载路线走不通）。
+
+
+## 2026-09-16 · 编排器 P1 步 D 根因#3：只读角色 deny 平台 shell ⇒ preset 抛错杀死子代理
+
+**现象**（重启后 e2e，实测）：`n1-plan` 仍 failed，但**所有 crash 消失**（signal、bash 两个根因确已修好）；
+节点 `ms=17`、`result.json = {malformed:true, raw:""}`、`log.ndjson` 记 `structured:false` + `G8_MALFORMED_RESULT`。
+
+**定位链**（全部实测）：
+1. `run.json` 已带 `sessionId`（P1β 投影生效）；子代理 session 目录仅 1.4–1.6KB ⇒ 子代理几乎没跑。
+2. 对照组：内核自带 `subagent` 工具派出的子代理 session 32KB、正常返回 ⇒ **spawn provider 健康**，问题在请求形状。
+3. 反解压子代理 session 得真凶（⚠️ `session.jsonl.zstd` 是**多帧**，`zstdDecompressSync` **只解第一帧**，必须逐帧解）：
+   `[turn/end] reason={"kind":"error","error":{"message":"router-bootstrap: no platform shell in catalog"}}`
+4. 溯源 `router-bootstrap.mjs:73-76`：会话首次 `tool/call` 前把工具目录裁到 core 集，且**要求目录里存在 pwsh 或 bash**，否则 `throw`。
+5. 我方 `roles.js` 的 `WRITE_TOOLS` 把 `pwsh/shell/terminal/remote_bash` 全 deny 给"只读角色" ⇒ 子代理工具目录里没有任何 shell ⇒ **必抛**。
+   **6 个角色里 4 个（plan/synth/review/accept）必炸**；test 角色因 `TEST_DENY` 保留了 shell 而幸免
+   （2026-09-14 已踩过同一坑，却只修了 test 一个角色 —— 本次把例外升级为统一策略）。
+
+**修复**：
+- `roles.js`：`TEST_DENY` → **`export const READONLY_DENY`**（= `WRITE_TOOLS` 去掉 `shell/terminal/pwsh`），
+  plan/synth/review/test/accept **统一复用**（消除"某个角色漏配"的漂移面）；
+- 注释写清三条理由：①预设硬要求（带实测证据）②只读角色也要跑命令取证 ③"工具级只读"本就不可靠，**G5 hash 才是闸**；
+- `tests/plugins/orchestrator-scheduler.test.mjs:70-86` 旧断言本身编码了**错误假设**（要求 plan/review 等 deny `shell`），
+  改写为反向硬闸：**非可写角色的 deny 不得含 pwsh/bash**，否则子代理必被 preset 杀死。
+
+**验证**：6 套件全绿（client 54 / gate 14 / scheduler **19** / ledger 38 / host 10 / tool 15，fail 0）；`node --check` 通过。
+**故障注入**（"它通过了"≠"它有效"）：造一份把 deny 回退成 `WRITE_TOOLS` 的 roles 副本 + 指向它的测试 ⇒ **18 pass / 1 fail**，
+失败原文 `AssertionError: plan 不得 deny 平台 shell…` ⇒ 证明新闸真的能捕获回退。
+
+**同类排查**（铁律第 3 条）：全仓 preset 扫 `throw new Error` ⇒ 仅 `router-bootstrap.mjs:75` 一处"缺工具即抛"地雷
+（`custom-bash.mjs:106/121` 是真实 bash 启动失败，非同类）。**建议加固（待门禁）**：该处改为"无 shell 则跳过裁剪"而非抛错。
+
+**复盘**：`run-mu1hqp1a-001`（09-15 01:02）曾报 `gate=pass nodes=6`，但其子代理日志只有 `brief-written`、**无 result** ⇒
+当时门禁漏判，**全链路其实从未真正跑通**。这一条应作为"绿色记录也要复核"的实例留档。
+
+**⚠️ 需重启**：`roles.js` 是 host 侧代码，运行中的进程缓存旧模块（重启前 e2e 必然复现旧错误）。
+
+
 ## 2026-09-15 · 编排器 P1 步 D：根因#2 修复（deny 清单用了内核不存在的工具名 bash）
 
 > 重启后 e2e 错误**变了**（signal 修复生效）：

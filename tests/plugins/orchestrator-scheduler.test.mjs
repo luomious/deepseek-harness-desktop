@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 
 import { judge, describeJudge, capsFor, JUDGE_DEFAULTS } from '../../plugins/dsh-orchestrator/lib/judge.js'
 import { plan, validate, acceptanceFor, newRunId, nextRound, planCounts } from '../../plugins/dsh-orchestrator/lib/plan.js'
-import { ROLES, ROLE_KEYS, roleSpec, subagentRequest, WRITE_TOOLS } from '../../plugins/dsh-orchestrator/lib/roles.js'
+import { ROLES, ROLE_KEYS, roleSpec, subagentRequest, WRITE_TOOLS, READONLY_DENY } from '../../plugins/dsh-orchestrator/lib/roles.js'
 import { runPlan, countStatuses } from '../../plugins/dsh-orchestrator/lib/scheduler.js'
 
 const TEAM_TASK = '给设置页加一个暗色开关，并且要写测试验证不破坏现有主题，同时保证权限检查不回归'
@@ -67,15 +67,22 @@ test('judge：capsFor 的两种上限都齐全，且 depth（委派深度）与 
 
 // ── 2. 角色契约 ──────────────────────────────────────────────────────
 
-test('roles：只读角色 deny 文件写入；test 角色放行命令执行（取证必需）；dev 唯一全放', () => {
+test('roles：只读角色 deny 写类工具，但必须保留平台 shell（否则 preset 直接杀死子代理）', () => {
   for (const key of ['plan', 'synth', 'review', 'accept']) {
     const spec = roleSpec(key)
     assert.equal(spec.writable, false, key + ' 不该可写')
-    assert.ok(spec.deny.includes('write') && spec.deny.includes('edit') && spec.deny.includes('shell'), key + ' 必须 deny 写类工具（含 shell：它也能写文件）')
+    assert.ok(spec.deny.includes('write') && spec.deny.includes('edit'), key + ' 必须 deny 写类工具')
+    // 硬约束（2026-09-16 e2e 实测）：deny 掉 pwsh 会让 router-standard 预设的
+    // router-bootstrap.mjs:73-76 抛 'router-bootstrap: no platform shell in catalog'，
+    // 子代理第一轮 turn 直接 error、零输出（表现为 G8 malformed，极难定位）。
+    // 这条断言就是防止回退的那道闸。
+    assert.ok(!spec.deny.includes('pwsh') && !spec.deny.includes('bash'),
+      key + ' 不得 deny 平台 shell：deny 掉会让 preset 抛 no platform shell in catalog 杀死子代理')
+    assert.ok(!spec.deny.includes('shell') && !spec.deny.includes('terminal'),
+      key + ' 命令执行应放行（只读角色也要跑命令取证）')
   }
-  // test 角色必须能执行命令取证（mustFailBefore/mustPassAfter），否则 G3"未证明改前失败"
-  // 会**永远**拒绝 ⇒ 这不是宽容，是测试角色的功能前提。工作区完整性由 G5 hash 保证
-  //（shell 也能改文件，所以 G5 才是那道可验证的闸，工具级禁用对它不充分）。
+  // test 角色：必须能执行命令取证（mustFailBefore/mustPassAfter），否则 G3"未证明改前失败"
+  // 会**永远**拒绝 ⇒ 这不是宽容，是测试角色的功能前提。工作区完整性由 G5 hash 保证。
   const t = roleSpec('test')
   assert.equal(t.writable, false, 'test 角色语义上仍不可写')
   assert.ok(t.deny.includes('write') && t.deny.includes('edit'), 'test 必须 deny 文件写入工具')
@@ -83,6 +90,10 @@ test('roles：只读角色 deny 文件写入；test 角色放行命令执行（�
   assert.equal(roleSpec('dev').writable, true)
   assert.deepEqual(roleSpec('dev').deny, [])
   assert.ok(WRITE_TOOLS.length >= 8)
+  // 所有非可写角色共用同一份 deny（避免"某个角色漏配"这类漂移）
+  for (const key of ['plan', 'synth', 'review', 'test', 'accept']) {
+    assert.deepEqual(roleSpec(key).deny, READONLY_DENY, key + ' 应复用统一只读 deny 清单')
+  }
 })
 
 test('roles：每个角色的 outputSchema 都是 object 根 + additionalProperties:false + required', () => {
@@ -99,7 +110,17 @@ test('roles：每个角色的 outputSchema 都是 object 根 + additionalPropert
 test('roles：subagentRequest 把权限与人设真的带上（这是"部门"的实质）', () => {
   const req = subagentRequest('review', { parent: { id: 'p' }, prompt: '看看这段改动', label: 'x' })
   assert.equal(req.parent.id, 'p')
-  assert.equal(req.prompt, '看看这段改动')
+  // prompt 必须是**内容块数组**（根因#4）：one-shot driver 把 prompt 原样塞进
+  // createUserMessage({content})，传字符串会让这条消息的 content 变成裸字符串，
+  // 流经不判类型的适配器即抛 `message.content.map is not a function`（子代理零输出）。
+  assert.deepEqual(req.prompt, [{ type: 'text', text: '看看这段改动' }])
+  // 边界幂等（可扩展性）：已合规的块数组必须**原样透传**（同一引用，证明没有二次包裹）；
+  // 缺省/空值也必须落成合法块，不能产出 undefined/null 的 content 把子代理再搞崩一次。
+  const blocks = [{ type: 'text', text: '已经是块了' }]
+  assert.equal(subagentRequest('review', { parent: { id: 'p' }, prompt: blocks }).prompt, blocks,
+    '块数组入参应原样透传（幂等，不重复包裹）')
+  assert.deepEqual(subagentRequest('review', { parent: { id: 'p' } }).prompt, [{ type: 'text', text: '' }],
+    'prompt 缺省时应落成合法空文本块，而不是 undefined')
   assert.match(req.persona, /只读/)
   assert.deepEqual(req.toolFilter.deny.includes('write'), true)
   assert.equal(req.outputSchema.required.includes('findings'), true)
