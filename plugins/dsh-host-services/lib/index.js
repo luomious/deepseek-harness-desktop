@@ -83,7 +83,7 @@ function withProbeTimeout(value, ms, id) {
 function createBuiltinProbes(opts) {
   const { ctx, home, repoRoot, minFreeBytes } = opts
   const probes = new Map()
-  const gb = (n) => (n / 1073741824).toFixed(1)
+  const gib = (n) => (n / 1073741824).toFixed(1)
 
   // 1. HTTP 层：能返回本响应即证明 webServer 在；顺带报运行时长。
   probes.set('webserver', () => {
@@ -106,7 +106,7 @@ function createBuiltinProbes(opts) {
     const freeBytes = Number(st.bavail) * Number(st.bsize)
     return {
       ok: freeBytes >= minFreeBytes,
-      detail: `${gb(freeBytes)} GB free (min ${gb(minFreeBytes)} GB)`,
+      detail: `${gib(freeBytes)} GiB free (min ${gib(minFreeBytes)} GiB)`,
       freeBytes,
       minFreeBytes,
     }

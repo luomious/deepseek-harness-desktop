@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-09-16 · 补丁门禁语法盲区修复（`log-files` 分块被静默漏检）+ `/health` 容量单位标注
+
+- **怎么发现的**：对「门禁全绿」做**反证式复核**（换法验证）时，逐行读 `verify-patches.ps1` 发现语法完整性校验**少覆盖一个目标**。前一轮我把它当成「纯 stderr 噪音」是**不完整的结论**，此处更正。
+- **根因（代码事实）**：第 **159** 行 `$syntaxSet[$logChunks[0].FullName] = $true` 执行在**第 172 行 `$syntaxSet = @{}` 之前** ⇒ ① 该赋值必抛 `Cannot index into a null array`（**长期存在的 `NullArray` stderr 噪音来源**）；② 172-175 行**重建**集合时只加 `$checks`/`$rtChunks`/`$profileChunks`，**未把 `$logChunks` 补回** ⇒ 内容哈希分块 **`log-files-*.js` 被排除在 `node --check` 语法校验之外**。这正是 **T13/O14**（2026-09-12「标记字符串还在、文件已损坏仍 PASS」，见本文件同期记录）专门要堵的洞。
+- **修复**：把该注册移到集合重建之后（新增 `if ($logChunks.Count -eq 1) { $syntaxSet[$logChunks[0].FullName] = $true }`，并删掉原位那行）。**效果：语法目标 31 → 32，`NullArray` 噪音消失，`ALL PASS (50 checks)` exit 0。**
+- **有效性证明（A/B 对照故障注入，脚本 `_backups/_probe/fi-log-files-syntax.mjs`）**：给 dist 的 `lib\log-files-Bfo6ODqx.js` **原子追加非法 JS** 后运行 ——
+  - **旧版（git HEAD）**：`ALL PASS (50 checks)`、**exit 0 ⇒ 漏检**（盲区被证实）；
+  - **新版（本次修复）**：`FAIL  syntax integrity: …\log-files-Bfo6ODqx.js`、**exit 1 ⇒ 抓住**（修复被证实）；
+  - `finally` 原子还原并校验 **sha256 与原始一致**，临时对照脚本已删除。⇒ 满足本仓「**它通过了 ≠ 它有效**」纪律。
+- **顺带修复（文案级）**：`plugins/dsh-host-services/lib/index.js` 的 `disk` 探测中 `gb()` 实按 **1024³** 计算却标注 “GB”（31.83 GiB 被显示成 31.8 GB）⇒ 函数更名 `gib` + 文案改 **GiB**；`freeBytes`/`minFreeBytes` 阈值口径不变。⚠️ **该文件属 host 插件，需重启生效**（当前运行进程仍显示旧文案）。
+- **回归**：`node --check` 通过（`gb(` 残留 0、回读确认）；`verify-patches.ps1` 全绿；`check-all` 复跑同日记录。
+
 ## 2026-09-16 · 上游更新评估定案 + 补丁体系加固（目标侧形状门禁，修复「静默覆盖假绿」）
 
 **背景**：用户要求「看官方 dsh / dsh-desktop 有没有更新 + 全面分析本机 dsh 可更新什么 + 评估是否有必要」。

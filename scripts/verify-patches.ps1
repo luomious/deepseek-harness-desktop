@@ -156,7 +156,13 @@ if ($logChunks.Count -ne 1) {
   $lwHit = Select-String -Path $logChunks[0].FullName -Pattern 'dsh patch log-write-guard v1' -SimpleMatch -Quiet
   if ($lwHit) { Write-Host 'PASS  log-write-guard P1 (log-files chunk)' -ForegroundColor Green }
   else { Write-Host 'FAIL  log-write-guard P1 (pattern missing)' -ForegroundColor Red; $fail++ }
-  $syntaxSet[$logChunks[0].FullName] = $true
+  # 2026-09-16: the syntax-set registration for this chunk MOVED below the
+  # `$syntaxSet = @{}` initialization. It used to sit here, i.e. BEFORE the set
+  # existed, so it threw "Cannot index into a null array" (the long-standing
+  # NullArray noise) AND the later rebuild never re-added this file -- the
+  # content-hashed log-files chunk was silently EXCLUDED from the syntax
+  # integrity pass, which is exactly the T13/O14 hole (marker survives while the
+  # file is corrupt). Now registered together with the other dynamic chunks.
 }
 
 # 2026-09-12 (T13, O14 remainder): syntax integrity pass over the JS patch targets.
@@ -173,6 +179,7 @@ $syntaxSet = @{}
 foreach ($c in $checks) { if ($c.f -match '\.(js|cjs|mjs)$') { $syntaxSet[$c.f] = $true } }
 if ($rtChunks.Count -eq 1) { $syntaxSet[$rtChunks[0].FullName] = $true }
 if ($profileChunks.Count -eq 1) { $syntaxSet[$profileChunks[0].FullName] = $true }
+if ($logChunks.Count -eq 1) { $syntaxSet[$logChunks[0].FullName] = $true }
 $syntaxOk = 0
 foreach ($sf in $syntaxSet.Keys) {
   if (-not (Test-Path $sf)) { continue }   # a missing file already FAILs in the loop above
