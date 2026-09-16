@@ -89,6 +89,11 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - `_backups/` 在 `.gitignore` 内 ⇒ **档案不进 git**（源码仍可从 git 历史找回）；因此档案必须自带说明，别指望 git 留痕。
 - 记录三件套：`CHANGELOG.md` 新节 ＋ `.workbuddy/memory/<date>.md` ＋ task-scheduler `acquire → release`
   （**文件级**登记，否则 `check-unsupervised --strict` 报 `DRIFTED` 阻塞）。
+- ⚠️ **提交前用全量 `git status --porcelain --untracked-files=all` 核对，禁止按文件名过滤**：
+  模板 `profile/<p>/package.json` 的**路径里不含插件名**，按名字 grep 会漏掉它。
+  2026-09-16 实测踩到：退役 `dsh-orchestrator` 的提交 `1f6adec` 漏了模板 2 行，
+  由另一会话以 `6646f45 fix(profile): 补退 …（1f6adec 遗漏）` 补上。**校验方式**：
+  `git show --stat HEAD` 的文件数应与"计划改动清单"逐项对齐（本次应为 23 文件，实际 22）。
 
 ---
 
