@@ -3,8 +3,9 @@
 // 修复 dsh-super-injector 对新壳(0.1.1-rc.2)的不兼容：ctx.loader.internal 在新 loader 中可能为 undefined，
 // listPlugins()（dev_plugin_status/插件管理 UI）未判空访问 .loadCache 会抛
 // "Cannot read properties of undefined (reading 'loadCache')"。改为可选链。幂等，可反复执行。
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
+import { atomicWriteFileSync } from './lib/atomic-write.mjs'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 
@@ -37,7 +38,7 @@ for (const f of TARGETS) {
       while (s.includes(oldText)) { s = s.replace(oldText, newText); i++ }
       changed += i
     }
-    if (changed > 0) writeFileSync(f, s, 'utf8')
+    if (changed > 0) atomicWriteFileSync(f, s)
     console.log(`${changed === 0 ? 'SKIP' : 'OK  '} ${f} (${changed} 处替换)`)
   } catch (e) {
     fail += 1

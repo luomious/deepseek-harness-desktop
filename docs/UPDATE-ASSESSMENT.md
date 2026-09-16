@@ -88,3 +88,49 @@ powershell -ExecutionPolicy Bypass -File scripts/close-stale-dsh.ps1
 ---
 
 *本文件由更新评估机制维护。首次记录：2026-08-31*
+
+---
+
+### 2026-09-16：官方 v2.0.10 / 内核 0.1.5-rc.2 评估（结论：**仍暂缓升级**；同批完成一项与升级无关的必修加固）
+
+**触发**：用户直接提问「官方 dsh 与 dsh-desktop 有没有更新 / 本机可更新什么 / 是否有必要」。
+**只读依据**：`node scripts/update-watch.mjs`、`node scripts/check-update-compat.mjs`、npm dist-tags、GitHub API（releases/tags/commits）、本机磁盘实测。
+**完整分析（含成本表与方案）**：`outputs/2026-09-16-report-upstream-update-assessment/README.md`。
+
+| 项 | 本机 | 官方最新 | 说明 |
+|---|---|---|---|
+| 内核（**DeepSeek 官方**） | `0.1.1-rc.2`（08-21） | `latest=0.1.5-rc.1` / `next=0.1.5-rc.2` / `alpha=0.1.6-alpha.1` | 中途还有 `0.1.2-alpha.1`（08-27） |
+| 桌面壳（**社区项目**，非官方） | `2.0.2`（08-27） | `v2.0.10`（09-13，内核 0.1.5-rc.2，**全平台取消 ASAR**） | master 上 2.0.11 在飞（beta 切 0.1.6-alpha.1、专属 `~/.dsh-beta`） |
+
+> 前提纠正：只有内核是 DeepSeek 官方；桌面壳为社区维护（其 release notes 原文自述「并非 DeepSeek 官方产品」）。
+> 结构事实：内核随壳打包（实测 `~/.dsh/profiles/desktop/node_modules/@deepseek-ai/` 下无内核，只有 cosmokit/schemastery）⇒ **升内核 = 重建壳**，无「只升内核」路径。
+
+**触发条件复评（本文档 §升级触发条件 5 条）**
+
+| # | 条件 | 2026-09-16 现状 |
+|---|---|---|
+| 1 | 官方上游脱 alpha | ✅ **已满足**（0.1.5-rc.1=latest；社区稳定版 2.0.10 即此内核） |
+| 2 | 补丁锚点预检通过 | ⚠️ 仅证明**旧基线**完整；对目标版本 5 个整文件 bundle **必然 MISS** |
+| 3 | 依赖差异审计 | ❌ 未做（`dsh-host-apiproxy` 已移除；~100 个 `@deepseek-ai/*` 精确钉版需重算） |
+| 4 | 39 插件兼容清单 | ❌ 未做（A 级硬点 + B 级静默失效 13 处已列清单） |
+| 5 | 稳定观察 ≥7 天 | ❌ **未满足**：2.0.10 发布仅 2.5 天，内核 0.1.5-rc.2 6 天 |
+
+⇒ **结论：维持暂缓，但预备已启动**（条件 1 已到位，正是做无风险预备的窗口）。
+❗ **明确不建议跳 `0.1.6-alpha.1`**：alpha + PTC/workflow 包改名 + Team 统一 `spawn_teammate`，直接命中本仓 `plugins/dsh-routing-suite/preset/preset/agent.cordis.yml:205-217,241,246`。
+
+**同批完成（与升级无关的必修项）：修复整文件补丁「静默覆盖假绿」**
+
+- 根因：`port-user-patches.mjs` 写目标前只校验 canon 自身、**从不校验目标**；写后回读校验查的是刚被覆盖的文件 ⇒ 必然通过。上游换版会把旧内核整份 `client.js` 静默盖到新文件上。
+- 修复：新增 `scripts/patch-shape-gate.mjs`（**版本针 + 上游形状锚点**，fail-closed；锚点来自 `canon ∩ 全局 npm 原版 0.1.1-rc.2`，共 15 条全双向验证）+ `port-user-patches.mjs` 三个写入点接入 + `check-all.ps1` **Step 1.16**（阻塞式）。
+- 验证四腿：自检 6 OK+1 WARN **ALL OK**｜正常路径 **13 文件哈希零变化**｜**故障注入**（伪造 9.9.9 上游）6/6 拒绝写入且目标未被改动｜`verify-patches` **ALL PASS (50 checks)**、`startup-verify` V1–V10 PASS。
+
+**升级日必须先解决的环境前置（实测）**
+
+1. 代理 `127.0.0.1:7897` 未监听；`package-vendor.ps1` 指向的 `.yarn-cache`/`.yarn-global` 目录**不存在** ⇒ 走脚本安装=强制联网。
+2. 子模块 `vendor/deepseek-harness-desktop/deepseek-harness` **是空目录（仅 gitlink，无 .git）** ⇒ 需 `git submodule update --init --recursive`。
+3. vendor clone 仅 12 个 commit（无 `origin/*` ref）⇒ 需先 fetch 完整历史才能 diff 上游。
+4. **16 处 no-ASAR 硬点**（`resolve-dist.mjs:52,57` 为总根，改一处可复活 12 个脚本；另有 `verify-packaged-runtime.ts` 的 `verifyUnpackedContract` 必删、`rebuild-and-restart.ps1:80` 会自动重启 ⇒ **禁用**）。
+
+**本次未执行项（避免误读为遗漏）**：内核/壳升级；补丁退役（`dsh-subprocess-local` 的 windowsHide 上游 0.1.3+ 才自带，本机 0.1.1-rc.2 **无** ⇒ 现在退役会**破坏现有功能**，必须与升级同批）；第三方插件升级（`dsh-tool-search@0.1.4` peer 要求 `^0.1.2-rc.1`，本机不满足 ⇒ **生态倒逼升级的硬证据**；`@liustack/modlens@3.26.1` 无 peer 阻碍但会覆盖本地 canon + 需全量重启）。
+
+**重启需求**：❌ 无（改动均在构建期脚本，不涉应用运行路径与已打补丁产物）。

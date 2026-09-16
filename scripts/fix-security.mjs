@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // scripts/fix-security.mjs
 // 安全修复（幂等，标记校验）：H1 注入器任意目录删除 / H2 注入器路由 CSRF / H3 vision-engine 路径穿越 / H4 staging RCE / M1 file-explorer 路径逃逸 / M2 remote-workspace 目标注入 / M3 目录列举引号 bug / M4 context-lifecycle CSRF
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { atomicWriteFileSync } from './lib/atomic-write.mjs'
 
 // SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -21,7 +22,7 @@ function patch(file, label, fn) {
     const s = readFileSync(file, 'utf8')
     const out = fn(s)
     if (out === s) { report.push(`SKIP ${label} (already applied or no-op)`) ; return }
-    writeFileSync(file, out, 'utf8')
+    atomicWriteFileSync(file, out)
     report.push(`OK   ${label}`)
   } catch (e) { fail += 1; report.push(`FAIL ${label}: ${e.message}`) }
 }

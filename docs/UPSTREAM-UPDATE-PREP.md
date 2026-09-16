@@ -154,6 +154,18 @@
 - 备份：`_backups/test-hygiene-20260904-144534/`（两个测试文件原件）。
 - 生效时机：测试文件改动，无需重启。
 
+## Phase 2 触发进展（2026-09-16 实测更新）
+
+- **触发 #1（npm latest 翻转 / 脱离 alpha）→ 已满足**：`latest=0.1.5-rc.1`、`next=0.1.5-rc.2`、`alpha=0.1.6-alpha.1`；
+  社区稳定桌面壳 `v2.0.10`（2026-09-13）内置内核即 `0.1.5-rc.2`。本机仍为 `0.1.1-rc.2` / 壳 `2.0.2`。
+- **触发 #2（长会话/断连实际影响使用）**：本机确有长会话存量（会话卫生插件阈值 4MB/8MB），但当前基线绿，暂不构成独立触发。
+- **其余 3 条（锚点预检对目标版本 / 依赖差异审计 / 39 插件兼容清单）** 仍未完成 → 见 `docs/UPDATE-ASSESSMENT.md` 2026-09-16 记录。
+- **新增前置（升级日必办）**：子模块 `vendor/deepseek-harness-desktop/deepseek-harness` 实测**是空目录（仅 gitlink）**、
+  vendor clone 仅 12 个 commit（需先 fetch 完整历史）、**16 处 no-ASAR 硬点**、代理 `127.0.0.1:7897` 需先开启。
+- **2026-09-16 完成的预备加固**：`scripts/patch-shape-gate.mjs`（目标侧形状门禁，版本针 + 上游形状锚点，fail-closed）
+  + `port-user-patches.mjs` 写入点接入 + `check-all.ps1` Step 1.16；以及写入路径**原子化**（见 CHANGELOG 同日节）。
+
+---
 ## Phase 2（冻结，触发条件监控中）
 
 > **2026-09-08 预演进展**：官方已发布 0.1.3-alpha.2（2026-09-07，npm alpha tag），完成一次只读 dry-run 影响评估（

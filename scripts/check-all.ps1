@@ -295,6 +295,33 @@ if (Test-Path $devRoleAudit) {
   Write-Host '  SKIP  audit-developer-role.mjs not found' -ForegroundColor Yellow
 }
 
+# ---- Step 1.16: patch-shape-gate.mjs (target-side shape gate, 2026-09-16) ----
+# port-user-patches.mjs used to validate only the canon bundle before overwriting a target and
+# never the target itself; the post-write read-back then checked the file it had just covered,
+# so it always passed. A kernel or shell version bump would therefore stamp a stale full-file
+# bundle over the new upstream file and still report green. scripts/patch-shape-gate.mjs adds a
+# version pin plus upstream shape anchors and refuses to write on mismatch (fail-closed).
+# BLOCKING because a false green here means a silently corrupt build, and the remedy is explicit
+# (re-port the canon, or pass --allow-drift after a deliberate migration).
+Write-Host ''
+Write-Host '=== Step 1.16: patch-shape-gate.mjs (target-side shape gate) ===' -ForegroundColor Cyan
+$shapeGate = Join-Path $PSScriptRoot 'patch-shape-gate.mjs'
+if (Test-Path $shapeGate) {
+  $shapeOut = & node $shapeGate
+  $shapeCode = $LASTEXITCODE
+  $shapeOut | Where-Object { $_ -match '^(BAD |WARN|OK  )' } | ForEach-Object { Write-Host ('  ' + $_.TrimEnd()) }
+  if ($shapeCode -ne 0) {
+    Write-Host ('  FAIL  registered patch target(s) deviate from upstream shape (exit ' + $shapeCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  a target no longer matches its anchors/version pin in scripts/patch-shape-gate.mjs' -ForegroundColor Yellow
+    Write-Host '  HINT  re-port the canon and update the gate entry, or pass --allow-drift deliberately' -ForegroundColor Yellow
+    $totalFail += $shapeCode
+  } else {
+    Write-Host '  OK    all registered patch targets match their upstream shape' -ForegroundColor Green
+  }
+} else {
+  Write-Host '  SKIP  patch-shape-gate.mjs not found' -ForegroundColor Yellow
+}
+
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''
 Write-Host '=== Step 2: verify-patches.ps1 (dist patch anchors) ===' -ForegroundColor Cyan

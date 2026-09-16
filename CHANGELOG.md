@@ -6,6 +6,76 @@
 
 ---
 
+## 2026-09-16 · 上游更新评估定案 + 补丁体系加固（目标侧形状门禁，修复「静默覆盖假绿」）
+
+**背景**：用户要求「看官方 dsh / dsh-desktop 有没有更新 + 全面分析本机 dsh 可更新什么 + 评估是否有必要」。
+
+**一、官方更新现状（2026-09-16 实测）**
+
+- 先纠正前提：**只有内核 `@deepseek-ai/dsh` 是 DeepSeek 官方**；桌面壳 `anywhere-labs/dsh-desktop` 是**社区项目**（其 release notes 原文自述「并非 DeepSeek 官方产品」）。
+- 内核：本机 **0.1.1-rc.2**（08-21）→ 官方 `latest=0.1.5-rc.1` / `next=0.1.5-rc.2` / `alpha=0.1.6-alpha.1`（09-15）。
+- 桌面壳：本机 **2.0.2**（08-27）→ 最新正式 **v2.0.10**（09-13，内核 0.1.5-rc.2，**全平台取消 ASAR**）；master 上 2.0.11 在飞（beta 切 0.1.6-alpha.1 + 专属 `~/.dsh-beta`）。
+- 雷达实跑：`update-watch.mjs` → `latest=0.1.5-rc.1 next=0.1.5-rc.2 alpha=0.1.6-alpha.1`、`release.desktop=v2.0.10`；`check-update-compat.mjs` → `UPDATE-AVAILABLE 2.0.10 vs 2.0.2`。
+
+**二、关键结构事实**：内核随壳打包（实测 `~/.dsh/profiles/desktop/node_modules/@deepseek-ai/` 下只有 cosmokit/schemastery，**无内核**）⇒ **升内核 = 重建壳**，无「只升内核」路径。
+
+**三、是否有必要：按本仓自定 5 条触发条件（`docs/UPDATE-ASSESSMENT.md:57-63`）逐条判**
+
+| # | 条件 | 现状 |
+|---|---|---|
+| 1 | 官方脱 alpha | ✅ 已满足 |
+| 2 | 锚点预检 | ⚠️ 仅证明旧基线完整；对目标版本 5 个 bundle 必然 MISS |
+| 3 | 依赖差异审计 | ❌ 未做（apiproxy 已移除、~100 钉版需重算） |
+| 4 | 39 插件兼容清单 | ❌ 未做 |
+| 5 | 稳定观察 ≥7 天 | ❌ 未满足（2.0.10 仅 2.5 天；内核 0.1.5-rc.2 6 天） |
+
+⇒ **结论：不立即全量升级，但立即开始预备**；明确**不建议**跳 0.1.6-alpha.1（alpha + PTC/workflow 改名 + Team 改 `spawn_teammate` 直接命中 `agent.cordis.yml:205-217,241,246`）。
+
+**四、本次执行的零回归加固（已落地 + 四腿验证）**
+
+- **问题（审计实测）**：`port-user-patches.mjs` 写目标前**只校验 canon 自身**、从不校验目标；写后回读校验查的又是刚被覆盖的文件 ⇒ **必然通过＝假绿**，上游换版会把旧内核整份 `client.js` 静默盖到新文件上。
+- **改动**：
+  1. 新增 `scripts/patch-shape-gate.mjs`：登记表（6 个内核包 + modlens）+ **版本针**（目标包 `package.json` version）+ **上游形状锚点**（`canon ∩ 原版 0.1.1-rc.2` 的公共结构长行，共 15 条，全部双向验证）；`assertTargetShape()` fail-closed；`--self-check` 只读三方对照。
+  2. `scripts/port-user-patches.mjs`：3 个写入点全接门禁；新增 `--allow-drift`（人工确认迁移的逃生口）与 `--self-check` 转发。
+  3. `scripts/check-all.ps1`：新增 **Step 1.16**（阻塞式，纯 ASCII）⇒ 门禁不腐烂。
+- **验证**：① `node --check` 均 exit 0，`check-all.ps1` AST 解析 0 错误 / 无 BOM；② `--self-check` → 6 OK + 1 WARN（modlens 无原版参照，声明为 pinOnly）**ALL OK**；③ **正常路径零回归**：`port-user-patches` 7/7 OK、exit 0、**13 个目标文件哈希前后完全一致（files-changed=0）**；④ **故障注入**：伪造 `DSH_PKG_ROOT`（6 包均 9.9.9 + 垃圾内容）⇒ **6 个 worker 全部拒绝写入、exit 1、伪造目标哈希未变**（证明 abort 在写盘前）；加 `--allow-drift` ⇒ 降为警告并放行。
+- **回归基线**：`verify-patches.ps1` **ALL PASS (50 checks)** ｜ `startup-verify.mjs` **V1–V10 PASS** ｜ `/health` **HTTP 200**。
+
+**五、未执行项与原因（防止误读为遗漏）**
+
+- 内核/壳升级：触发条件 3/4/5 未满足；且**代理 127.0.0.1:7897 未监听、子模块 `deepseek-harness` 为空目录（仅 gitlink）**、16 处 no-ASAR 硬点未改 ⇒ 今天做只能得到半成品。
+- 退役「上游已吸收」的补丁（如 `dsh-subprocess-local` windowsHide）：⚠️ 该修复在上游 **0.1.3+** 才自带，本机 0.1.1-rc.2 **无** ⇒ **现在退役会破坏现有功能**，必须与升级同批。
+- `dsh-tool-search` 0.1.3→0.1.4：实测 peer 要求 `@deepseek-ai/dsh-*: ^0.1.2-rc.1`，本机不满足 ⇒ **生态已开始倒逼内核升级**（本次评估的硬证据）。
+- modlens 3.23.1→3.26.1：实测**无 peerDependencies**（仅 undici/commander）⇒ 技术上可行，但会覆盖本地「无缝接管」canon + 必须全量重启（仓规：modlens 禁热重载）⇒ 建议与内核升级一并处理。
+
+**重启需求**：❌ **不需要**（改动全在构建期脚本，不在应用运行路径，也未改任何已打补丁的产物文件——哈希已证）。
+
+**产出与记录**：`outputs/2026-09-16-report-upstream-update-assessment/`（全面分析归档，已登记 `outputs/INDEX.md` 首行）、`docs/UPDATE-ASSESSMENT.md`（2026-09-16 评估记录）、`docs/UPSTREAM-UPDATE-PREP.md`（触发条件进展）。
+
+---
+
+## 2026-09-16 · 补丁写入路径原子化（原子写纪律落地）
+
+**背景**：同日修复「静默覆盖假绿」后按仓规做**同类问题扫描**（`scripts/*.mjs` 共 48 处 `writeFileSync`）。
+好消息是仓内已有 14 处脚本自带「同目录 tmp + rename」原子写；缺口是若干净盘直接截断写，
+运行中的启动加载器/按请求读盘的前端会撞上**半写文件**（2026-08-29 事故同类：写中间态被启动加载器读到 → 桌面启动失败）。
+
+**改动**（新增 1 + 修改 4）
+
+- 新增 `scripts/lib/atomic-write.mjs`：`atomicWriteFileSync(file, content)` = 同目录 `tmp` + `renameSync`（同卷原子替换），
+  失败时清理 tmp 并**上抛**（fail-loud，不静默）；把仓内 14 处内联写法收敛为**单一实现**（可维护/可演进）。
+- `scripts/port-user-patches.mjs`：`writeIfDifferent()` 改用原子写 —— 它是全仓**爆炸半径最大**的写入点（dist + vendor 的 5 个内核 bundle + modlens）。
+- `scripts/fix-security.mjs` / `fix-injector-loadcache.mjs` / `apply-sm-renderer-probe.mjs`：目标均为 `plugins/**` 运行路径（宿主启动时加载 / 前端按请求读盘），同样改原子写。
+- **有意不动**：存量 `apply-*.mjs`（16 个）按仓规**冻结现状**，不做全量迁移；其中 `apply-ui-perf-patches.mjs:94` 写的是 profile 里的第三方 client bundle，
+  因它在写前已做 `.bak-<date>` 副本，风险已被缓解，留待日后因故修改时顺手原子化。
+
+**验证**：① `node --check` **5/5** 通过；② 区分大小写残留检查 **裸 `writeFileSync` = 0**（4 个文件全部只剩 `atomicWriteFileSync`）；
+③ 助手语义实测：覆盖写后内容正确、**tmp 残留 0**；④ **正常路径零回归**：`port-user-patches` 7/7 OK、exit 0、**13 个目标文件哈希零变化**、dev 树 `.tmp-` 残留 **0**。
+⑤ 门禁自检仍 **ALL OK**。
+
+**重启需求**：❌ 无（构建期脚本改动，不涉运行态）。
+
+---
 ## 2026-09-16 · 移除插件 `dsh-orchestrator`（用户决定：部门式编排功能退役，回到未安装状态）
 
 **背景（依据是实测，不是感觉）**：用户逐轮评估后判定该功能"没啥用"：

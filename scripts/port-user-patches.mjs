@@ -9,19 +9,31 @@
 //  2) 新壳自身的 drop-target 补丁行保留；
 //  3) ADD_REMOTE「远程连接」菜单入口 + remoteFlow 渲染（还原旧 rc.7 工作区选择流程入口，需新壳 bundle 已有 remoteFlow 洞声明）；
 //  4) desktop profile 的 modlens 无缝接管补丁（与 web 对齐）。
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+//
+// 写盘安全（2026-09-16 加固）：每个目标写入前必过 scripts/patch-shape-gate.mjs 的
+// 「目标侧形状门禁」（版本针 + 上游形状锚点），任一不符即 abort —— 防止上游换版时
+// 把旧版本整文件静默盖到新文件上（旧逻辑写后回读查的是刚被覆盖的文件，必然通过＝假绿）。
+// 锚点/版本的权威登记处只有一个：scripts/patch-shape-gate.mjs。
+import { readFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+// 原子写（AGENTS.md 原子写纪律）：目标是被运行中的应用/启动加载器读取的产物文件，
+// 绝不允许出现「半写文件」被读到（2026-08-29 事故同类）。
+import { atomicWriteFileSync } from './lib/atomic-write.mjs'
 import { fileURLToPath } from 'node:url'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
 import { assertLibUnpacked } from './check-dist-integrity.mjs'
+import { assertTargetShape, selfCheck } from './patch-shape-gate.mjs'
 
 // P1-B6: 权威源 = 仓库 canon（git 管理）。仅当显式 --update-canon 时，才从
 // 全局 npm / web profile 的原始安装读取并刷新 canon（一次性移植输入）。
 const UPDATE_CANON = process.argv.includes('--update-canon')
+// --allow-drift：已经人工确认是有意的上游迁移时，把形状门禁从“拒绝写入”降为“警告”。
+const ALLOW_DRIFT = process.argv.includes('--allow-drift')
+// --self-check：只读跑一遍 patch-shape-gate 三方对照（canon / 原版 / 当前目标），不写任何文件。
+const SELF_CHECK = process.argv.includes('--self-check')
 
 const HOME = process.env.USERPROFILE || process.env.HOME
 if (!HOME) throw new Error('cannot resolve user home')
-const GLOBAL_ROOT = join(HOME, 'AppData', 'Roaming', 'npm', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai')
 // SELF-3: derive from script location, not hardcoded D:/Deepseek-Harness
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CANON_DIR = join(REPO_ROOT, 'patches', 'bundles').replace(/\\/g, '/')
@@ -34,6 +46,14 @@ if (resolvedBuild !== null) assertLibUnpacked(resolvedBuild.asar)
 const PKG_ROOT = process.env.DSH_PKG_ROOT
   ? process.env.DSH_PKG_ROOT.replace(/\\/g, '/') + '/node_modules/@deepseek-ai'
   : resolvedBuild.nodeModules.replace(/\\/g, '/') + '/@deepseek-ai'
+
+if (SELF_CHECK) {
+  const { bad, lines } = selfCheck()
+  console.log('=== patch-shape-gate 自检（只读；port-user-patches --self-check）===')
+  console.log(lines.join('\n'))
+  console.log(`=== 结论：${bad === 0 ? 'ALL OK' : `${bad} 项 BAD`} ===`)
+  process.exit(bad ? 1 : 0)
+}
 
 const WORKSPACES = [
   {
@@ -114,7 +134,7 @@ function writeIfDifferent(file, content) {
   let old = null
   try { old = readFileSync(file, 'utf8') } catch { /* not exists */ }
   if (old === content) return false
-  writeFileSync(file, content, 'utf8')
+  atomicWriteFileSync(file, content)
   return true
 }
 
@@ -185,7 +205,7 @@ for (const w of WORKSPACES) {
     if (w.keepDropTarget) content = ensureDropTarget(content)
     if (w.remoteEntry) content = applyRemoteEntry(content)
     if (UPDATE_CANON) writeIfDifferent(w.canon, content)
-    for (const t of w.targets) writeIfDifferent(t, content)
+    for (const t of w.targets) { assertTargetShape(t, { allowDrift: ALLOW_DRIFT }); writeIfDifferent(t, content) }
     for (const t of [w.canon, ...w.targets]) {
       const c = readFileSync(t, 'utf8')
       for (const m of w.markers) if (!c.includes(m)) throw new Error(`${t} 缺少标记 ${m}`)
@@ -208,6 +228,7 @@ for (const w of WORKSPACES) {
     if (MODLENS.markers.every((m) => targetContent.includes(m))) {
       report.push(`OK   ${MODLENS.name} (已含补丁)`)
     } else {
+      assertTargetShape(MODLENS.target, { allowDrift: ALLOW_DRIFT })
       writeIfDifferent(MODLENS.target, srcContent)
       report.push(`OK   ${MODLENS.name} (已重打)`)
     }
@@ -220,7 +241,7 @@ for (const w of WORKSPACES) {
 for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE, DIRECTORY_PICKER, ZSTD_MODULE]) {
   try {
     const content = ensureMarkers(readFileSync(p.canon, 'utf8'), p.markers, p.name)
-    for (const t of p.targets) writeIfDifferent(t, content)
+    for (const t of p.targets) { assertTargetShape(t, { allowDrift: ALLOW_DRIFT }); writeIfDifferent(t, content) }
     report.push(`OK   ${p.name}`)
   } catch (e) {
     failed += 1

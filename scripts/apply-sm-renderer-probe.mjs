@@ -1,6 +1,7 @@
 // scripts/_patch-sm-renderer-probe.mjs - one-shot patch: add renderer CPU probe
 // to dsh-self-maintenance. Read-modify-write with exact string anchors; run once.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { atomicWriteFileSync } from './lib/atomic-write.mjs'
 
 import { join } from 'node:path'
 const file = join(process.cwd(), 'plugins', 'dsh-self-maintenance', 'lib', 'index.js')
@@ -60,7 +61,7 @@ for (const [old, next] of edits) {
   }
 }
 if (applied === edits.length) {
-  writeFileSync(file, src)
+  atomicWriteFileSync(file, src)
   console.log('patched ' + applied + '/' + edits.length + ' edits (' + marker + ')')
 } else {
   console.error('only ' + applied + '/' + edits.length + ' applied; file NOT written (safe)')
