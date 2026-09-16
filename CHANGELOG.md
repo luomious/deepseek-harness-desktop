@@ -6,6 +6,103 @@
 
 ---
 
+## 2026-09-16 · 移除插件 `dsh-orchestrator`（用户决定：部门式编排功能退役，回到未安装状态）
+
+**背景（依据是实测，不是感觉）**：用户逐轮评估后判定该功能"没啥用"：
+
+1. **6 角色全链路 e2e 从未真正跑通** —— 唯一一次报 `gate=pass nodes=6` 的运行（`run-mu1hqp1a-001`）实际子会话日志只有 `brief-written`，属**假绿**（2026-09-15 发现）。
+2. **选错了 API 缝** —— 本插件走**一次性** `ctx.subagents.start('spawn', …)`；同版本内核另有 **continuable** 缝：读宿主 0.1.1-rc.2 源码实测具备 `startContinuable` / `provider.prepareContinuable` / `capabilities.persona|toolFilter`（descriptor v2），而生态主流实现（AgentTeams / subagent-registry / pentester）全走后者 ⇒ 根因 #4（prompt 形状）、#5（首轮裁工具）是**一次性路径特有**的。
+3. **编排本身是内核自带能力** —— 本机已装 `dsh-tool-subagent`/`-control`/`-report`、`dsh-subagent-{spawn,fork}-in-process`、`dsh-client-ui-subagent`、`dsh-tool-workflow`、`dsh-tool-ralph` ⇒ 插件只提供"协议 + 面板 + 持久化"这层包装。
+4. **生态有成熟替代且兼容本机** —— 260 个同类候选中 **112 个与 0.1.1-rc.2 完全兼容**（`dsh-swarm-orchestrator` / `dsh-crew` / `dsh-knj-workflow` …）。用户同时否决"装第三方插件"与"升宿主到 0.1.5-rc.1"。
+
+**已执行**（三段式，每步带备份/回滚路径）：
+
+1. **热卸载** `dev_uninject_plugin(match=dsh-orchestrator)` —— 卸 loader entry、写 profile patch `disabled`、删 profile junction、清 client 模块表（**免重启**）。
+2. **装配注销** `node scripts/deregister-plugin.mjs --plugin dsh-orchestrator --yes` —— 清 **4 处**：运行态 `dependencies` 的 `link:` 行、运行态 `dsh.profile.bundles` 项、`node_modules` junction、**模板** `profile/desktop/package.json`（deps + bundles）。备份 `~/.dsh/_backups/profile-desktop-package-dereg-2026-09-16T08-19-29-908Z.json`（及同批 template 备份）；脚本内含 `scan-dangling --strict` 自验（**0 发现**）。
+3. **清 `disabled` 残留** —— uninject 会往 profile `cordis.patch.yml` 回写 `- id: dsh-orchestrator / disabled: true`。**必须清掉，否则 `startup-verify` V3 报「stale disabled」**。备份 `~/.dsh/_backups/profile-desktop-cordis-patch-stale-disabled-2026-09-16T08-21-00-847Z.yml`（原子写 tmp→rename）。⚠️ **三段缺一不可**：只做第 1 步 ⇒ V1/V10 报「package dir unresolvable」；只做前两步 ⇒ V3 报红。这条是 startup-verify **实测**得出的，不是推测。
+4. **归档（非永久删，可整目录搬回）**：`_backups/removed-2026-09-16-dsh-orchestrator/` ← `plugins/dsh-orchestrator/`（**13 文件**）+ `tests/plugins/orchestrator-{client,gate,host,ledger,scheduler,tool}.test.mjs`（**6 文件**）⇒ 档案 20 文件 / 459KB。**测试必须同走**，否则其 `import` 指向已归档路径会让测试步骤失败。档案内 `README.md` 含：退役依据 / 模块地图（哪些文件值得复用）/ 恢复步骤 / **「若要复活请换 continuable 缝」的技术移交**。
+5. **台账同步**：`plugins/INVENTORY.md` 删行 + 统计重算 ⇒ `audit-plugin-inventory` **PASS=11 / WARN=0**（实测目录 38 = 标题 38；表格行 39 = 38 + `dsh-routing-suite`；总计 43→**42**；core 38→**37**；bundle 32→**31**；`必须重启` 不变）。
+
+**已知边界（实测，非推断）**：热卸载**只**清 loader 侧与 client 模块表，**host 半区仍活在当前进程**——卸载后 `GET /orchestrator/ping` 与 `/orchestrator/state` 实测仍返回 **200 + 真实 JSON**（对照随机路径 404，排除 SPA 回退误判）。⇒ **必须重启桌面应用**才彻底消失；重启后 profile 已无引用，不会重新加载。运行态账本 `<DSH_HOME>/orchestration/`（39 文件 / 58.8KB）**有意保留到重启后**（避免与仍活的 host 半区争写），重启后可整目录搬入本档案或删除。
+
+**验证**：`startup-verify` **V1–V10 全 PASS** ｜ `scan-dangling --strict` **0 发现** ｜ `/health` **HTTP 200** ｜ `audit-plugin-inventory` **11 PASS / 0 WARN** ｜ `plugins/dsh-orchestrator` 已不存在、`tests/plugins/orchestrator-*` 残留 **0**。
+
+**恢复方式**：档案整目录搬回 `plugins/` + `tests/plugins/` → `node scripts/register-plugin.mjs --plugin dsh-orchestrator --yes` → 重启。
+
+**本节相关的历史条目（2026-09-14 各节）保留为设计与实现的历史记录**，不随退役删除。
+
+---
+
+## 2026-09-16 · 移除插件 `dsh-model-manager`（用户决定，回到未安装状态）
+
+**背景**：该插件（同日新增，见下节）在「设置→模型」注入 Clash 风格连接状态面板，并在会话头部放 📶 图标。用户逐轮反馈后定性：**不要图标、这个插件整体不要**，遂从运行态与装配中彻底下线。
+
+**已执行**（每步带备份/回滚路径）：
+
+1. **热卸载** `dev_uninject_plugin(match=dsh-model-manager)` —— 卸 loader entry、清 super-injector registry、删 profile junction、清 client 模块表（免重启）。
+2. **装配注销** `node scripts/deregister-plugin.mjs --plugin dsh-model-manager --yes` —— 清 4 处引用：运行态 `dependencies` 的 `link:` 行、运行态 `dsh.profile.bundles` 项、junction、**模板** `profile/desktop/package.json`（deps + bundles）。备份：`~/.dsh/_backups/profile-desktop-package-dereg-2026-09-16T07-54-14-241Z.json` 及同批 `...-template-...-247Z.json`；脚本内含 `scan-dangling --strict` 自验。
+3. **清 `disabled` 残留**：uninject 会往 profile `cordis.patch.yml` 回写 `- id: dsh-model-manager / disabled: true`（防 bundle patch 自装配）。重启前必须清掉，否则 `startup-verify` V3 报红。备份 `cordis.patch.yml.bak-mm-remove-20260916-155444`（原子写：tmp + rename，保留无 BOM 编码）。
+4. **归档（非永久删，可整目录搬回）**：`_backups/removed-2026-09-16-dsh-model-manager/` ← `plugins/dsh-model-manager/`（8 文件）+ `tests/plugins/model-manager-{engine,resolve,client,host}.test.mjs`（4 文件）。测试文件必须同走，否则其 `import` 指向已归档路径会让测试步骤失败。
+5. **台账同步**：`plugins/INVENTORY.md` 删 `dsh-model-manager` 表行 + 统计重算（总计 44→**43**、core 39→**38**、bundle 33→**32**、插件目录 40→**39**、必须重启 3→**2**）→ `audit-plugin-inventory` **11 PASS / 0 WARN**；`outputs/INDEX.md` 与设计文档标注为「插件已移除」的历史存档。
+6. **清临时探针目录**（收尾）：`_model-probe/`（**66 文件 / 2,832 KB**，本次重构与连通性排查共用的临时探针与截图）整体归档到 `_backups/archived-model-probe-scratch-2026-09-16/_model-probe/`，仓库根不再留临时目录。被搬家影响的引用全部同步：① `ROLLBACK.md` 的 `cordis.patch.yml.before-uninject` 对照快照**复制进本 outputs 目录**（引用改指本地）；② `DESIGN.md` 的 `mm_full_scan.mjs` 引用改指同目录副本；③ `mm_full_scan.mjs` 头部补「插件已归档，需先按第 5 节搬回才能跑」的前提说明（`node --check` 通过）；④ 把 **14 个复现脚本**（`ui_step*.py` / `ui_verify_removed.py` / `probe_dots.py` / `check_dict.py` / `clear_mm_flags.py` 等）从归档件同步进 `outputs/2026-09-16-doc-model-manager-redesign/`，使该产出目录**自足可复现**（`README.md` 产物表已更新；截图全集仍在归档件内）。
+
+**已知边界（实测，非推断）**：热卸载**只**清掉 loader 侧与 client 模块表，**host 半边仍活在当前进程里** —— 卸载后 `GET /model-manager/state` 实测仍返 **200 + 36,645 B 真实 JSON**（对照不存在的随机路径返 404，排除 SPA 回退误判），`/health` 仍含 `"model-manager":{"ok":true…}` 探测项。⇒ `hostServices.registerLocalApi` / `registerHealthProbe` **不随 fiber dispose 撤销**，**必须重启桌面应用才彻底消失**（重启后包已无法解析，不会再加载）。这条已写回插件 README 历史（存档内）与本节。
+
+**恢复方式**（若日后想找回）：把 `_backups/removed-2026-09-16-dsh-model-manager/plugins/dsh-model-manager` 搬回 `plugins/`、测试搬回 `tests/plugins/` → `node scripts/register-plugin.mjs --plugin dsh-model-manager --yes` → 重启。
+
+**重启后复验（用户 16:58 重启，本节闭环）**：上一节列的「host 半边残留」**已全部消失** —— `/health` 不再含 `model-manager` 探测项且 **HTTP 200（全绿）**、`GET /model-manager/state` 与 `/model-manager/targets` 均 **404**（对照随机路径同为 404，路由确实不再注册）；进程启动时间 16:58:33/35/36/43/54 与重启动作一致；应用日志无 `cannot resolve package` / `Failed to load plugins` / `dsh-model-manager` 任何报错。装配侧复跑：`startup-verify` **10/10 PASS**、`scan-dangling --strict` **全 0**、`check-unsupervised --strict` **DRIFTED=0 阻塞 0**、`audit-plugin-inventory` **11 PASS / 0 WARN**。真机（Playwright+Edge，重启后新会话）**ALL_PASS**：`model-manager` 资源请求 **0**、头部只剩原生按钮、设置→模型页 **0 行 / 0 卡 / 0 pageerror**；存证截图 `outputs/2026-09-16-doc-model-manager-redesign/post-restart-{shell,conversation,settings-models}.png`。
+
+**唯一未观测项（已声明，无害）**：用户浏览器里可能残留 `dsh.model-manager.showPanel` / `hideLegacyPanel` 两个 localStorage 死键 —— 复探用的是 Playwright 全新 profile（键本就为空），因此**未能读到用户真实值**；两键现已无任何代码读取，且 `dsh.model-whitelist.v1` 不受影响，无需处理。
+
+---
+
+## 2026-09-16 · 模型管理界面重构（Clash 风格连接状态面板 `dsh-model-manager`）
+
+> ⚠️ **该插件已于同日按用户要求整体移除，见上一节。本节保留为设计与实现的历史记录（含全部实测证据）。**
+
+**需求**：把设置→模型从「一列复选框」改成 Clash / 路由器控制台那种能看到每个 API 连通性、能一键测速、能顺手增删模型的界面。
+
+**一、调研结论（决定实现路线）**
+
+- 内核自带的 `dsh-client-ui-settings-models` 已经提供提供方增删/改 Key/`discoverModels`，并声明了唯一子槽 `settings.models.whitelist`；`dsh-model-whitelist` 就是注入该槽的复选框面板 —— 所以不缺「管理」，缺的是**状态可视化 + 批量测速**。
+- 客户端可用宿主 API 已确认：`llm.providers` / `llm.models` / `llm.discoverModels` / `settings.describe` / `settings.mutate` / `credentials.describe`；宿主侧对应 `ctx.settings` / `ctx.credentials` / `ctx.llm`（`dsh-settings`/`dsh-credentials`/`dsh-llm` README）。
+- `hostServices.registerLocalApi` **没有 SSE**，故进度用 700ms 轮询（不引入新基建）。
+- 实测 `ctx.llm.listConfigurableProviders()` 返回 **68 条路由**（active 35：19 个 pi-ai 配置项 + `deepseek-official` + 15 个 `modlens-*` 包装）——**包装路由必须跳过**，否则同一批物理模型被探两遍、面板出现重复行。
+
+**二、新增插件 `plugins/dsh-model-manager`（bundle，零依赖）**
+
+- host：`engine.js`（判定以**响应体**为准：2xx 且 body 含非空 `choices` 才算可用 —— 修掉旧 `/model-whitelist/test` 只看 HTTP 状态码、把百度「200 + error_code 17」判成可用的假阳性；超时用显式 promise 竞速，**不依赖传输层是否理会 abort**）、`resolve.js`（拓扑解析纯函数 + settings.yaml 兜底）、`store.js`（`~/.dsh/model-status/state.json` 原子写 / 损坏自愈归档 / 每模型 12 条延迟历史 / 写入去抖）、`index.js`（7 个本地端点 + 单 job 调度 + `/health` 探测项 `model-manager`）。
+- client：设置页 `settings.models.whitelist`（order 10）Clash 风格面板（概览/进度/过滤/排序/搜索/折叠、厂商 Key 状态点、模型行状态点+延迟色阶+sparkline+错误 chip、行内单测/删除/复制 id、厂商级测速/发现/删除、白名单沿用 `localStorage['dsh-model-whitelist.v1']` 与旧面板同源）+ 会话头部 `conversation.session.header.actions` 📶 网络图标（一点全量测速，弹层列异常）。
+- 装配：`register-plugin.mjs --plugin dsh-model-manager --yes` → 4 处齐活 + `startup-verify` **10/10 PASS**（bundles 48→49）；`scan-dangling --strict` **0 悬空**；`audit-plugin-inventory` **11 PASS / 0 WARN**。
+
+**三、验证**
+
+- 单测 **24/24**：`tests/plugins/model-manager-engine.test.mjs`（判定 12 分支含「200 + error body」假阳性回归 / 缺 Key 不打网络 / 超时切断「永不 settle」的传输层 / 取消 / 并发上限 / 存储损坏自愈 / 历史裁剪）+ `tests/plugins/model-manager-resolve.test.mjs`（跳过包装路由 / 配置模型优先去重 / **真实 settings.yaml 回归**：≥18 provider、≥80 模型）+ `tests/plugins/model-manager-client.test.mjs`（假 `__ModuleLoader__`+假 React 真加载 client bundle：只依赖 react、注册两个槽位的 id/order、两组件在最小 props 与缺 `connection` 时都不抛错）。
+- 过程中被测试抓到的 3 个真缺陷（已修）：① 传输层不理会 abort 会让探测永久挂起；② YAML 兜底解析器的通用 key 正则匹配不到 `- id:` 列表项 ⇒ 模型全空（线上表现为「对任何模型都回未找到该 provider/model」）；③ `.credentials.yaml` 解析在 refs 段之后会继续吞掉其它分节的缩进行。
+- 运行态：插件在**运行中的应用**里注入成功（host+client），`/model-manager/state` 已响应；但本构建 `dev_reload_package` 报 `loader.internal 不可用` ⇒ **host 代码改动必须重启桌面应用才生效**（已写进插件 README 与台账）；卸载残留的 `disabled: true` 补丁已清理（备份 `cordis.patch.yml.bak-mm-20260916-121634`）。
+
+**四、重启前已完成的第一步复核（2026-09-16）**：用 Playwright（系统 Edge 通道）真机打开 GUI 实测 —— 设置→模型 页我们的面板渲染出 **20 个厂商卡 / 88 个模型行**、标题「📶 模型连接状态」，**无错误条、无 console error**，apply 钩子日志正常（证据截图 `outputs/2026-09-16-doc-model-manager-redesign/ui-step1-settings.png`）。回退手册：同目录 `ROLLBACK.md`（3 档回退 + 全部备份路径 + 自检命令）。
+
+**五、host 半的「免重启」集成验证（2026-09-16，`tests/plugins/model-manager-host.test.mjs`）**：把 host 在假 cordis ctx 里真加载、直调 7 个端点 —— 默认离线层 6 例（路由注册、`/targets` 走 settings.yaml 兜底给出 ≥18 provider / ≥80 模型、响应体正则断言**不含密钥值**、容器化路由被跳过、`/clear` 幂等、缺参给明确错误）；`MM_LIVE=1` 真网络层 3 例（`/test` 真打上游 ok ~1.0s、`/scan` 扫 groq **3/3 完成并落盘 `state.json`**、启动瞬间二次扫描被拒 `scan-in-progress`、健康探测从 skipped 翻成非 skipped、`/cancel` 在 **85 个模型**的全量扫描中途生效 done<total ⇒ 新代码实测解析出 **19 条路由 / 85 个模型**）。四个 suite 合计 **33 例（30 pass / 3 skip）**。
+
+**六、第二步复核：全量扫描 + 逐模型交叉比对（2026-09-16，`_model-probe/mm_full_scan.mjs` / `cross_compare.py`）**：用插件**自己的 host 代码**（临时 DSH_HOME，不动用户缓存）跑真实全量扫描 —— **85/85 完成、60 秒、ok 64**（auth 10 / rate_limit 10 / no_model 1）；日志确认 `settings 服务路径没拿到模型，已用 settings.yaml 兜底：85 个模型`（兜底真被触发）。与既有 Python 探针（`outputs/2026-09-16-report-model-connectivity/`）逐模型比对：**一致 81、硬失败不一致 1、瞬时差异 3、单边缺失 0**。那 1 条是**刻意改进**：`tokenrouter/z-ai/glm-5.3-free` 两边 HTTP 都是 503、body 都是 `model_not_found`，旧口径按状态码归 SERVER（"会恢复"），新引擎按 body 归 `no_model`（"模型已下线→建议清理"）——后者才是正确归桶。3 条瞬时差异均为上游状态变化（amd 一条恢复、sennsenova 两条转为限流）。**会话头部 📶 图标同时完成真机复核**：进入会话视图后出现在头部动作区（与 Session log / 轨迹 / 编排看板 同排），点击弹出异常浮层，无 pageerror/错误条（`ui-step2-header.png`）。
+
+**七、管理面（增/删模型）的写路径验证 + 一处措辞修正（2026-09-16）**：面板的增删走内核 `settings.mutate`。用**会失败的写**安全验证：`settings.describe` 实测 `writable=true / llm-pi-ai revision=1 / 18 providers`；`settings.mutate` 传非法 provider（`__mm_probe__`）被内核以 `settings-rejected` 拒绝，**`settings.yaml` 哈希前后一致、未被注入任何条目**（未在用户真实配置上做任何落盘）。据此修正 client：除 `settings-conflict`/`SETTINGS_CONFLICT`（过期 revision）外，把 `settings-rejected`（schema 校验不过）也归到「重读后再试」，不再混成普通失败。客户端冒烟测试复跑 3/3。
+
+**八、第三步复核：「保留现有功能」的等价性证明 + 运行态现状核实（2026-09-16）**：① **运行态仍是旧 host**（`/model-manager/targets` 404、桌面进程启动于 09:32 早于改动）——但因此拿到缺陷现场证据：点 📶 触发的那次扫描 `lastScan.total = 0`、`entries = {}`，同时证明「客户端点击 → 端点 → 落盘 `~/.dsh/model-status/state.json`」链路通。② **白名单等价性**（真机点击非推断）：面板里真点 3 个 👁 + 开总开关后，localStorage 读回 `{"enabled":true,"models":["deepseek-official/…"]}`，与 `dsh-model-whitelist` 的键名/schema 逐字一致；测完原样还原（`与原始一致: True`）。③ **旧功能零改动**（git 证据）：本次会话只改 `CHANGELOG.md` + `plugins/INVENTORY.md`，`git diff --stat -- plugins/dsh-model-whitelist plugins/dsh-model-picker-group` 为空 ⇒ 选择器过滤/分组逻辑保持原样，面板仅通过同一 localStorage 键互操作。未直接目视的一项（选择器浮层"只剩勾选+当前"）由 ②③ 间接保证，重启后顺手一看即可。
+
+**九、第四步复核：有数据时的 UI 数据通路（网络拦截喂真实扫描结果，2026-09-16）**：运行态 host 仍是旧版（扫描恒 0 结果），但 `/model-manager/state` 由它提供、client 已新版 —— 用 Playwright **拦截该请求并回放 harness 实跑的 85 条真实结果**（ok 64 / 限流 10 / 硬失败 11），把「重启后才看得到的效果」提前验完：头部图标标题 `64 可用 / 21 异常`、圆点 `rgb(242,90,90)` 红、浮层 `64 可用 · 11 硬失败 · 10 不稳定` + 逐条异常（`tokenrouter/… 模型不存在`、`justdowork/… 未授权`、`zhipu-ai/glm-4.7-flash 限流`）；面板 88 行色点 **64 绿 / 10 黄 / 11 红 / 3 灰**、sparkline **85** 条；过滤「仅异常」**21 行**（11 红+10 黄）、「仅可用」**64 行**全绿、「未测试」**3 行**全灰无 sparkline；三种排序切换无 pageerror。证据截图 `ui-step4-panel-all.png` / `ui-step4-panel-issues.png` / `ui-step4-header-withdata.png`。
+
+**十、重启后线上确认（2026-09-16）**：用户重启后实测 —— `/model-manager/targets` 返回 **19 条路由 / 85 个模型**、用户已跑一次全量扫描 **85/85 完成（84 秒）**、`state.entries = 85`。功能链路在真实运行态跑通。
+
+**十一、v2 排版改版（2026-09-16 用户反馈驱动）**：用户反馈「模型测试连通额外添加了一栏、太复杂和冗余」。先量化现状（Playwright 计数）：顶部 **4 行控件占弹窗约 60% 高度**、面板 1458px 一屏只见 3~4 个模型行、**424 button / 97 input / 145 svg（sparkline）**、单行 8 个元素、错误文本自身重复（`A | A`）、同页三套东西（内核厂商列表 + 本面板 + 旧勾选面板）。随即调研同类"多 API 管理台"：**one-api / new-api 渠道页**（一行一渠道：名称｜状态｜响应时间｜操作；顶部**一个**「测试所有渠道」；结果就地回填。其 issue #5843 仍在要求响应时间筛选）、**claude-proxy**（批量测试直接列表显示延迟、绿/黄/红分级）、**model-tester / llm-tester**（渠道→获取模型→勾选测试，单页三段式，请求日志另开一区）、**openhanako issue #2568**（与本需求几乎同文：加**一个**「测试全部模型」按钮 + **在模型行右侧显示状态标签**，明确反对另开面板）、以及明显过重的 relay-status-monitor / LiteLLM / ferro 控制台。提炼共识：一行一对象＋延迟色阶＋只有一个测试按钮＋错误进 hover＋同一信息不出现两处＋勾选属列表本体一列。据此改造 client：① 顶部 4 行 → 1 行标题 + 1 行细字统计 + 1 行工具条；② 删徽章卡/进度卡/排序下拉/sparkline（排序移入 ⋯ 菜单）；③ 白名单改行内 👁 + ⋯；④ **默认只展开有异常的厂商组**（并修掉"默认派生导致展开全部按钮无效"的 bug）；⑤ 单行元素 8 → 6；⑥ 错误去重+截短、详情进 title；⑦ **同组同因上提到组头显示一次**（实测 openrouter 14 行同因）；⑧ 默认收起旧勾选面板（精确隐藏"与本面板同容器的那层兄弟子树"，⋯ 可恢复）。实测：button 424→**138**、input 97→**1**、svg 145→**0**、select 1→0、默认可见行 88→**38**、一屏可见 3~4→**17** 行、旧面板已收起、**0 pageerror**；vision 读图确认树形表格列对齐、openrouter 组头显示一次限流原因、行内仅剩「限流」短标签。调研与明细见 `outputs/2026-09-16-doc-model-manager-redesign/DESIGN.md` §11。
+
+**十二、v3：对齐内核原生样式 + 补「编辑模型」（2026-09-16 第二轮用户反馈）**：用户反馈「不能按之前的模型界面基础完善吗？排版有点丑，而且没有编辑已添加的模型」。做法：**先量后抄** —— 对内核「模型」页真实 DOM 取计算样式（分区标题 `h2` 16px/500；行 flex/gap 10/height 28；名称 14px/400；次按钮 12px、`padding 0 10px`、height 28、圆角 14、1px 淡边框），v3 全量套用，去掉自造的 emoji 标题与符号按钮（⊞/⊟/⛔）与自定边框。**新增行内「编辑」**：点开就地变表单（模型 id / 显示名 / 上下文窗口 / 最大输出，全部预填现值，保存/取消），保存走 `settings.mutate` 整数组替换 + `expectedRevision`；**空字段用删除该键表达**（不写空串，schema 会拒），id 必填；容量沿用 `128K/1M` 解析且与「添加模型」共用同一实现（parseCap 提到模块级）。vision 读图复核后又修两处：① 厂商组与模型行层级不清 → 组头改浅底条（bg-layer-2 + 圆角 8 + 30px）+ 模型行左缩进 22px；② 长错误文本跨列破坏对齐 → 错误列 `flex: 0 1 300px` + `margin-left:auto` + 11.5px 强制省略。实测 `overflowRows = 0`、0 pageerror；顺手补上漏掉的 zh 字典项 `edit/save`（对 64 个 `t()` key 做了缺失扫描）。
+
+**十三、待办（等你拍板）**：① 把状态**直接贴进内核自己的厂商列表行**（最彻底的"不加一栏"，需跨插件改内核 client bundle 或改 `dsh-model-whitelist` 面板，风险需你确认）；② 点行展开详情弹层（完整 error / http / 延迟曲线）。
+
+---
+
 ## 2026-09-16 · 全面自检 + 残留任务收尾 + 环境清理（审计清理轮）
 
 **一、残留任务检测（task-scheduler 时间线 + 文件证据）**
@@ -611,6 +708,8 @@ tool 测试加 `先取证再收尾` 硬断言。
 ---
 
 ## 2026-09-14 · dsh-orchestrator P1：编排核心 + orchestrate 工具 + 运行端点（**需重启生效**）
+
+> ⚠️ **该插件已于 2026-09-16 按用户要求整体退役**（见本文件同日「移除插件 `dsh-orchestrator`」节，档案 `_backups/removed-2026-09-16-dsh-orchestrator/`）。本节保留为设计与实现的历史记录（含全部实测证据）。
 
 > v2 方案的 P1：把"部门"真正跑起来。**核心逻辑与工具全部在纯 node 下验证完毕**（6 套件全绿），但 `orchestrate` 工具与两个新端点属于 host 侧注册，**需要重启桌面应用才生效**（等用户指示，不擅自重启）。
 

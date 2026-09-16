@@ -26,7 +26,7 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 
 ## 插件清单
 
-### plugins/ 目录（39 个）
+### plugins/ 目录（38 个）
 
 > **计数纪律（2026-09-13 复核）**：本标题数字必须与实测一致 —— 复算：
 > `(Get-ChildItem plugins -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'package.json') }).Count`
@@ -35,6 +35,7 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 > ✅ **2026-09-15 新增** `dsh-memory-guard`（事故防护常驻化）⇒ 标题 **38** = 37（含 `package.json` 的目录）+ `dsh-routing-suite`；`experimental` 3→4、`bundle` 30→31。
 > ✅ **2026-09-15 新增（同日第二件）** `dsh-developer-role-guard`（非 OpenAI 上游 developer 角色护栏）⇒ 标题 **39** = 38（含 `package.json` 的目录）+ `dsh-routing-suite`；`experimental` 4→5、`bundle` 31→32。事故复盘 `outputs/2026-09-15-report-modelscope-developer-role-fix/`。
 > ✅ **补登完成（2026-09-13）**：此前缺 5 行 —— `dsh-code-security-guard`、`dsh-tool-audit`、`dsh-temp-tracker`、`dsh-health-dashboard`、`dsh-crashpad-hygiene`（**均已装配且有 `lib/index.js`，却无台账行**），本次按实测补入下表 ⇒ 表格行数（**37** = 36 + `dsh-routing-suite`）与标题计数口径一致。
+> ✅ **2026-09-16 移除** `dsh-orchestrator`（用户决定退役，档案 `_backups/removed-2026-09-16-dsh-orchestrator/`）⇒ 标题 **39→38** = 37（含 `package.json` 的目录）+ `dsh-routing-suite`；表格行 **40→39**；`core` 38→37、`bundle` 32→31；`必须重启` 不变（该插件为 ⚠️ 建议重启）。
 
 | 插件 | 装配 | 状态 | 热重载 | 用途 |
 |------|------|------|--------|------|
@@ -63,7 +64,6 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `dsh-model-whitelist` | bundle | core | ⚠️ | 模型白名单（并入 Settings → 模型 单页下段：白名单控制可见模型 + 测试连接；2026-09-02 与「模型」页整合，详见 docs/MODEL-WHITELIST-MERGE-2026-09-02.md） |
 | `dsh-modlens-autoread` | bundle | core | ❌ | 纯文本模型图片自动识别（粘贴/发照片时自动调 modlens 读图） |
 | `dsh-modlens-guard` | bundle | core | ❌ | ModLens 配置守卫（防 visionProvider 被关、60s 巡查） |
-| `dsh-orchestrator` | bundle | core | ⚠️ | **编排工作台（阶段 1-A 快速壳 + 1.0·S1 状态账本）**：向主内容区 `conversation.view` 注册 id=`orchestrator` 的**可点击切换视图 tab**；host 提供 6 个**仅回环**端点：只读 `GET /orchestrator/{ping,state,contract,ledger}` + 写面 `POST /orchestrator/ledger/{init,patch}`（顶层白名单 + rev CAS）；`state` 返回全部存活 agent 快照（只投影**浅层 JSON 安全原始值**⇒ 面板兼作 **schema 探针**，不猜内核字段名）；四面板骨架中面板 1 为真实数据，其余为阶段 1/2-3/4 占位。**S1 状态账本**：`lib/contract.js`（版本化契约 / 校验 / 迁移，含依赖成环检测）+ `lib/ledger.js`（六步原子写 tmp→**fsync(tmp)**→rename→**fsync(父目录)门控**；损坏→保命备份+降级、**绝不静默重置**；`too-new` 拒写；未知键原位保留；同进程 FIFO + 跨进程 rev CAS）；落盘 `<DSH_HOME>/orchestration/<proj>-<hash8>.json`，**不回退 `process.cwd()`**。`inject=[]` + 全 `ctx.reflect.get()` 惰性解析（**readme 记录了 3 个实测坑**：直写 `ctx.setTimeout` 会让 loader entry 创建失败 / loader 缓存模块 / 必须声明 `dsh.bundle.patch`）。**2 个 Windows 实测事实**：目录 fsync 恒 `EPERM`（改为真探测+如实上报）、目标被占用时 `rename` `EPERM`（8 次指数退避按实测标定）。2026-09-14：装配 4/4 完成 + 隔离测试 **host 10/10 + 账本 38/38** + startup-verify 9/10 + 跨进程 63,055 次读 **0 半写**（非原子写对照 6,087 半写 ⇒ 检测力被证明）+ **重启后线上复核通过**（init/patch 真写盘、端点 sha256 与磁盘一致、截断账本→`degraded`+`.corrupt-*`、`version=99`→`too-new` 拒写、CAS→409、tmp 零残留；真项目账本已建 rev 1）。**S2 会话元数据接入（2026-09-14，免重启）**：面板 1 升级为**实时会话表** —— 数据走客户端 store `ctx.sessions.list`（`getSnapshot`+`subscribe`，合帧 120ms、卸载必退订、行数上限 200、父子环不死循环），渲染 `displayTitle`/`running`/`preset`/`origin`/委派深度/父子树 + **点行聚焦**（`openSubagent(address)` / `open(id)`）；host 快照降为 10s 兜底且降级在界面明说。**实测纠正**：`session.list` RPC 的 `SessionSummary` **无 `title` 字段**（`dsh-host-apiproxy/.../sessions.schema.js:31-41`）、title/running 客户端已折好（`dsh-client-runtime/lib/client.js:9216-9237`）⇒ 不新增 host 端点。客户端契约测试 **14/14**（假 `__ModuleLoader__`+假 React+假 store+假定时器），浏览器 GET `client.js` = 200/含新标记/`no-cache`。**2026-09-14 UI 退役（免重启）**：需求明确为「部门式编排」（一句话→自动拆分→角色化并行→代码级门禁→汇总→节点流程图看板），S2 的 UI 外壳（会话列表形态 + 面板 2/3/4 占位 + 「快速壳」徽章）与 `conversation.view` 的 tab 按钮**判定为误导已退役**（开关 `FLAGS.mountUi=false`，刷新即生效；恢复改一行）；**保留** S1 账本引擎、`/orchestrator/*` 端点与客户端数据层（P0 看板复用）。客户端测试扩到 **15/15**（覆盖退役态 + 恢复态）。新路线见 `outputs/2026-09-14-report-department-orchestration-design/`。**P0 部门流程图板（2026-09-14，免重启）**：面板升级为**分层 DAG 部门流程图** —— 节点卡片（状态点/角色徽章/状态下颜色+字形双通道/元信息）+ 正交折线边（运行态流动虚线）+ 右侧节点详情 + 单击选中/双击跳会话/←→父子上移动/Esc 取消 缩放 40–200% 与「适应」+ >8 节点 minimap；根节点 `flex:1+min-height:0+height:100%` 才能铺满（宿主 `.viewArea` 实测契约）；数据源显式标注（client/host/none），环/自引用/超深不死循环，节点上限 200；「示例预览」默认关闭且带虚线边框+水印+横幅。客户端测试 **32/32**，线上 bundle 200/55116B/no-cache 含全部新标记。**P0.1 作用域过滤（同日，免重启）**：用户反馈"显示的对话太多" ⇒ 新增三档范围（**本工作区（默认）/ 本任务家族 / 全部**）+「隐藏 N」徽章与底栏说明，当前会话及其后代在任何档位都保留，拿不到 `current`/`cwd` 时退回全部并说明原因；`cwd` 归一化；环安全。客户端测试 **39/39**。**P0.2 运行驱动部门流程图（同日，免重启）**：视图模式「运行视图（默认）/会话树」（**无运行数据时自动回退并明说**）、**阶段 = Group Node**（6 框带 n/m 进度、可折叠且入口不丢）、**驳回回边**（虚线弧走阶段框下方专用通道，不穿节点）、节点卡片（⟳重试角标 / 运行中实时耗时 / 产物数 / 可写只读 / 阻断数）、缩放<50% 密度降级为状态色块、运行摘要条（轮次/进度/预算条/验收标准）、**对话内嵌运行卡预览**（P1 挂 `tool.call.toolview`）、详情面板含门禁阻断项与冻结验收标准；**数据契约固定**，P1 的 host 端点按同形状返回即可接入。客户端测试 **49/49**，线上 bundle 200/84484B/no-cache |
 | `dsh-project-brief` | patch-insert | core | ⚠️ | AGENTS.md 自动生成（跨 agent 平台的项目说明） |
 | `dsh-remote-workspace` | patch-insert | core | ⚠️ | SSH/WSL/Docker 远程工作区连接 |
 | `dsh-routing-suite` | bundle | core | ✅ | 路由套件（含 super-injector，file: tgz 装配，在 bundles 数组） |
@@ -97,8 +97,8 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 
 ## 统计
 
-- 总计: 43（plugins/ 40 + 根级 3）| core: 37 | experimental: 5 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
-- 装配方式（plugins/）：bundle 32 | patch-insert 8（根级守护另列）①（2026-09-15 由脚本按表格逐行重算：`rows=40, byAsm={"patch-insert":8,"bundle":32}`；此前 29/8 系 `dsh-orchestrator` 补入前口径）
+- 总计: 42（plugins/ 39 + 根级 3）| core: 37 | experimental: 4 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
+- 装配方式（plugins/）：bundle 31 | patch-insert 8（根级守护另列）①（2026-09-15 脚本重算口径 `rows=39, byAsm={"patch-insert":8,"bundle":31}`；2026-09-16 移除 `dsh-model-manager` 后 bundle 33→32；2026-09-16 移除 `dsh-orchestrator` 后 bundle 32→31、行 40→39）
 - 必须重启: 2 (modlens 类：dsh-modlens-autoread / dsh-modlens-guard)。其余热重载/建议重启以右侧表格逐行标注为准，不在此汇总（避免与表格口径打架）。
 - 未持久化装配（仓库内默认 no-op，可随时重新注入）：dsh-model-provider-failover（P1-1）
 

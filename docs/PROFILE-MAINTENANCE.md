@@ -41,10 +41,11 @@
 > 背景事故（2026-08-31）：归档 `dsh-tool-visibility` 只改了源码模板，漏了运行态 Profile 3 处引用
 > → 悬空 junction → 重启报 `cannot resolve package "@dsh-external/dsh-tool-visibility"` 进恢复页。
 
-### 3.1 必须同步的 3 处运行态引用
-1. `package.json` `dependencies` / `devDependencies` 的 `link:`/`file:` 行；
+### 3.1 必须同步的 4 处引用（2026-09-11 G1 修订：是 4 处不是 3 处）
+1. 运行态 `~/.dsh/profiles/<p>/package.json` `dependencies` 的 `link:`/`file:` 行；
 2. 同一文件 `dsh.profile.bundles` 数组项；
-3. `node_modules/@dsh-external/<name>` junction（悬空或指向待删源）。
+3. `node_modules/@dsh-external/<name>` junction（悬空或指向待删源）；
+4. **模板 `profile/<p>/package.json` 的 deps + bundles**（漏掉会被 `startup-verify` **V2** 判 `template != runtime`）。
 
 ### 3.2 工具化流程（首选，2026-09-02 起）
 ```
@@ -62,6 +63,32 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 2. 删 deps 行 + bundles 项（注意 JSON 逗号与两种 dsh.profile 形态）；
 3. 删 junction：`Remove-Item <junction> -Force`（shell 已重定向回收站）；真实副本用回收站 API 确认后删；
 4. 跑 `startup-verify`（V1/V2/V4）+ `scan-dangling --strict` 复核。
+
+### 3.4 三段式退役（2026-09-16 实测定稿，缺一不可）
+
+| 步 | 动作 | 漏做的后果（实测） |
+|---|---|---|
+| 1 | 热卸载：`dev_uninject_plugin(match=<name>)` —— 卸 loader entry + 写 profile patch `disabled` + 删 junction + 清 client 模块表（**免重启**） | **只做这一步** ⇒ `startup-verify` **V1/V10** 报 `package dir unresolvable`（profile deps/bundles 仍指着已删 junction） |
+| 2 | 装配注销：`node scripts/deregister-plugin.mjs --plugin @dsh-external/<name> --yes` —— 清 §3.1 的 4 处（含模板） | **只做 1+2** ⇒ `startup-verify` **V3** 报 `stale disabled (no matching insert)` |
+| 3 | **清 `disabled` 残留**：第 1 步会往 profile `cordis.patch.yml` 回写 `- id: <name> / disabled: true`；需原子写删除该行（含其注释行） | 留 V3 报红；且后续同名重装会与 `disabled` 冲突 |
+| 4 | 复核：`startup-verify`（期望 **10/10**）+ `scan-dangling --strict`（期望 **0**）+ `/health`（期望 **200**） | 无这步则无法声称"干净退役" |
+
+⚠️ **重启前 host 半区仍活（重要）**：热卸载**只清 loader 侧与 client 模块表**；2026-09-16 实测：卸载后
+`GET /<routePrefix>/ping` 仍返回 **200 + 真实 JSON**（对照随机路径 404，排除 SPA 回退误判）。
+⇒ **必须重启桌面应用**该插件的 host 半区才彻底消失（重启后 profile 已无引用，不会再加载）。
+判"功能是否真没了"用**三重证据**：端点 404 ＋ 工具目录无该项 ＋ 新进程启动时间。
+
+### 3.5 归档与台账同步（与 §3.4 同批必做）
+
+- **归档路径（本仓惯例）**：`_backups/removed-<YYYY-MM-DD>-<plugin>/` —— 把 `plugins/<plugin>/` **与**
+  `tests/plugins/<plugin>-*.test.mjs` **一起**搬入。**测试必须同走**：其 `import` 指向插件 `lib/`，不同走会让测试步骤失败。
+- 档案内写 `README.md`：退役依据（实测证据，非感觉）/ 模块地图（哪些文件值得复用）/ 恢复步骤
+  （搬回 + `node scripts/register-plugin.mjs --plugin <name> --yes` + 重启）/ **若复活该换哪个实现缝**。
+- `plugins/INVENTORY.md`：删表行 **+ 重算所有计数**（标题目录数、表格行数、总计、core、bundle、必须重启）
+  **+ 加一条计数纪律历史行** ⇒ 跑 `node scripts/audit-plugin-inventory.mjs`，期望 **11 PASS / 0 WARN**。
+- `_backups/` 在 `.gitignore` 内 ⇒ **档案不进 git**（源码仍可从 git 历史找回）；因此档案必须自带说明，别指望 git 留痕。
+- 记录三件套：`CHANGELOG.md` 新节 ＋ `.workbuddy/memory/<date>.md` ＋ task-scheduler `acquire → release`
+  （**文件级**登记，否则 `check-unsupervised --strict` 报 `DRIFTED` 阻塞）。
 
 ---
 
@@ -83,6 +110,12 @@ node scripts/startup-verify.mjs && node scripts/scan-dangling.mjs --strict
 - **web profile 被当死代码**：**不可删**（装配依赖源），见 §1 表格。
 - **package.json 编辑破坏 JSON / 逗号**：用 `deregister-plugin`（原子写）或备份 + `node -e "JSON.parse(...)"` 校验。
 - **PowerShell 中文乱码 / 语法错**：脚本注释用纯 ASCII；路径警惕元字符。
+- **热卸载 ≠ 注销**：`dev_uninject_plugin` 后 host 半区仍在当前进程（端点仍 200），且 profile 引用未清 ⇒ 见 §3.4 三段式 + 重启。
+- **跨盘/大目录搬移**：`renameSync` 跨盘（C:→D:）报 **EXDEV**；`fs.cpSync` 曾触发 **0xC0000409 fail-fast**（无栈无输出）
+  ⇒ 改用**逐文件 `readFileSync/writeFileSync` + SHA-256 内容校验**搬，再删源。
+- **回收站判据（F13 扩展）**：`[Microsoft.VisualBasic.FileIO.FileSystem]` 类型在本 `shell` 后端**未加载**
+  （需先 `Add-Type -AssemblyName Microsoft.VisualBasic`）；用 `try/catch{}` 静默吞异常会**假成功**。
+  判成败一律看文件系统事实，最稳是**回收站项数前后对比**（本次实测：35→35 未增 ⇒ 那次是永久删除）。
 
 ---
 
