@@ -18,6 +18,22 @@
 - **顺带修复（文案级）**：`plugins/dsh-host-services/lib/index.js` 的 `disk` 探测中 `gb()` 实按 **1024³** 计算却标注 “GB”（31.83 GiB 被显示成 31.8 GB）⇒ 函数更名 `gib` + 文案改 **GiB**；`freeBytes`/`minFreeBytes` 阈值口径不变。⚠️ **该文件属 host 插件，需重启生效**（当前运行进程仍显示旧文案）。
 - **回归**：`node --check` 通过（`gb(` 残留 0、回读确认）；`verify-patches.ps1` 全绿；`check-all` 复跑同日记录。
 
+## 2026-09-16 · P0 · `dsh-subprocess-local` spill 路径防御加固（修复「清 `%TEMP%` ⇒ 主进程弹窗」崩溃）
+
+- **事故（17:38 实测）**：外部清理 `%TEMP%` 删掉本进程缓存的 `dsh-subprocess-*` 私有目录后，任何一次输出溢出都会 `ENOENT`；异常从 `stream.on('data')` 处理器**同步抛出** ⇒ 主进程 `uncaughtException` 弹窗，且 `spillDisabled` 只在超 `maxSpillBytes` 时置位 ⇒ **同一进程内每次溢出都再弹，直到重启**。
+- **根因（代码事实；两份副本内容完全一致，sha256 `4cbeb734…` / 48678B / 1321 行）**：`privateSpillDir()` 把 `mkdtempSync` 结果缓存进模块内存后**只缓存、不校验、不重建**；`spillAll()` 的 `openSync(file, "wx")` 与 `writeSync` **无 try/catch**。
+- **修复（两层防御，不改成功路径语义）**：
+  ① `privateSpillDir()`：返回前校验目录存在，缺失则 `mkdirSync(recursive, 0o700)` 重建（`try/catch` 包裹，失败不抛）；
+  ② `spillAll()`：open/write 包 `try/catch` ⇒ 失败先**重建目录 + 重试一次**，仍失败即调用**既有的** `discardSpill()` 降级为「只留内存尾部」；**该方法绝不抛出**（`closeSync`/`unlinkSync` 亦各自兜住），open 后写入失败时清掉半截文件，避免留孤儿。
+- **有效性证明（双对照故障注入，`_backups/_probe/fi-spill-hardening.mjs`）**：把补丁前原件与补丁后源码各置于隔离沙箱（与 spill 无关的裸依赖 `node-pty` / `koffi` / `@deepseek-ai/dsh-subprocess` / `@deepseek-ai/dsh-timeout` 以最小 stub 替代，**被测算的 spill 代码原样未改**）——
+  - 场景 1（目录被删后溢出）：**未补丁 ⇒ 抛 `ENOENT`**（证明测得出）；**已补丁 ⇒ 不抛，目录被重建并落盘 4096 字节**；
+  - 场景 2（目录不可重建：父路径是文件）：未补丁 ⇒ 抛 `ENOENT`；**已补丁 ⇒ 不抛 + `spillDisabled=true` 安全降级**；
+  - 场景 3（回归）：超 `maxSpillBytes` ⇒ 两版行为一致（设计性降级未被改动）。
+  - 踩坑记录：构造函数 `spillDisabled = maxSpillBytes === void 0` ⇒ **不配 spill 上限即等于关闭落盘**，第一版夹具因此根本没走到 `spillAll`（自查发现并修正）。
+- **补丁登记（遵守 2026-09-07 补丁定案：外科手术式须自带原子写 + 备份）**：新增 `scripts/apply-spill-hardening.mjs`（**原子写** tmp+rename、备份到 `_backups/spill-hardening-<stamp>/`、marker `dsh-patch: spill-hardening`、幂等、回读校验、`node --check`、两份副本改后一致性断言、默认预演 `--go` 才施加）；`scripts/verify-patches.ps1` 新增两条 marker 校验（dist 运行态副本 + `dsh-plugin-desktop/node_modules` 开发态副本）⇒ **重建/还原后可检出并一键重打**。
+- **安全网自证（再跑一次故障注入）**：把开发态副本还原为未补丁版 ⇒ `FAIL  spill-hardening marker (pkg copy)` + **exit 1**；`apply-spill-hardening --go` 重打（dist 侧 `ALREADY-PATCHED` 幂等跳过）⇒ **`ALL PASS (52 checks)`** exit 0。⇒ 这道网确实会报红，不是空壳。
+- **重启需求：是** —— 补丁作用于**长驻主进程**加载的运行时模块，须重启才生效。重启后 `/health` 应仍 200；此后即便 `%TEMP%` 被清，也只会看到一次性降级告警而**不再弹窗**。
+
 ## 2026-09-16 · 上游更新评估定案 + 补丁体系加固（目标侧形状门禁，修复「静默覆盖假绿」）
 
 **背景**：用户要求「看官方 dsh / dsh-desktop 有没有更新 + 全面分析本机 dsh 可更新什么 + 评估是否有必要」。

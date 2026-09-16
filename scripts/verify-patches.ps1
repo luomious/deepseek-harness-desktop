@@ -34,6 +34,8 @@ $unpacked = $build.unpackedRoot
 
 $checks = @(
   @{ n = 'subprocess-local windowsHide';        f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js'; p = 'windowsHide: true' },
+  @{ n = 'spill-hardening marker (dist)';       f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js'; p = 'dsh-patch: spill-hardening' },
+  @{ n = 'spill-hardening marker (pkg copy)';   f = Join-Path $root 'vendor\deepseek-harness-desktop\dsh-plugin-desktop\node_modules\@deepseek-ai\dsh-subprocess-local\lib\index.js'; p = 'dsh-patch: spill-hardening' },
   @{ n = 'open windowsHide';                    f = Join-Path $unpacked 'node_modules\open\index.js'; p = 'windowsHide = true' },
   @{ n = 'default-browser windowsHide';         f = Join-Path $unpacked 'node_modules\default-browser\windows.js'; p = 'windowsHide: true' },
   @{ n = 'materializer windowsHide (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'windowsHide: true,' },
