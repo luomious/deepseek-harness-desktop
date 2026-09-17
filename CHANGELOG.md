@@ -6,17 +6,81 @@
 
 ---
 
-## 2026-09-16 · 补丁门禁语法盲区修复（`log-files` 分块被静默漏检）+ `/health` 容量单位标注
+## 2026-09-16 · 打字卡顿修复纳入门禁（防插件重装静默丢失）+ 故障注入验证
 
-- **怎么发现的**：对「门禁全绿」做**反证式复核**（换法验证）时，逐行读 `verify-patches.ps1` 发现语法完整性校验**少覆盖一个目标**。前一轮我把它当成「纯 stderr 噪音」是**不完整的结论**，此处更正。
-- **根因（代码事实）**：第 **159** 行 `$syntaxSet[$logChunks[0].FullName] = $true` 执行在**第 172 行 `$syntaxSet = @{}` 之前** ⇒ ① 该赋值必抛 `Cannot index into a null array`（**长期存在的 `NullArray` stderr 噪音来源**）；② 172-175 行**重建**集合时只加 `$checks`/`$rtChunks`/`$profileChunks`，**未把 `$logChunks` 补回** ⇒ 内容哈希分块 **`log-files-*.js` 被排除在 `node --check` 语法校验之外**。这正是 **T13/O14**（2026-09-12「标记字符串还在、文件已损坏仍 PASS」，见本文件同期记录）专门要堵的洞。
-- **修复**：把该注册移到集合重建之后（新增 `if ($logChunks.Count -eq 1) { $syntaxSet[$logChunks[0].FullName] = $true }`，并删掉原位那行）。**效果：语法目标 31 → 32，`NullArray` 噪音消失，`ALL PASS (50 checks)` exit 0。**
-- **有效性证明（A/B 对照故障注入，脚本 `_backups/_probe/fi-log-files-syntax.mjs`）**：给 dist 的 `lib\log-files-Bfo6ODqx.js` **原子追加非法 JS** 后运行 ——
-  - **旧版（git HEAD）**：`ALL PASS (50 checks)`、**exit 0 ⇒ 漏检**（盲区被证实）；
-  - **新版（本次修复）**：`FAIL  syntax integrity: …\log-files-Bfo6ODqx.js`、**exit 1 ⇒ 抓住**（修复被证实）；
-  - `finally` 原子还原并校验 **sha256 与原始一致**，临时对照脚本已删除。⇒ 满足本仓「**它通过了 ≠ 它有效**」纪律。
-- **顺带修复（文案级）**：`plugins/dsh-host-services/lib/index.js` 的 `disk` 探测中 `gb()` 实按 **1024³** 计算却标注 “GB”（31.83 GiB 被显示成 31.8 GB）⇒ 函数更名 `gib` + 文案改 **GiB**；`freeBytes`/`minFreeBytes` 阈值口径不变。⚠️ **该文件属 host 插件，需重启生效**（当前运行进程仍显示旧文案）。
-- **回归**：`node --check` 通过（`gb(` 残留 0、回读确认）；`verify-patches.ps1` 全绿；`check-all` 复跑同日记录。
+**背景**：第一步（客户端 3 处全量扫描修复）与第二步（GPU 硬件加速复原）都已实测生效，但这 3 处修复**只存在于工作区插件文件里**，无任何门禁覆盖 —— 它们是 `plugins/*/lib/client.js`（工作区插件，非 dist），一次**插件重装 / 更新**（不必等重建）就会静默丢掉，打字卡顿会「无原因复发」。
+
+**改动**（`scripts/verify-patches.ps1`，静态检查 53 → 56；纯 ASCII 注释）
+- 新增 3 条检查，沿用既有 `ui-perf:` 块对工作区插件 bundle 的先例写法：
+  - `typing-lag: diagram rescan scope` → `plugins/dsh-diagram-renderer/lib/client.js`，marker `dsh typing-lag fix 2026-09-16 (diagram scan)`
+  - `typing-lag: session row text cache` → `plugins/dsh-session-history/lib/client.js`，marker `dsh typing-lag fix 2026-09-16 (row text cache)`
+  - `typing-lag: row render skip (CV)` → `plugins/dsh-ui-performance/lib/client.js`，marker `dsh typing-lag fix 2026-09-16 (row render skip)`
+- 失败提示指向重打脚本 `node scripts/apply-typing-lag-fixes.mjs`。
+- **回滚**：删掉这 3 行即可（不涉及任何运行路径文件）。
+
+**验证 / 证据**
+- 真实门禁：`& scripts\verify-patches.ps1` → **ALL PASS (56 checks)**，exit 0（`checks: 55 static + 3 chunk + 1 dist integrity + 36 syntax`）。
+- **故障注入（证伪义务）**：夹具 `_backups/_probe/gate-faultinj.mjs` 把门禁脚本复制到 `%TEMP%\dsh-gate-faultinj`（`$root` 随 `$PSScriptRoot` 落在临时根 ⇒ 3 个插件目标解析到临时副本；`resolve-dist.mjs` 重指真实 workspace），再删掉临时副本里**一个** marker：
+  - 完好副本：3 条全 `PASS`，exit 12（其余 FAIL 全是临时根内未播种目标的 `file missing`，属夹具噪声）
+  - 删 1 个 marker：**恰好** `FAIL typing-lag: row render skip (CV) (pattern missing)`、另 2 条仍 `PASS`，exit 12 → **13**（精确 +1，归因唯一）
+  - 真实工作区文件未被触碰：`plugins/dsh-ui-performance/lib/client.js` 的 marker 计数 **1**
+- ⇒ 证明新检查**真能失败**（对照 2026-09-12 T13：marker 尚存但文件损坏时曾假 PASS）。
+
+**重启需要**：❌ 不需要（只改校验脚本，不碰运行路径）。
+
+## 2026-09-16 · 打字卡顿根治第二步：渲染路径改回硬件加速（窗口保持不透明）
+
+**背景**：第一步（客户端 3 处全量扫描修复，见下节）已把「流式期间 renderer 单核占用」从 **60–108% 砍到 30–47%**（主线程长任务 0、180 fps），但剩余成本全部来自**软件光栅**（GPU 被强制关闭）。
+
+**改动**（`scripts/apply-gpu-opaque-patches.mjs` 新增 patch #7，dist 已应用，幂等）
+
+- 默认 **开启硬件加速**：`app.commandLine.removeSwitch("disable-gpu"|"disable-gpu-compositing"|"in-process-gpu")`（抵消快捷方式上的 `--disable-gpu`）+ `--force_high_performance_gpu`（优先独显，避开 GameViewer / spacedesk 虚拟适配器）。
+- **窗口保持不透明**（`#202124`、不启用 Mica）：2026-09-07 的「鬼影透明窗」根因是**透明窗口 + 合成器缺失**；窗口不透明后，即使 GPU 失效，Chromium 只会回退软件渲染，不会再出现透视窗。
+- **一键回滚（无需重建）**：`node scripts/gpu-mode.mjs --software`（写 `<exe dir>/dsh-gpu-off.flag`）或设 `DSH_DESKTOP_DISABLE_GPU=1`；`--status` 查看当前模式。新增脚本 `scripts/gpu-mode.mjs`。
+- 门禁：`scripts/verify-patches.ps1` 新增检查项 `gpu policy: hw accel default (lib/main)`（marker `dsh-gpu-policy-2026-09-16`）；实跑 **ALL PASS (53 checks)**。
+
+**验证 / 证据**
+
+- `node --check`：dist `lib/main.js` 与 `scripts/gpu-mode.mjs` 均通过；`gpu-mode.mjs --status` → `mode: hardware`、sentinel 不存在。
+- 幂等：`apply-gpu-opaque-patches.mjs` → `1 patched, 6 already-ok, 0 failed`。
+- 备份：`_backups/gpu-policy-20260916/main.js.before`（142,489 B）。
+- 探针实测（第一步修复后、第二步生效前）：流式 renderer 30–47%、longtask 0、180 fps、DOM 仅 ~2.8k 节点；空闲 renderer ~9%，来源已定位为内核 `dsh-client-ui-primitives/StateDot.module.css` 的 **17 个常驻无限动画**（`iterations=null`）。
+
+**重启后待观察**：renderer 流式应降到 <15%、空闲 <2%；若出现异常（白屏 / 透视 / 启动卡数秒）→ `node scripts/gpu-mode.mjs --software` 后重启，即回到当前状态。
+
+**重启需求**：✅ 需要（dist 启动期补丁）。
+
+---
+
+## 2026-09-16 · 打字卡顿根因定位 + 渲染层修复（软件光栅 × 全量 DOM 扫描）
+
+**现象**：在对话框打字有明显卡顿/延迟（用户报告）。
+
+### 一、定位（实测 + 读码）
+
+- **进程采样**（5s×240 样本，`_backups/cpu-idle-baseline-20260916-223547.log`）：
+  - 真正空闲（无回合、无输入）：main ~32%、renderer ~9%；
+  - **回合流式输出期间：main 100–170%、renderer 60–108%（≈1 核被渲染占满）** —— 打字排队就发生在这一段。
+  - 进程归属（`netstat -ano`）：16696 监听 `:43120`（内核 main）、29656 = renderer、32996 = 网络服务、1220/54724 = GPU/crashpad（0%）。
+- **渲染被三重降级**（运行中真实代码，非推断）：快捷方式 `DSH Desktop.lnk` 带 `--disable-gpu`；`dist\…\app.asar.unpacked\lib\main.js` 的 `apply-gpu-opaque-patches` #1/#5/#6 又加 `disableHardwareAcceleration()` + `--in-process-gpu` + `--disable-gpu-compositing` + 关掉遮挡/后台节流 ⇒ **每帧纯 CPU 光栅 + 合成器在主进程 + 不节流**。本机显示适配器含 **GameViewer / spacedesk 虚拟适配器**（= 2026-09-07 禁用 GPU 的根因）。
+- **客户端“每次 DOM 变动/击键全量扫描”**（放大项）：`dsh-diagram-renderer` 观察整个 `document.body` 子树→ 全文档 `querySelectorAll('[data-tool]')`（500ms 去抖）；`dsh-session-history` 80ms 去抖后对每个用户行读**外层回合** `textContent` + 全串空白正则；`better-sidebar` `#root` 子树观察 + 1.5s `locate()`（内含全文档 query）；`dsh-vision-engine` 每击键（PERF-3 修复仍在位）。
+
+### 二、本轮修复（客户端层，刷新页面即生效）
+
+新增 `scripts/apply-typing-lag-fixes.mjs`（幂等 / 原子写 / 先备份 / marker 判定 / 锚点漂移即 fail-loud）：
+
+1. **diagram-renderer**：重扫范围收窄到 `[data-conversation-scroll]`；观察器只对“新增子树里真含 `[data-tool]`”的变动排程；
+2. **session-history**：新增行文本缓存 `rowText`（改读行元素而非外层回合，正则前先 `slice(0,400)`）；
+3. **ui-performance**：新增规则九 `[data-chat-anchor-key] { content-visibility:auto; contain-intrinsic-size:auto 240px }`（跳过屏外消息行的布局/绘制）。
+
+- 备份：`_backups/typing-lag-fixes-2026-09-16T14-59-10-974Z/`（3 文件）；`node --check` 3/3 通过；重复运行 = `already-ok`（幂等已验）。
+- **诊断探针**：`_backups/diag-perf-probe/`（临时注入 `@dsh-external/dsh-perf-probe`）——测 INP 输入延迟 / longtask / **LoAF 脚本级归因** / mutation 量 / DOM 规模与在用动画，报告落 `_backups/perf-probe-reports.jsonl`；**调查收尾即卸载，不入 INVENTORY**。
+
+### 三、后续（2026-09-17 更新状态）
+
+- ~~GPU 路径复核~~ ✅ **已完成**：同日第二步 `apply-gpu-opaque-patches.mjs` patch #7 改为**默认开硬件加速**（抵消快捷方式 `--disable-gpu`、`--force_high_performance_gpu`、窗口保持不透明）；一键回滚 `node scripts/gpu-mode.mjs --software`（无需重建）。
+-  **仍待办 · better-sidebar**：`~/.dsh/profiles/desktop/node_modules/…` 的 `locate()` 全文档 query + 1.5s 定时器 ⇒ 并入 `scripts/apply-ui-perf-patches.mjs`。原阻塞原因（会话写不了 `~/.dsh`）**已消失**：2026-09-17 起本机文件策略为 `danger-full-access`。
+- ~~HTTP 通道 token~~ **已作废**：策略放开后可直接用 CLI 通道 `node scripts/task-scheduler.mjs status|acquire|release`。
 
 ## 2026-09-16 · P0 · `dsh-subprocess-local` spill 路径防御加固（修复「清 `%TEMP%` ⇒ 主进程弹窗」崩溃）
 
@@ -33,6 +97,18 @@
 - **补丁登记（遵守 2026-09-07 补丁定案：外科手术式须自带原子写 + 备份）**：新增 `scripts/apply-spill-hardening.mjs`（**原子写** tmp+rename、备份到 `_backups/spill-hardening-<stamp>/`、marker `dsh-patch: spill-hardening`、幂等、回读校验、`node --check`、两份副本改后一致性断言、默认预演 `--go` 才施加）；`scripts/verify-patches.ps1` 新增两条 marker 校验（dist 运行态副本 + `dsh-plugin-desktop/node_modules` 开发态副本）⇒ **重建/还原后可检出并一键重打**。
 - **安全网自证（再跑一次故障注入）**：把开发态副本还原为未补丁版 ⇒ `FAIL  spill-hardening marker (pkg copy)` + **exit 1**；`apply-spill-hardening --go` 重打（dist 侧 `ALREADY-PATCHED` 幂等跳过）⇒ **`ALL PASS (52 checks)`** exit 0。⇒ 这道网确实会报红，不是空壳。
 - **重启需求：是** —— 补丁作用于**长驻主进程**加载的运行时模块，须重启才生效。重启后 `/health` 应仍 200；此后即便 `%TEMP%` 被清，也只会看到一次性降级告警而**不再弹窗**。
+
+## 2026-09-16 · 补丁门禁语法盲区修复（`log-files` 分块被静默漏检）+ `/health` 容量单位标注
+
+- **怎么发现的**：对「门禁全绿」做**反证式复核**（换法验证）时，逐行读 `verify-patches.ps1` 发现语法完整性校验**少覆盖一个目标**。前一轮我把它当成「纯 stderr 噪音」是**不完整的结论**，此处更正。
+- **根因（代码事实）**：第 **159** 行 `$syntaxSet[$logChunks[0].FullName] = $true` 执行在**第 172 行 `$syntaxSet = @{}` 之前** ⇒ ① 该赋值必抛 `Cannot index into a null array`（**长期存在的 `NullArray` stderr 噪音来源**）；② 172-175 行**重建**集合时只加 `$checks`/`$rtChunks`/`$profileChunks`，**未把 `$logChunks` 补回** ⇒ 内容哈希分块 **`log-files-*.js` 被排除在 `node --check` 语法校验之外**。这正是 **T13/O14**（2026-09-12「标记字符串还在、文件已损坏仍 PASS」，见本文件同期记录）专门要堵的洞。
+- **修复**：把该注册移到集合重建之后（新增 `if ($logChunks.Count -eq 1) { $syntaxSet[$logChunks[0].FullName] = $true }`，并删掉原位那行）。**效果：语法目标 31 → 32，`NullArray` 噪音消失，`ALL PASS (50 checks)` exit 0。**
+- **有效性证明（A/B 对照故障注入，脚本 `_backups/_probe/fi-log-files-syntax.mjs`）**：给 dist 的 `lib\log-files-Bfo6ODqx.js` **原子追加非法 JS** 后运行 ——
+  - **旧版（git HEAD）**：`ALL PASS (50 checks)`、**exit 0 ⇒ 漏检**（盲区被证实）；
+  - **新版（本次修复）**：`FAIL  syntax integrity: …\log-files-Bfo6ODqx.js`、**exit 1 ⇒ 抓住**（修复被证实）；
+  - `finally` 原子还原并校验 **sha256 与原始一致**，临时对照脚本已删除。⇒ 满足本仓「**它通过了 ≠ 它有效**」纪律。
+- **顺带修复（文案级）**：`plugins/dsh-host-services/lib/index.js` 的 `disk` 探测中 `gb()` 实按 **1024³** 计算却标注 “GB”（31.83 GiB 被显示成 31.8 GB）⇒ 函数更名 `gib` + 文案改 **GiB**；`freeBytes`/`minFreeBytes` 阈值口径不变。⚠️ **该文件属 host 插件，需重启生效**（当前运行进程仍显示旧文案）。
+- **回归**：`node --check` 通过（`gb(` 残留 0、回读确认）；`verify-patches.ps1` 全绿；`check-all` 复跑同日记录。
 
 ## 2026-09-16 · 上游更新评估定案 + 补丁体系加固（目标侧形状门禁，修复「静默覆盖假绿」）
 

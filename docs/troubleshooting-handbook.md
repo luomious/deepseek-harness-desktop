@@ -175,6 +175,9 @@
 | `scripts/fix-security.mjs` | 安全漏洞 H1-H4/M1-M4 | ✅ |
 | `scripts/guard-destructive.ps1` | 危险命令守卫（删除前预检） | — |
 | `scripts/verify-features.ps1` | 功能终核 26 项 | — |
+| `scripts/gpu-mode.mjs` | GPU 模式查看 / 一键回滚（`--status` / `--software` / `--hardware`） | — |
+| `scripts/apply-typing-lag-fixes.mjs` | 打字卡顿客户端 3 处修复重打（marker 幂等） | ✅ |
+| `scripts/verify-patches.ps1` | 补丁 + 打字卡顿/GPU 策略 marker 校验（56 项） | — |
 | `scripts/apply-settings-resilience.mjs` | settings.yaml 反腐化补丁重打（startup 容错 + market catalogCache 隔离） | ✅ |
 | `scripts/verify-core.mjs` | remote-workspace 核心逻辑 15 项 | — |
 
@@ -252,3 +255,27 @@
 - **预防**：机制常驻自动处理；若重启后网关无 `child exited` 记录（plugin-spawn.log）即接管成功；旧实例残留=0 属预期。
 - **参考**：CHANGELOG 2026-09-03 后台旧实例自动清理机制。
 
+## 21. 打字卡顿 / 输入延迟（GPU 被强制关闭 × 客户端全量 DOM 扫描）
+
+- **症状**：在对话框打字有明显卡顿/延迟，回合**流式输出期间**尤甚；空闲时也有轻微滞后。用户 2026-09-16 报告。
+- **根因（实测 + 读运行中代码，非推断）**：
+  1. **渲染被三重降级**：快捷方式 `DSH Desktop.lnk` 带 `--disable-gpu`，`apply-gpu-opaque-patches` #1/#5/#6 又加 `disableHardwareAcceleration()` + `--in-process-gpu` + `--disable-gpu-compositing` + 关掉遮挡/后台节流 ⇒ **每帧纯 CPU 光栅、合成器在主进程、不节流**。历史原因：本机显示适配器含 **GameViewer / spacedesk 虚拟适配器**，2026-09-07 曾因 GPU 子进程崩溃循环出「鬼影透明窗」。
+  2. **客户端插件在每次 DOM 变动/击键做全量扫描**：`dsh-diagram-renderer`（观察 `document.body` 子树 → 全文档 `querySelectorAll('[data-tool]')`）、`dsh-session-history`（80ms 去抖读**外层回合** `textContent` + 全串空白正则）、`better-sidebar`（`#root` 子树观察 + 1.5s `locate()` 全文档 query）。
+- **量化证据（先量再改，不要先怀疑 React）**：空闲 main ~32% / renderer ~9%；**流式期间 main 100–170% / renderer 60–108%（≈1 核被渲染占满）= 打字排队的那一段**（样本 `_backups/cpu-idle-baseline-20260916-223547.log`）。修复后：流式 renderer 30–47%（第一步）→ **19–27%**（第二步开硬件加速后）；`keydown/input` 的 inputDelay **p50 = 0ms、p95 ≤ 13ms**，loopLag p95 6ms，帧率 178–180fps。
+- **修复（两层，均已入补丁体系 + 门禁）**：
+  1. **客户端层（刷新页面即生效）**：`node scripts/apply-typing-lag-fixes.mjs`（幂等 / 原子写 / 先备份 / marker 判定 / 锚点漂移即 fail-loud）——diagram 重扫收窄到 `[data-conversation-scroll]` 且只对「新增子树真含 `[data-tool]`」排程；session-history 增加行文本缓存 `rowText`（改读行元素、正则前先 `slice(0,400)`）；ui-performance 新增规则九 `[data-chat-anchor-key] { content-visibility:auto; contain-intrinsic-size:auto 240px }`。
+  2. **渲染路径（需重启）**：`node scripts/apply-gpu-opaque-patches.mjs`（patch #7）——默认开硬件加速 + `--force_high_performance_gpu`，**窗口保持不透明** `#202124`（不透明后即使 GPU 失效也只回退软件渲染，不会再透视）。
+  - **门禁（防插件重装/重建后静默丢失）**：`scripts/verify-patches.ps1` 的 3 条 `typing-lag: *`（分别对应 `plugins/{dsh-diagram-renderer,dsh-session-history,dsh-ui-performance}/lib/client.js` 的 marker `dsh typing-lag fix 2026-09-16 (...)`）+ `gpu policy: hw accel default (lib/main)`（marker `dsh-gpu-policy-2026-09-16`）；失败提示直接给出重打命令。
+- **一键回滚**：渲染层 `node scripts/gpu-mode.mjs --software` → 重启（回到软件渲染；不会再出鬼影，因为窗口不透明）；客户端层删掉 3 处 marker 或重装插件后重跑 `apply-typing-lag-fixes.mjs`。
+- **排查命令**：
+  ```powershell
+  node scripts/gpu-mode.mjs --status                    # hardware / software
+  # 逐进程 CPU 采样（判断吃满的是 main 还是 renderer；流式期间采样才有意义）
+  Get-Counter '\Process(DSH Desktop*)\% Processor Time' -SampleInterval 1 -MaxSamples 5
+  # 门禁：3 条 typing-lag + GPU 策略 marker（应 ALL PASS 56 checks）
+  powershell -NoProfile -File scripts\verify-patches.ps1
+  # 进程归属（哪个 pid 监听 43120 = 内核 main）
+  Get-NetTCPConnection -LocalPort 43120 -State Listen | Select-Object OwningProcess
+  ```
+- **预防**：性能类问题先量「**renderer 单核占用**（空闲 vs 流式两段对比）+ 主线程 longtask」，再查启动参数与客户端扫描；`--disable-gpu` 这类「为稳定牺牲性能」的旧权衡会在数月后以「打字卡」的形式回来要账。
+- **参考**：CHANGELOG 2026-09-16 三节（根因定位 / 根治第二步 / 纳入门禁）；产出 `outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/`。

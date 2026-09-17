@@ -109,7 +109,7 @@
 ### 5.3 渲染/GPU 环境加固（现核查明：大部分已存在）
 
 **现状核实**（避免重复劳动）：
-- ✅ `apply-gpu-opaque-patches` 已存在：默认 `disable-gpu`（`DSH_DESKTOP_FORCE_GPU=1` 可恢复）+ `disable-features: CalculateNativeWinOcclusion`（lib/main.js L32-39）
+- ✅ `apply-gpu-opaque-patches` 已存在（`disable-features: CalculateNativeWinOcclusion`）；**2026-09-16 patch #7 起默认「开启硬件加速」** —— `removeSwitch("disable-gpu" | "disable-gpu-compositing" | "in-process-gpu")` 抵消快捷方式参数 + `--force_high_performance_gpu`（避开 GameViewer / spacedesk 虚拟适配器），窗口保持不透明以防「鬼影透明窗」；**一键回滚** `node scripts/gpu-mode.mjs --software`（写 `<exe dir>/dsh-gpu-off.flag`，无需重建）。改动原因：强制软渲染 = 每帧 CPU 光栅 ⇒ 打字卡顿（2026-09-16 根因定位，见 `docs/troubleshooting-handbook.md` §21）。
 - ✅ RENDER-001 白屏自动 reload（旧壳 v1.3.0 机制，新壳需确认保留）
 - ⏳ 待补：**GPU/渲染进程崩溃自动降级重启**（`child-process-gone` 监听 → 自动 --disable-gpu 重启，而非仅靠启动时参数）
 
@@ -135,7 +135,7 @@
 |------|------|------|
 | 5.1 启动预检 | ✅ | startup-verify 9/9 PASS（V1-V9），接入 check-all Step 1.5 |
 | 5.2 zstd Option A | ✅ 就位 | 重启后无报错，3 处 markers 生效，verify-patches 22 ALL PASS |
-| 5.3 GPU | ✅ 现查覆盖 | apply-gpu-opaque-patches（disable-gpu + occlusion）已默认；崩溃降级归 P3 |
+| 5.3 GPU | ✅ 现查覆盖 + **09-16 改默认硬件加速** | apply-gpu-opaque-patches（hw accel + occlusion + 不透明窗）；回滚 `scripts/gpu-mode.mjs --software`；门禁含 marker `dsh-gpu-policy-2026-09-16`；崩溃降级归 P3 |
 | 5.4 进程 | ✅ 现查覆盖 | close-stale + lock 预检 + 网关 EADDRINUSE 三重 |
 | 5.5 自愈单测 | ✅ | startup-verify.test.mjs 6/6 PASS |
 

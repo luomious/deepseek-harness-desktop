@@ -81,7 +81,9 @@ node scripts/lint-skills.mjs                   # 格式门禁
 | install-hub-skills.mjs | hub skill 直装/回滚（CAP-1） | 扩装时 |
 | verify-patches.ps1 | dist 补丁存在性校验 | 部署后 |
 | dsh-maintenance.mjs | 日志轮转 + 磁盘配额（DATA-2/3） | 可定期/手动 |
-| apply-*.mjs（15 个） | 补丁幂等重放 | 重建后 |
+| apply-*.mjs（19 个，2026-09-17 实测） | 补丁幂等重放 | 重建后 |
+| gpu-mode.mjs | GPU 模式查看 / 一键回滚（打字卡顿渲染路径） | 卡顿 / 白屏 / 透视时 |
+| apply-typing-lag-fixes.mjs | 客户端打字性能 3 处修复重打 | 插件重装/重建后 |
 | promote-build.ps1 | 换版（≥2 build 门禁） | 升级日 |
 | resolve-dist.mjs | 定位当前 build 路径 | 被其他脚本引用 |
 

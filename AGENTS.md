@@ -85,6 +85,8 @@ generator: @dsh-external/dsh-project-brief
 - **Skill catalog 膨胀是静默降级，需自行预算（2026-09-10 SL-9 定案）**：`agent.cordis.yml` 装配 `dsh-tool-skill` 会把**全部 modelInvocable skill 的 `name`+`description` 逐轮注入**系统提示（catalog 取 `filter(isModelInvocable)`）；超 9KB 时锚定率实测 **81%→0%**，且**不报错、不告警**。每行长度 = `name + description + 7`，整块另有 ≈640 字符框架。`~/.dsh/skills` 现 61 个（11,686 字符）；**增删 skill 前后请复算**。瘦身首选**零风险杠杆** `disable-model-invocation: true`（`modelInvocable=false` 但 `userInvocable` 仍 true → 移出模型 catalog、**保留用户菜单与 `/name` 调用**，一行可回滚），**不要删文件**（不可逆且丢能力）。注意 `.hub-install-manifest.json` 记 SHA-256，**勿改 hub 安装的 12 个 skill**。详见 CHANGELOG SL-9。
 
 
+- **打字卡顿先查渲染路径（2026-09-16 定案）**：本机曾为绕「虚拟显示适配器 → 鬼影透明窗」而**强制软渲染**（快捷方式 `--disable-gpu` + `disableHardwareAcceleration()`），代价是每帧 CPU 光栅 ⇒ 打字卡顿。现 `scripts/apply-gpu-opaque-patches.mjs` **默认开硬件加速**（窗口保持不透明兜底）；卡/白屏/透视先 `node scripts/gpu-mode.mjs --status`（`--software` 一键回滚，需重启），再查客户端全量 DOM 扫描。门禁 marker：`typing-lag: *` 三条 + `gpu policy: hw accel default`。详见 `docs/troubleshooting-handbook.md` §21。
+
 ## overview
 
 <!-- brief:auto:overview:start -->

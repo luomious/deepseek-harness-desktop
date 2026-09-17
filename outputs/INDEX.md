@@ -5,6 +5,7 @@
 
 | 日期 | 类型 | 主题 | 路径 | 入口 | 状态 |
 |---|---|---|---|---|---|
+| 2026-09-17 | report | **打字卡顿根治 + 临时件/残留清理**：GPU 硬件加速复原 + 客户端 3 处全量扫描修复 + 门禁 56 项防复发（含故障注入）+ 临时/残留清理（回收 ~54.9MB）与 4 项删除判定 | outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/ | [README.md](./2026-09-17-report-typing-lag-fix-and-residue-cleanup/README.md) | 现行（渲染层已重启生效；门禁 ALL PASS 56；文档已入库）|
 | 2026-09-15 | doc | **DSH 下一步建议（证据+风险收益）**：子代理死于 apinex 额度耗尽；运行时证实新上限生效；P0 默认模型已指向耗尽额度的免费模型（新会话必 402）；视觉桥根因=本地 Ollama structuredOutput 不吐 JSON；P1 failover 设计所需内核事实（402 属终态、无人恢复） | `outputs/2026-09-15-doc-dsh-next-steps/` | [`README.md`](./2026-09-15-doc-dsh-next-steps/README.md) | **已执行**（P0 已还原用户值 / P1 failover 升级+装配+9 场景故障注入 / P2 视觉桥修复并端到端复测；均免重启，建议择机重启切回 bundle 装配）|
 | 2026-09-15 | report | **apinex 免费模型 402 billing_error 根因与配置修复**：免费模型按 weight×(输入+max_tokens) 做最坏情况放行、按 ceil((in+out)×weight) 扣当日 1M 额度；实测权重 3.24/2.16 与两个不计额度模型（mimo-v2.5、muse-spark-1.3）；为 apinex 路由补 contextWindow/maxTokens，单请求最坏预留 37.5 万 → 13 万，内核 schema 校验通过、免重启 | `outputs/2026-09-15-report-apinex-free-allowance/` | [`README.md`](./2026-09-15-report-apinex-free-allowance/README.md) | 已应用（备份 ~/.dsh/settings.yaml.bak-apinex-20260915-175136）|
 | 2026-09-15 | report | **DSH 因「日志写不进 → fail-loud 自杀」根因与代码侧根治**（P1 `log-files` sink 永不抛；P2 `skill-filesystem` watcher 无浮动 Promise + 日志 best-effort；故障注入 2/2 自证 + 备份原件证伪 + 重启后 `/health` 9/9 绿） | `outputs/2026-09-15-report-log-write-guard/` | [`README.md`](./2026-09-15-report-log-write-guard/README.md) | 现行（**收口**：补丁已重启生效；决策见 §8——继续训练只需训练侧 `num_workers 4-6`；页文件/B/C 均因无空间/无浮点可加/纯可选而不采纳；无待重启项） |

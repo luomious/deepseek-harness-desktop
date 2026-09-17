@@ -42,6 +42,7 @@ $checks = @(
   @{ n = 'gpu force-disable (lib/main)';        f = Join-Path $unpacked 'lib\main.js'; p = 'DSH_DESKTOP_FORCE_GPU' },
   @{ n = 'in-process-gpu + disable-gpu-compositing (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'app.commandLine.appendSwitch("in-process-gpu")' },
   @{ n = 'occlusion switches (lib/main)';       f = Join-Path $unpacked 'lib\main.js'; p = 'CalculateNativeWinOcclusion' },
+  @{ n = 'gpu policy: hw accel default (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-gpu-policy-2026-09-16' },
   @{ n = 'zombie cleanup (lib/main)';            f = Join-Path $unpacked 'lib\main.js'; p = 'ZombieCleanup(' },
   @{ n = 'vision-engine runCli windowsHide';    f = Join-Path $root 'plugins\dsh-vision-engine\lib\index.js'; p = 'windowsHide: true' },
   @{ n = 'autoread run windowsHide';            f = Join-Path $root 'plugins\dsh-modlens-autoread\lib\index.js'; p = 'windowsHide: true' },
@@ -72,6 +73,15 @@ $checks = @(
   @{ n = 'ui-perf: better-sidebar collapse gate'; f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-better-sidebar\lib\client.js'; p = 'state && (state.panelOpen || state.bottomOpen)' },
   @{ n = 'ui-perf: vision-engine render(allowFullScan)'; f = Join-Path $root 'plugins\dsh-vision-engine\lib\client.js'; p = 'function render(allowFullScan)' },
   @{ n = 'ui-perf: self-maintenance renderer probe'; f = Join-Path $root 'plugins\dsh-self-maintenance\lib\index.js'; p = 'renderer-probe-final' },
+  # typing-lag fixes (2026-09-16): 3 workspace client bundles patched by
+  # scripts/apply-typing-lag-fixes.mjs (GPU was restored separately by
+  # apply-gpu-opaque-patches.mjs patch #7). These are workspace plugin bundles
+  # rather than dist files, so a plugin reinstall/update -- NOT just a rebuild --
+  # would drop them silently and the composer lag would come back unexplained.
+  # On FAIL: node scripts/apply-typing-lag-fixes.mjs
+  @{ n = 'typing-lag: diagram rescan scope';    f = Join-Path $root 'plugins\dsh-diagram-renderer\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (diagram scan)' },
+  @{ n = 'typing-lag: session row text cache';  f = Join-Path $root 'plugins\dsh-session-history\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (row text cache)' },
+  @{ n = 'typing-lag: row render skip (CV)';    f = Join-Path $root 'plugins\dsh-ui-performance\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (row render skip)' },
   # port-user-patches bundle patches (2026-09-06 audit: were zero-covered; rebuild silently lost them)
   @{ n = 'port: workspace bundle ADD_CHAT';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js'; p = 'const ADD_CHAT' },
   @{ n = 'port: conversation bundle chatOnly';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'const chatOnly' },

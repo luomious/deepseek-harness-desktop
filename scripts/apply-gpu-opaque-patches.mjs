@@ -14,9 +14,16 @@
 //                             which is the source of the ghost-transparent
 //                             window and the multi-second startup stall).
 //
+//
+//   7. lib/main.js          : GPU policy -> hardware acceleration ON, software opt-in
+//                            (patch #7, 2026-09-16) The legacy disable-gpu switches above
+//                            forced pure CPU raster = typing lag. Default is now hardware
+//                            acceleration with the window kept opaque, so a GPU failure
+//                            degrades to software raster instead of a ghost transparent
+//                            window. Rollback without rebuild: node scripts/gpu-mode.mjs
 // Run after each rebuild:  node scripts/apply-gpu-opaque-patches.mjs
 // (package-vendor.ps1 calls this automatically right after apply-winhide-patches.)
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
 import { assertLibUnpacked } from './check-dist-integrity.mjs'
@@ -136,6 +143,76 @@ const patches = [
       '\tapp.commandLine.appendSwitch("disable-gpu-compositing");',
     ].join('\n'),
   },
+  {
+    // 2026-09-16 (typing-lag fix): flip the default back to hardware
+    // acceleration while keeping the window OPAQUE.
+    //
+    // Why: patch #1/#6 disabled GPU wholesale on 2026-09-07 because the
+    // virtual display adapters on this machine broke Chromium GPU
+    // composition. That cure cost us every repaint (CPU raster): measured
+    // 2026-09-16, the renderer sat at 60-108% of one core while a turn
+    // streamed (9% idle), which is exactly the "typing lags in the composer"
+    // complaint. The ghost transparent window of 2026-09-07 came from a
+    // TRANSPARENT window without a compositor - the electron-runtime patch
+    // already keeps this window opaque (#202124, no mica), so a GPU failure
+    // can no longer show a see-through ghost: Chromium just falls back to
+    // software rendering.
+    //
+    // Rollback (no rebuild): DSH_DESKTOP_DISABLE_GPU=1, or create
+    // <exe dir>/dsh-gpu-off.flag (scripts/gpu-mode.mjs --software does it).
+    name: 'gpu policy: hardware acceleration on, software opt-in (lib/main.js)',
+    file: join(build.lib, 'main.js'),
+    marker: 'dsh-gpu-policy-2026-09-16',
+    anchor: [
+      '// dsh patch (apply-gpu-opaque-patches): force-disable GPU acceleration.',
+      '// The virtual display adapter on this machine breaks Chromium GPU',
+      '// composition (transparent window, renderer hang, cannot type).',
+      '// Set DSH_DESKTOP_FORCE_GPU=1 to restore GPU acceleration and Mica.',
+      'if (!process.env.DSH_DESKTOP_FORCE_GPU) {',
+      '\tapp.disableHardwareAcceleration();',
+      '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+      '\t// dsh patch (apply-gpu-opaque-patches): eliminate the GPU child crash-loop on virtual display adapters.',
+      '\tif (!app.commandLine.hasSwitch("in-process-gpu")) app.commandLine.appendSwitch("in-process-gpu");',
+      '\tapp.commandLine.appendSwitch("disable-gpu-compositing");',
+      '\tif (!app.commandLine.hasSwitch("disable-features")) app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");',
+      '\tapp.commandLine.appendSwitch("disable-backgrounding-occluded-windows");',
+      '\tapp.commandLine.appendSwitch("disable-renderer-backgrounding");',
+      '}',
+    ].join('\n'),
+    replacement: [
+      '// dsh patch (dsh-gpu-policy-2026-09-16): hardware acceleration ON by default,',
+      '// window stays opaque so a GPU failure can never show a ghost window again.',
+      '// History: 2026-09-07 the virtual display adapters on this machine broke',
+      '// Chromium GPU composition (see-through window + multi-second startup stall),',
+      '// so GPU was disabled wholesale - every repaint became a CPU raster, which is',
+      '// what made typing lag while a turn streamed (measured 2026-09-16: renderer',
+      '// 60-108% of one core during streaming vs 9% idle).',
+      '// Software path (old behaviour, opt-in): DSH_DESKTOP_DISABLE_GPU=1 or the',
+      '// sentinel file <exe dir>/dsh-gpu-off.flag (scripts/gpu-mode.mjs).',
+      '// DSH_DESKTOP_FORCE_GPU=1 is kept as an explicit "GPU on" alias.',
+      'const __dshGpuExeDir = dirname(process.execPath || process.argv[0]);',
+      'const __dshGpuOff = process.env.DSH_DESKTOP_DISABLE_GPU === "1" || (() => {',
+      '\ttry { return existsSync(join(__dshGpuExeDir, "dsh-gpu-off.flag")); } catch { return false; }',
+      '})();',
+      'if (__dshGpuOff) {',
+      '\tapp.disableHardwareAcceleration();',
+      '\tif (!app.commandLine.hasSwitch("disable-gpu")) app.commandLine.appendSwitch("disable-gpu");',
+      '\t// dsh patch (apply-gpu-opaque-patches): eliminate the GPU child crash-loop on virtual display adapters.',
+      '\tif (!app.commandLine.hasSwitch("in-process-gpu")) app.commandLine.appendSwitch("in-process-gpu");',
+      '\tapp.commandLine.appendSwitch("disable-gpu-compositing");',
+      '} else {',
+      '\t// A launcher shortcut may still pass --disable-gpu (and friends): drop them.',
+      '\tfor (const __sw of ["disable-gpu", "disable-gpu-compositing", "in-process-gpu"]) {',
+      '\t\ttry { app.commandLine.removeSwitch(__sw); } catch { /* older Electron */ }',
+      '\t}',
+      '\t// Prefer the discrete GPU so the virtual display adapters cannot win.',
+      '\ttry { app.commandLine.appendSwitch("force_high_performance_gpu"); } catch { /* ignore */ }',
+      '}',
+      'if (!app.commandLine.hasSwitch("disable-features")) app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");',
+      'app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");',
+      'app.commandLine.appendSwitch("disable-renderer-backgrounding");',
+    ].join('\n'),
+  },
 ]
 
 let patched = 0
@@ -160,7 +237,19 @@ for (const p of patches) {
     continue
   }
   const next = text.replace(p.anchor, p.replacement)
-  try { writeFileSync(p.file, next, 'utf8') } catch (cause) {
+  // Atomic replace (house rule 2026-08-29): never leave a half-written runtime file
+  // behind for the startup loader to read. Inline try/catch is required so a failed
+  // rename still reports through the existing error path below.
+  try {
+    const tmp = p.file + ".tmp-" + process.pid
+    writeFileSync(tmp, next, "utf8")
+    try {
+      renameSync(tmp, p.file)
+    } catch (cause) {
+      try { unlinkSync(tmp) } catch { /* ignore */ }
+      throw cause
+    }
+  } catch (cause) {
     console.log('ERR write ' + p.file + ': ' + (cause instanceof Error ? cause.message : String(cause)))
     failed++
     continue

@@ -160,23 +160,35 @@ function createBuiltinProbes(opts) {
   probes.set('preflight', () => {
     const file = join(home, '.health', 'startup-history.jsonl')
     if (!existsSync(file)) return { ok: true, skipped: true, detail: 'no preflight history yet' }
+    // 2026-09-16: 只判「最近 7 天」的样本。原先按全量历史计数，任何一次历史失败都会把
+    // 本项永久锁红（实例：一个临时诊断插件留下一条 9/10 样本 ⇒ /health 长期 503），
+    // 正是仓内已声明要防的「永久报红/狼来了」失效模式。历史失败仍保留在 fails 里可查。
+    const cutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000
     let rows = 0
     let fails = 0
+    let recentFails = 0
     let newest = null
     for (const line of readFileSync(file, 'utf8').split('\n')) {
       if (!line.trim()) continue
       let r
       try { r = JSON.parse(line) } catch { continue }
       rows += 1
-      if (r.ok === false || Number(r.fail) > 0) fails += 1
+      if (r.ok === false || Number(r.fail) > 0) {
+        fails += 1
+        const at = typeof r.ts === 'string' ? Date.parse(r.ts) : NaN
+        if (Number.isFinite(at) && at >= cutoffMs) recentFails += 1
+      }
       if (typeof r.ts === 'string' && (newest === null || r.ts > newest)) newest = r.ts
     }
     const passRate = rows === 0 ? null : Math.round(((rows - fails) / rows) * 100)
     return {
-      ok: rows > 0 && fails === 0,
-      detail: `${rows} samples, ${passRate === null ? 'n/a' : passRate + '%'} pass${newest ? ', newest ' + newest : ''}`,
+      ok: rows > 0 && recentFails === 0,
+      detail: `${rows} samples, ${passRate === null ? 'n/a' : passRate + '%'} pass`
+        + `${recentFails > 0 ? `, ${recentFails} failure(s) in last 7d` : ''}`
+        + `${newest ? ', newest ' + newest : ''}`,
       samples: rows,
       fails,
+      recentFails,
       passRate,
       newest,
     }
