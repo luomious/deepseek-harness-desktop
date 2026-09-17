@@ -80,7 +80,7 @@ window.__ModuleLoader__.load({
         var el = all[i];
         var anchor = el.closest('[data-chat-anchor-key]') || el;
         var key = anchor.getAttribute('data-chat-anchor-key') || ('u' + i);
-        var text = cleanText(anchor.textContent);
+        var text = rowText(key, el, anchor);
         if (text === '') text = '…';
         var ratio = 0.5;
         if (scroller && contentHeight > 0) {
@@ -97,8 +97,22 @@ window.__ModuleLoader__.load({
       }
       return { rows: rows, lastKey: last ? last.key : null };
     }
+    // dsh typing-lag fix 2026-09-16 (row text cache): the old path read textContent off the ENCLOSING TURN
+    // (tool output included) and ran a full-string whitespace regex for every
+    // row on every 80ms-debounced refresh, just to fill a 200-char tooltip.
+    var __rowTextCache = new Map();
     function cleanText(raw) {
-      return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      return String(raw || '').slice(0, 400).replace(/\s+/g, ' ').trim().slice(0, 200);
+    }
+    function rowText(key, el, anchor) {
+      var cached = __rowTextCache.get(key);
+      if (cached !== void 0) return cached;
+      var text = cleanText(el == null ? '' : el.textContent);
+      if (text === '') text = cleanText(anchor == null ? '' : anchor.textContent);
+      if (text === '') text = '\u2026';
+      if (__rowTextCache.size > 400) __rowTextCache.clear();
+      __rowTextCache.set(key, text);
+      return text;
     }
 
     // ---------- locate the conversation (center) column ----------

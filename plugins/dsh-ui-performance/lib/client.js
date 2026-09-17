@@ -87,6 +87,17 @@ window.__ModuleLoader__.load({ id: '@dsh-external/dsh-ui-performance', factory: 
 [role="dialog"][aria-modal="true"] ._2vuxea_section {
 	max-width: none !important;
 }
+
+/* Rule 9 (dsh typing-lag fix 2026-09-16 (row render skip)): the conversation tree has no DOM virtualization,
+   so under software raster every streamed token relayouts and repaints the
+   whole message list. content-visibility:auto lets the browser skip the
+   offscreen rows; contain-intrinsic-size remembers the last rendered height
+   so the scrollbar does not jump after the first pass. Remove this block to
+   restore the previous rendering behaviour. */
+[data-chat-anchor-key] {
+	content-visibility: auto;
+	contain-intrinsic-size: auto 240px;
+}
 `;
 
 	function ensureCss() {

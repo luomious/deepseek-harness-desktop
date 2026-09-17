@@ -2690,7 +2690,10 @@ function StageViewer(props) {
 
       function scanAll() {
         try {
-          var cards = document.querySelectorAll('[data-tool]')
+          // dsh typing-lag fix 2026-09-16 (diagram scan): rescan the conversation scrollport only, not the whole
+          // document (the message list is the only place tool cards live).
+          var scanRoot = document.querySelector('[data-conversation-scroll]') || document.body
+          var cards = scanRoot.querySelectorAll('[data-tool]')
           for (var i = 0; i < cards.length; i++) processToolCard(cards[i])
         } catch (e) { /* non-fatal */ }
       }
@@ -2713,7 +2716,19 @@ function StageViewer(props) {
       try {
         var obs = new MutationObserver(function (muts) {
           for (var i = 0; i < muts.length; i++) {
-            if (muts[i].type === 'childList' && muts[i].addedNodes.length) { schedule(); break }
+            // dsh typing-lag fix 2026-09-16 (diagram scan): only rescan when the added subtree can contain a
+            // tool card. The old handler rescheduled a FULL-document scan on every
+            // childList mutation (every streamed token, every composer re-render).
+            if (muts[i].type !== 'childList' || !muts[i].addedNodes.length) continue
+            var added = muts[i].addedNodes
+            var relevant = false
+            for (var a = 0; a < added.length; a++) {
+              var addedNode = added[a]
+              if (addedNode.nodeType !== 1) continue
+              if (addedNode.getAttribute && addedNode.getAttribute('data-tool') !== null) { relevant = true; break }
+              if (addedNode.querySelector && addedNode.querySelector('[data-tool]') !== null) { relevant = true; break }
+            }
+            if (relevant) { schedule(); break }
           }
         })
         obs.observe(document.body, { childList: true, subtree: true })
