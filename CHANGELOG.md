@@ -6,6 +6,19 @@
 
 ---
 
+## 2026-09-17 · 文档/产出同步入库 + CHANGELOG 重复章节修复 + GPU 补丁脚本原子化
+
+**背景**：用户「帮我更新所有有关文档和 GitHub」——把 2026-09-16 打字卡顿根治（客户端 3 处 + GPU 硬件加速复原 + 门禁）与 09-17 临时件/残留清理两批工作补齐文档并入库。提交 `aeb1a5c`（12 文件，+630/-18）已推送 `origin/master`。
+
+- **CHANGELOG 自身修复**：顶部「补丁门禁语法盲区修复」章节此前**重复了两次**——一次是**无标题的孤儿副本**（上次「补回被并行会话覆盖的章节」时只补了正文、没删残骸，还把原标题尾部截成了一行散句），正文与原章节逐行相同。已删孤儿副本（11 行）并保留带标题的完整章节（位置移到 P0 spill 之后，同为新→旧顺序）；同时刷新打字卡顿节的「后续」块：GPU 路径复核**当日已完成**、`better-sidebar` 仍待办、原「会话写不了 `~/.dsh`」的阻塞已随本机文件策略放开（`danger-full-access`）消失，HTTP 通道 token 作废。
+- **文档**：`docs/troubleshooting-handbook.md` 新增 **§21 打字卡顿 / 输入延迟**（症状 → 根因 → 量化证据 → 两层修复 → 一键回滚 → 排查命令 → 预防）+ 速查表补 3 行；`docs/UPGRADE-EXECUTION-LOG.md` §5.3 GPU 两处更新为「**默认硬件加速**」（旧文「默认 `disable-gpu`（`DSH_DESKTOP_FORCE_GPU=1` 可恢复）」已过时）；`docs/CAPABILITY-REGISTRY.md` 脚本工具箱补 `gpu-mode.mjs` / `apply-typing-lag-fixes.mjs` 并**实测**修正 `apply-*.mjs` 计数（15→19）；`AGENTS.md` 常见坑位 +1 条（打字卡顿先查渲染路径）。
+- **脚本**：`scripts/apply-gpu-opaque-patches.mjs` 的写入改为**原子替换**（同目录 tmp + `renameSync` + 失败清理 tmp），符合「禁止新增非原子 `apply-*.mjs`」并顺手完成存量脚本的原子化；自检 `_backups/_probe/atomic-write-selftest-20260917.mjs` **14/14 PASS**（原脚本静态形状断言 + 成功/失败路径语义回放），幂等实跑 `0 patched / 7 already-ok / 0 failed`（exit 0）。
+- **产出**：`outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/`（结论 / 根因 / 修复 / 清理判定 / 回滚表 / 证据索引 / **诚实边界**），`outputs/INDEX.md` 首行登记。
+- **入库纪律**：`outputs/INDEX.md` 有**其他会话 4 行未提交**改动 ⇒ 用**隔离索引**（`GIT_INDEX_FILE` + `read-tree HEAD`）只带本行 blob 提交，12 个路径全部经 allow-list 断言；推送后用 `git ls-remote origin master` 复核远端 sha 与本地 HEAD 一致（不采信「git push 无输出」）；其他会话的 4 行在工作区**原样保留**。
+- **过程教训（诚实记录）**：本次的批量文档编辑脚本**自己引入过一处语法错**（替换 `writeFileSync(p.file, …)` 那一行时把同行的 `} catch (cause) {` 一起吃掉了）——被脚本末尾内置的 `node --check` 自检**当场抓住并 fail-loud**，未落盘成坏文件；同类自检的**失败注入场景**也踩了一次「把 tmp 写进不存在的目录 ⇒ 实际抛在 `write` 而非 `rename`」（已修正为真正覆盖 rename 失败 + 清理路径）。⇒ 「写入后立刻自检」必须内置于脚本，而不是靠事后人工检查。
+
+---
+
 ## 2026-09-16 · 打字卡顿修复纳入门禁（防插件重装静默丢失）+ 故障注入验证
 
 **背景**：第一步（客户端 3 处全量扫描修复）与第二步（GPU 硬件加速复原）都已实测生效，但这 3 处修复**只存在于工作区插件文件里**，无任何门禁覆盖 —— 它们是 `plugins/*/lib/client.js`（工作区插件，非 dist），一次**插件重装 / 更新**（不必等重建）就会静默丢掉，打字卡顿会「无原因复发」。
