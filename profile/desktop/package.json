@@ -55,7 +55,8 @@
     "@dsh-external/dsh-diff-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-diff-guard",
     "@dsh-external/dsh-memory-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-guard",
     "@dsh-external/dsh-developer-role-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-developer-role-guard",
-    "@dsh-external/dsh-model-provider-failover": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover"
+    "@dsh-external/dsh-model-provider-failover": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover",
+    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator"
   },
   "dsh": {
     "profile": {
@@ -106,7 +107,8 @@
         "@dsh-external/dsh-diff-guard",
         "@dsh-external/dsh-memory-guard",
         "@dsh-external/dsh-developer-role-guard",
-        "@dsh-external/dsh-model-provider-failover"
+        "@dsh-external/dsh-model-provider-failover",
+        "@dsh-external/dsh-vision-rotator"
       ]
     }
   }

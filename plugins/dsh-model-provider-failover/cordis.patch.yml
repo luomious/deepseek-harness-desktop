@@ -22,9 +22,11 @@
         maxRecoveriesPerKey: 1   # 同一 turn:step:provider 最多接管几次
         maxFailoversPerTurn: 3   # 单轮最多切换几次 provider（防 A→B→A 抖动）
         fallback:
+          modlens-yidong: modlens-tokenrhythm01
           modlens-apinex: modlens-tokenrhythm01
           modlens-tokenrouter: modlens-tokenrhythm01
         fallbackModel:
+          modlens-yidong: deepseek-v4-flash-0731
           modlens-apinex: deepseek-v4-flash-0731
           modlens-tokenrouter: deepseek-v4-flash-0731
         # 运行时（免重启）调整示例：

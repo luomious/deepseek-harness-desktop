@@ -104,7 +104,8 @@ export function gatherFacts(root: string): Facts {
 
   const changelog = safe(() => {
     const c = readFileSync(join(root, 'CHANGELOG.md'), 'utf8')
-    return c.split(/\r?\n/).filter((l) => l.startsWith('## ')).slice(0, 6)
+    // 采集**全部**标题，由 renderAutoSection 按 CAP.changelog 截断并如实报余量
+    return c.split(/\r?\n/).filter((l) => l.startsWith('## '))
   }, [] as string[])
 
   const g = gitInfo(root)
@@ -119,7 +120,7 @@ export function gatherFacts(root: string): Facts {
     srcTree: srcTree(root),
     plugins,
     scripts: pkg?.scripts ?? {},
-    deps: Object.keys(pkg?.dependencies ?? {}).slice(0, 20),
+    deps: Object.keys(pkg?.dependencies ?? {}),
     stack,
     mechanisms,
     changelog,
@@ -131,6 +132,28 @@ export function gatherFacts(root: string): Facts {
 export function fingerprint(f: Facts): string {
   const basis = JSON.stringify([f.dirs, f.topFiles, f.name, f.gitHead, f.readmeTitle, Object.keys(f.scripts), f.plugins])
   return createHash('sha1').update(basis).digest('hex').slice(0, 12)
+}
+
+// ── AUTO 区体量上限（2026-09-17）──────────────────────
+// AGENTS.md 会被**每一个会话**自动加载，所以它的体积就是硬性上下文预算
+// （本工作区用户规则：≤150 行）。原来的 AUTO 列表没有任何上限（全部目录 /
+// 根级文件 / 插件 / 依赖 / 脚本 / 变更记录），在本仓实测长到 128 行
+// （含 6 个章节标题与空行共 145 行），把策展区挤到几乎没有空间。
+// 以下上限只保留各列表最有用的一段，被截断时给出一行**如实的**余量提示，
+// 并指向真正的清单来源（插件 → plugins/INVENTORY.md，依赖/命令 → package.json）。
+const CAP = {
+  dirs: 14,
+  topFiles: 6,
+  srcTree: 10,
+  plugins: 8,
+  deps: 6,
+  commands: 6,
+  changelog: 4,
+} as const
+
+/** 截断提示：只在真的被截断时出现，并说明**还剩多少**（不做静默省略）。 */
+function tailNote(total: number, max: number, note: string): string[] {
+  return total > max ? [`- …（${total - max} ${note}）`] : []
 }
 
 // ── 渲染 AUTO 区 ─────────────────────────────────────
@@ -147,21 +170,48 @@ export function renderAutoSection(key: AutoKey, f: Facts): string {
       return lines.join('\n')
     }
     case 'structure': {
-      const lines = [...f.dirs.map((d) => `- \`${d}\``), ...f.topFiles.slice(0, 12).map((x) => `- \`${x}\``)]
-      if (f.srcTree.length) lines.push('', '**src/ 结构**:', ...f.srcTree.slice(0, 30).map((x) => `- \`${x}\``))
-      if (f.plugins.length) lines.push('', '**插件 (plugins/)**:', ...f.plugins.map((x) => `- \`${x}\``))
+      const lines = [
+        ...f.dirs.slice(0, CAP.dirs).map((d) => `- \`${d}\``),
+        ...tailNote(f.dirs.length, CAP.dirs, '个目录未列出'),
+        ...f.topFiles.slice(0, CAP.topFiles).map((x) => `- \`${x}\``),
+        ...tailNote(f.topFiles.length, CAP.topFiles, '个根级文件未列出'),
+      ]
+      if (f.srcTree.length) {
+        lines.push('', '**src/ 结构**:', ...f.srcTree.slice(0, CAP.srcTree).map((x) => `- \`${x}\``),
+          ...tailNote(f.srcTree.length, CAP.srcTree, '项见 src/'))
+      }
+      if (f.plugins.length) {
+        lines.push('', `**插件 (plugins/ · 共 ${f.plugins.length})**:`,
+          ...f.plugins.slice(0, CAP.plugins).map((x) => `- \`${x}\``),
+          ...tailNote(f.plugins.length, CAP.plugins, '个插件见 `plugins/INVENTORY.md`'))
+      }
       return lines.join('\n') || '（未检测到目录结构）'
     }
-    case 'stack':
-      return f.stack.map((x) => `- ${x}`).join('\n') + (f.deps.length ? '\n\n**主要依赖**:\n' + f.deps.map((d) => `- \`${d}\``).join('\n') : '') || '（未检测到技术栈）'
+    case 'stack': {
+      const head = f.stack.map((x) => `- ${x}`).join('\n')
+      const depBlock = f.deps.length
+        ? ['', '**主要依赖**:', ...f.deps.slice(0, CAP.deps).map((d) => `- \`${d}\``),
+            ...tailNote(f.deps.length, CAP.deps, '个依赖见 `package.json`')].join('\n')
+        : ''
+      return head + depBlock || '（未检测到技术栈）'
+    }
     case 'commands': {
       const entries = Object.entries(f.scripts)
-      return entries.length ? entries.map(([k, v]) => `- \`npm run ${k}\` → ${v}`).join('\n') : '（package.json 无 scripts）'
+      if (!entries.length) return '（package.json 无 scripts）'
+      return [
+        ...entries.slice(0, CAP.commands).map(([k, v]) => `- \`npm run ${k}\` → ${v}`),
+        ...tailNote(entries.length, CAP.commands, '条命令见 `package.json`'),
+      ].join('\n')
     }
     case 'mechanisms':
       return f.mechanisms.map((x) => `- ${x}`).join('\n') || '（未检测到特殊机制）'
-    case 'changelog':
-      return f.changelog.map((x) => `- ${x.replace(/^##\s*/, '')}`).join('\n') || '（无 CHANGELOG.md）'
+    case 'changelog': {
+      if (!f.changelog.length) return '（无 CHANGELOG.md）'
+      return [
+        ...f.changelog.slice(0, CAP.changelog).map((x) => `- ${x.replace(/^##\s*/, '')}`),
+        ...tailNote(f.changelog.length, CAP.changelog, '条更早记录'),
+      ].join('\n')
+    }
   }
 }
 
@@ -179,9 +229,10 @@ function skeleton(f: Facts): string {
     '',
     '## 协作指南（策展区 · 更新时保留）',
     '',
-    '- 修改代码前先读本文件与 README，遵循既有插件/补丁模式，不重复造轮子。',
-    '- 对 node_modules 的修改必须登记到自愈补丁清单，否则升级即丢失。',
+    '- 先读本文件与 `docs/AGENT-RULES-DETAIL.md`（规则详解），再动手改代码。',
+    '- 对全局/vendor node_modules 的修改必须登记到补丁体系（`patches/bundles/` + `scripts/verify-patches.ps1` + `scripts/apply-*.mjs`），否则重建/升级即丢失。',
     '- 长任务用 goal 自动续跑；跨会话守护用 daemon-loop 插件。',
+    '- 新产出进 `outputs/<date>-<type>-<topic>/` 并在 `outputs/INDEX.md` 登记。',
     '',
   ].join('\n')
 }

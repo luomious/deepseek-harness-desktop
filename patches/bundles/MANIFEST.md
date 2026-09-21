@@ -8,9 +8,10 @@
 
 | 文件 | 大小 | SHA-256 | 最后修改 | 用途 |
 |------|------|---------|----------|------|
-| `dsh-client-ui-conversation-client.js` | 448,117 B | `199a31e56f9ff78f0786347f41fced82119eba8a4cc114fbeb7045dde27d3265` | 2026-08-21 18:06:47 | 会话 UI 客户端修复 |
+| `dsh-client-ui-conversation-client.js` | 449,564 B | `89534da76b9f1e636b2cbc5bf2c6fb703142809928bc29620e716066c37575eb` | 2026-09-17 15:04:41 | 会话 UI 客户端修复 |
 | `dsh-client-ui-directory-picker-browse-client.js` | 55,429 B | `8f0c2944cb87d0efba4c90f625d2078708a3d7af27a1a23090299d805a3a94c3` | 2026-08-24 12:50:39 | 目录选择器浏览客户端修复 |
 | `dsh-session-persistence-jsonl-index.js` | 60,809 B | `7ba881f57738d48589effe478eb5176d74cd37cd368aed04d025adf7c66a253b` | 2026-09-07 14:13:21 | 会话持久化 zstd 解压：readRaw 流式（PERF-5）+ readZstdPrefix 同步 generator（PERF-6，打开对话热路径）+ 逐帧异步回退 |
+| `dsh-client-ui-tool-client.js` | 78,564 B | `9f7726b74b159d6ebfd458937cd1deb435c2fd2d2fb264ed4e3ebb90a998228f` | 2026-09-17 15:04:41 | 工具/命令流式行扫光：`left` 动画改 `transform`（合成器，免每帧布局） |
 | `dsh-client-ui-settings-models-client.js` | 135,397 B | `0e36badd4ce2e363d344401f68f080f16039cc27da3061c9e34f532f3e209865` | 2026-09-02 16:37:49 | 设置模型客户端修复 |
 | `dsh-client-ui-workspace-client.js` | 116,446 B | `0497d48dbcd7ba2eca93af9de9615e7b716165dfcc2818da9be7237fe5720ee4` | 2026-08-25 14:35:48 | 工作区客户端修复 |
 | `dsh-host-frontend-static-index.js` | 4,187 B | `b188830f03528635dc1850ab83cd6a87aab6d394bb2b245f63c1bab1e14bc935` | 2026-08-25 02:43:15 | 前端静态索引修复 |
@@ -22,6 +23,7 @@
 | 文件 | 大小 | SHA-256 | 来源 |
 |------|------|---------|------|
 | `dsh-client-ui-conversation-client.js.orig-npm` | 447,932 B | `fe448ef7e0b1f3e7713dadfc7eff56b9f80d103a2111dfe69c1735ffd0196d61` | npm 安装原始版本 |
+| `dsh-client-ui-tool-client.js.orig-npm` | 78,222 B | `da1f011ba65411ac08a4145cb72fb3170bf5940fed04ebe7e2f45ceb523edefd` | npm 安装原始版本（2026-09-17 建 canon 时留） |
 | `dsh-client-ui-workspace-client.js.orig-npm` | 114,011 B | `75d8a09a43a820e0ff8470e7b9c87b6dced523764ee650a8382317f6ef7a314b` | npm 安装原始版本 |
 | `dsh-client-ui-workspace-client.js.orig-packaged` | 114,053 B | `d77717d7a421bf40d5ec6f8aa91ef20093f4ba51f6bdd85b0b087e44d324724a` | 打包构建原始版本 |
 

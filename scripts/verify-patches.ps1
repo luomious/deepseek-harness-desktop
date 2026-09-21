@@ -73,7 +73,7 @@ $checks = @(
   @{ n = 'ui-perf: better-sidebar collapse gate'; f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-better-sidebar\lib\client.js'; p = 'state && (state.panelOpen || state.bottomOpen)' },
   @{ n = 'ui-perf: vision-engine render(allowFullScan)'; f = Join-Path $root 'plugins\dsh-vision-engine\lib\client.js'; p = 'function render(allowFullScan)' },
   @{ n = 'ui-perf: self-maintenance renderer probe'; f = Join-Path $root 'plugins\dsh-self-maintenance\lib\index.js'; p = 'renderer-probe-final' },
-  # typing-lag fixes (2026-09-16): 3 workspace client bundles patched by
+  # typing-lag fixes (2026-09-16 + 2026-09-17): 4 workspace client bundles patched by
   # scripts/apply-typing-lag-fixes.mjs (GPU was restored separately by
   # apply-gpu-opaque-patches.mjs patch #7). These are workspace plugin bundles
   # rather than dist files, so a plugin reinstall/update -- NOT just a rebuild --
@@ -82,6 +82,36 @@ $checks = @(
   @{ n = 'typing-lag: diagram rescan scope';    f = Join-Path $root 'plugins\dsh-diagram-renderer\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (diagram scan)' },
   @{ n = 'typing-lag: session row text cache';  f = Join-Path $root 'plugins\dsh-session-history\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (row text cache)' },
   @{ n = 'typing-lag: row render skip (CV)';    f = Join-Path $root 'plugins\dsh-ui-performance\lib\client.js'; p = 'dsh typing-lag fix 2026-09-16 (row render skip)' },
+  @{ n = 'typing-lag: model aria poll cache';   f = Join-Path $root 'plugins\dsh-model-picker-group\lib\client.js'; p = 'dsh typing-lag fix 2026-09-17 (aria poll cache)' },
+  # 2026-09-17: the visible composer glyphs are painted by the kernel's React backdrop overlay
+  # (the textarea is transparent), so a keystroke only shows after a React commit+paint. Rule 10
+  # gives the text back to the native textarea and raises the decoration layer. Workspace plugin
+  # bundle again -> a plugin reinstall would drop it silently. On FAIL: restore Rule 10 from
+  # _backups/typing-lag-native-text-*/client.js.before
+  @{ n = 'typing-lag: native composer text';    f = Join-Path $root 'plugins\dsh-ui-performance\lib\client.js'; p = 'dsh typing-lag fix 2026-09-17 (native composer text)' },
+  @{ n = 'typing-lag: native composer text (css)'; f = Join-Path $root 'plugins\dsh-ui-performance\lib\client.js'; p = '[data-input-scroll] textarea[data-phase]:not(:disabled)' },
+  # scroll-jank fixes (2026-09-17): the conversation scroll-anchor hot path (per-frame forced
+  # layout / hit tests / subtree query) is patched by scripts/apply-scroll-anchor-fixes.mjs. The
+  # patch is applied to the CANON copy in patches/bundles/ and propagated to the dev tree + the
+  # packaged app, so port-user-patches.mjs (which restores from that same canon) cannot silently
+  # revert it. On FAIL: node scripts/apply-scroll-anchor-fixes.mjs
+  @{ n = 'scroll-anchor: binary anchor (pkg)';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'dsh-scroll-fix-2026-09-17 (binary anchor)' },
+  @{ n = 'scroll-anchor: single hit point (pkg)';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'dsh-scroll-fix-2026-09-17 (single hit point)' },
+  @{ n = 'scroll-anchor: seat cache (pkg)';        f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'dsh-scroll-fix-2026-09-17 (seat cache)' },
+  @{ n = 'scroll-anchor: canon copy (patches/)';   f = Join-Path $root 'patches\bundles\dsh-client-ui-conversation-client.js'; p = 'dsh-scroll-fix-2026-09-17 (binary anchor)' },
+  @{ n = 'scroll: containment (ui-performance)';   f = Join-Path $root 'plugins\dsh-ui-performance\lib\client.js'; p = 'dsh scroll fix 2026-09-17 (scroll containment)' },
+  # sweep-transform fixes (2026-09-17): 4 个「流式行扫光」动画原本用 `left`（每帧触发布局+绘制、
+  # infinite，挂在 [data-state=running] 的行上）⇒ renderer 单核被打满的结构性来源之一。
+  # 已改为等价的 `transform: translateX()`（可上合成器）。canon 在 patches/bundles/，回灌 dev+pkg。
+  # On FAIL: node scripts/apply-sweep-transform-fixes.mjs
+  @{ n = 'sweep: conversation rows (transform)';   f = Join-Path $root 'patches\bundles\dsh-client-ui-conversation-client.js'; p = 'dsh-sweep-fix-2026-09-17 compositor-transform' },
+  @{ n = 'sweep: tool/bash rows (transform)';      f = Join-Path $root 'patches\bundles\dsh-client-ui-tool-client.js'; p = 'dsh-sweep-fix-2026-09-17 compositor-transform' },
+  # task-scheduler archive retention (2026-09-17): pruneChanges() 只归档不清理 ⇒ 5 天堆积 238 份
+  # changes.jsonl.old-* / 216.8 MB（每份 ~2000 行滚动窗口）。补丁给归档加上限（默认保留最近 5 份，
+  # DSH_TASK_SCHEDULER_KEEP_ARCHIVES 可覆盖）。工作区插件代码 —— 插件重装/更新会静默丢失。
+  # On FAIL: node scripts/apply-task-scheduler-retention.mjs
+  @{ n = 'task-scheduler: archive retention';      f = Join-Path $root 'plugins\dsh-task-scheduler\lib\core.js'; p = 'dsh patch task-scheduler retention v1' },
+  @{ n = 'task-scheduler: retention cap const';    f = Join-Path $root 'plugins\dsh-task-scheduler\lib\core.js'; p = 'const DEFAULT_KEEP_ARCHIVES = 5' },
   # port-user-patches bundle patches (2026-09-06 audit: were zero-covered; rebuild silently lost them)
   @{ n = 'port: workspace bundle ADD_CHAT';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js'; p = 'const ADD_CHAT' },
   @{ n = 'port: conversation bundle chatOnly';   f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'; p = 'const chatOnly' },

@@ -98,6 +98,53 @@ window.__ModuleLoader__.load({ id: '@dsh-external/dsh-ui-performance', factory: 
 	content-visibility: auto;
 	contain-intrinsic-size: auto 240px;
 }
+
+/* Rule 10 (dsh typing-lag fix 2026-09-17 (native composer text)): the composer textarea is
+   rendered FULLY TRANSPARENT by the kernel (color:#0000 ; -webkit-text-fill-color:transparent
+   in ui-conversation InputBar.module.css) and the glyphs you see are painted by a React
+   backdrop overlay (div[data-input-backdrop]) built from the draft on every keystroke.
+   Consequence: a typed character can only appear after input event -> input state machine ->
+   store -> React commit -> layout -> paint of that overlay, and any main-thread contention in
+   that window (e.g. dsh-client-connection validating every websocket frame, measured 48-61ms
+   long tasks) delays what you see -- the "typing shows half a beat late" symptom. Chinese IME
+   composition is hit twice, because the native composition string is transparent too.
+   Fix: let the TEXTAREA paint its own text again (native, same frame as the input event) and
+   keep the overlay only for decorations, raised above the textarea. Decorations keep their own
+   colors (hlToken / textRef / chip / hint / icon rules), because the parent's transparent color
+   only affects runs that have no color rule of their own. Selectors are structural (data
+   attributes) so an upstream rebuild cannot silently void them; the :not(:disabled) suffix keeps the
+   old transparent look for the inert workspace-trigger state. Remove this block to restore the
+   previous rendering behaviour. */
+[data-input-scroll] textarea[data-phase]:not(:disabled),
+[data-input-scroll] textarea:not(:disabled) {
+	color: var(--dsw-alias-label-primary) !important;
+	-webkit-text-fill-color: currentColor !important;
+}
+
+[data-input-backdrop] {
+	z-index: 2;
+	color: transparent !important;
+}
+
+/* Rule 11 (dsh scroll fix 2026-09-17 (scroll containment)): the conversation scrollport and the
+   sticky composer seat sit in one large paint subtree with NO containment and no compositing
+   hints anywhere in the product (audited 2026-09-17: will-change appears once in the whole
+   client tree and only while dragging; translateZ(0) zero times; CSS contain only in
+   better-sidebar/deliverables). Every scrolled frame can therefore invalidate a large area.
+   contain:paint on the scrollport bounds invalidation to the scrollport box -- which
+   overflow:hidden auto already clips, so nothing new is hidden -- and contain:layout on
+   the composer seat isolates the sticky band's relayout. Deliberately NOT contain:paint on
+   the seat: slot children may host dropdown layers that extend past it. Remove this block to
+   restore the previous rendering behaviour. NOTE: never write backticks in this stylesheet --
+   the whole CSS is a JS template literal and a backtick closes it early (caught twice by the
+   syntax-integrity gate on 2026-09-17). */
+[data-conversation-scroll] {
+	contain: paint;
+}
+
+[data-composer-seat] {
+	contain: layout;
+}
 `;
 
 	function ensureCss() {

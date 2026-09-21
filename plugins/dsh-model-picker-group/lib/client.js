@@ -355,9 +355,19 @@ window.__ModuleLoader__.load({
     // 会话运行在 modlens 视觉双胞胎上时,给模型按钮 aria-label 追加 "(modlens vision)" 标记。
     // modlens 粘贴裁决按该标记判定模型支持图片 → 不接管粘贴 → 图片原生嵌入消息。
     // 标记只进 aria-label(无障碍属性),界面显示不受影响。幂等挂载,热重载不累积。
+    // dsh typing-lag fix 2026-09-17 (aria poll cache): this 800ms timer used to run a whole-document
+    // attribute-substring querySelector on EVERY tick, forever, just to keep one
+    // aria-label in sync. Cache the button and re-scan only when it is missing or
+    // has been detached, so the steady state is one isConnected read per tick.
+    var __mpgModelBtn = null
     function patchModelAriaLabel() {
       try {
-        var btn = document.querySelector('button[aria-label*="选择模型"], button[aria-label*="Select model"]')
+        var btn = __mpgModelBtn
+        if (btn && !btn.isConnected) btn = __mpgModelBtn = null
+        if (!btn) {
+          btn = document.querySelector('button[aria-label*="选择模型"], button[aria-label*="Select model"]')
+          __mpgModelBtn = btn || null
+        }
         if (!btn) return
         var a = btn.getAttribute('aria-label') || ''
         var has = a.indexOf('(modlens vision)') !== -1
@@ -366,7 +376,7 @@ window.__ModuleLoader__.load({
         } else if (!modlensVisionActive && has) {
           btn.setAttribute('aria-label', a.replace(/ \(modlens vision\)$/, ''))
         }
-      } catch (e) { /* 诊断失败不影响 */ }
+      } catch (e) { /* 诊断失败不影响 */ __mpgModelBtn = null }
     }
     if (!window.__MPG_ARIA_PATCHER__) {
       window.__MPG_ARIA_PATCHER__ = window.setInterval(patchModelAriaLabel, 800)

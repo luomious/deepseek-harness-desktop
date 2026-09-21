@@ -232,6 +232,7 @@ window.__ModuleLoader__.load({
       var [loading, setLoading] = React.useState(true);
       var [error, setError] = React.useState(null);
       var [flash, setFlash] = React.useState(false);
+      var [bulk, setBulk] = React.useState(null);   // { phase:'running'|'done', total, done, results{} } 一键测试全部
 
       var editing = draft !== null;
       var current = editing ? draft : cfg;
@@ -348,6 +349,81 @@ window.__ModuleLoader__.load({
           setTests(Object.assign({}, tests, { [name]: { phase: 'done', result: { ok: false, error: String((e && e.message) || e) } } }));
         });
       }
+
+      // ── 一键测试全部:遍历所有厂商×模型,逐个打 /model-whitelist/test,低并发避免自造限流 ──
+      var BULK_CONCURRENCY = 3;
+      function runAllTests() {
+        var jobs = [];
+        (displayGroups || []).forEach(function (dg) {
+          dg.entries.forEach(function (e) { jobs.push({ provider: e.gid, model: e.model.id }); });
+        });
+        if (jobs.length === 0) return;
+        var results = {};
+        var done = 0;
+        var total = jobs.length;
+        setBulk({ phase: 'running', total: total, done: 0, results: results });
+        var idx = 0;
+        function startNext() {
+          if (idx >= jobs.length) return;
+          var j = jobs[idx++];
+          fetchWithTimeout('/model-whitelist/test', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ provider: j.provider, model: j.model }),
+          }).then(function (r) { return r.json(); }).then(function (res) {
+            results[j.provider + '/' + j.model] = { ok: !!(res && res.ok), latencyMs: res && res.latencyMs, error: res && res.error };
+            done++;
+            setBulk({ phase: done >= total ? 'done' : 'running', total: total, done: done, results: results });
+            startNext();
+          }).catch(function (e) {
+            results[j.provider + '/' + j.model] = { ok: false, error: String((e && e.message) || e) };
+            done++;
+            setBulk({ phase: done >= total ? 'done' : 'running', total: total, done: done, results: results });
+            startNext();
+          });
+        }
+        var n = Math.min(BULK_CONCURRENCY, jobs.length);
+        for (var i = 0; i < n; i++) startNext();
+      }
+      function bulkLabel(b) {
+        if (!b) return '';
+        if (b.phase === 'running') return '测试全部 ' + b.done + '/' + b.total + '…';
+        var ok = 0;
+        for (var k in b.results) if (b.results[k] && b.results[k].ok) ok++;
+        return '测试全部：' + ok + '/' + b.total + ' 可用';
+      }
+      // 单个模型的结果（就近显示在模型行右侧）
+      function modelResult(b, key) {
+        if (!b || !b.results || !b.results[key]) return null;
+        var r = b.results[key];
+        var txt = r.ok ? ('✓ ' + (r.latencyMs / 1000).toFixed(1) + 's') : ('✗ ' + (r.error || '失败'));
+        return h('span', {
+          title: r.error || '',
+          style: {
+            flexShrink: 0, fontSize: 11.5, fontFamily: 'ui-monospace,monospace', whiteSpace: 'nowrap',
+            maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis',
+            color: r.ok ? 'var(--dsw-alias-state-success-primary, #34d399)' : 'var(--dsw-alias-state-error-primary, #f87171)',
+          },
+        }, txt);
+      }
+      // 本厂商汇总徽标（就近显示在厂商行右侧）
+      function groupSummary(b, dg) {
+        if (!b || !b.results) return null;
+        var ok = 0, n = 0;
+        dg.entries.forEach(function (e) {
+          var r = b.results[e.gid + '/' + e.model.id];
+          if (r) { n++; if (r.ok) ok++; }
+        });
+        if (n === 0) return null;
+        var allOk = ok === n;
+        return h('span', {
+          style: {
+            flexShrink: 0, fontSize: 11, fontWeight: 600, borderRadius: 999, padding: '1px 8px',
+            background: 'var(--dsw-alias-bg-layer-2)',
+            color: allOk ? 'var(--dsw-alias-state-success-primary, #34d399)' : 'var(--dsw-alias-state-error-primary, #f87171)',
+          },
+        }, (allOk ? '✓ ' : '✗ ') + ok + '/' + n);
+      }
       function testResultText(res) {
         if (!res) return '';
         if (res.ok) return '✓ 可用 · ' + (res.latencyMs / 1000).toFixed(1) + 's';
@@ -405,6 +481,7 @@ window.__ModuleLoader__.load({
           h('span', {
             style: { fontSize: 12, color: 'var(--dsw-alias-label-primary)', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l1)', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }
           }, t('count', { n: checkedCount, total: total })),
+          h('button', { type: 'button', className: 'mw-btn', onClick: runAllTests, disabled: loading || (bulk && bulk.phase === 'running'), style: TEST_BTN_STYLE }, bulkLabel(bulk) || '测试全部'),
           editing && h('button', { type: 'button', className: 'mw-btn', onClick: selectAll, style: ghostBtnStyle(false) }, t('selectAll')),
           editing && h('button', { type: 'button', className: 'mw-btn', onClick: clearAll, style: ghostBtnStyle(false) }, t('clearAll')),
           h('span', { style: { flex: 1 } }),
@@ -434,6 +511,7 @@ window.__ModuleLoader__.load({
               h('span', { style: { width: 8, height: 8, borderRadius: '50%', background: ACCENT, flexShrink: 0, transition: 'transform .3s' } }),
               h('span', { style: { flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' } }, dg.name),
               h('span', { style: CHIP_STYLE }, String(dg.entries.length)),
+              groupSummary(bulk, dg),
               h('button', {
                 type: 'button',
                 className: 'mw-btn',
@@ -450,7 +528,9 @@ window.__ModuleLoader__.load({
                 var checked = current.models.indexOf(key) !== -1;
                 return h('label', { key: key, style: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px 6px 36px', fontSize: 13, cursor: editing ? 'pointer' : 'default', opacity: editing ? 1 : 0.7, transition: 'opacity .15s' } },
                   h('input', { type: 'checkbox', checked: checked, disabled: !editing, onChange: function () { toggleModel(key); }, style: checkboxStyle }),
-                  h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, e.model.name || e.model.id));
+                  h('span', { style: { color: 'var(--dsw-alias-label-primary)' } }, e.model.name || e.model.id),
+                  h('span', { style: { flex: 1 } }),
+                  modelResult(bulk, key));
               })));
         }),
 

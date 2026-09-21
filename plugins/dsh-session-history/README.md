@@ -1,7 +1,7 @@
 # dsh-session-history
 
 **Message mini-map rail for DeepSeek Harness.**  
-A narrow vertical bar pinned to the left edge of the conversation area, showing one short horizontal line per user-sent message. Click a line to jump the chat to that message; hover reveals the message content. The most-recent message is highlighted blue; clicking a line keeps it highlighted while the rest fade to white.
+A narrow vertical bar pinned to the left edge of the conversation area, showing one short horizontal line per user-sent message. Click a line to jump the chat to that message; hover reveals a MiMo-style preview card with the bold user-message title. The most-recent message is highlighted blue; clicking a line keeps it highlighted while the rest fade to white.
 
 ## Location
 
@@ -9,9 +9,9 @@ The rail mounts into the `shell.overlay` slot (root layout overlay list slot) an
 
 ## Features
 
-- **Short horizontal lines** — one bar per user message, positioned proportionally by the message's real scroll position in the conversation (a mini-map).
-- **No text in the rail** — pure lines; hover a bar to pop a tooltip with the message content.
-- **Click to jump** — smooth-scrolls the chat to that message and centers it.
+- **Short horizontal lines** — one bar per user message, positioned proportionally by the message's real scroll position in the conversation (a mini-map). Bars ease wider/blue on hover or selection.
+- **MiMo-style card** — hover (or click-pin ~2.2s) shows an elevated card **centered in the visible conversation viewport** (horizontal + ~46% height; clamped below the header — never parked at the top chrome, never glued to bar y): cleaned user-title, assistant first non-Think blurb, tool chips. Jump scrolls the **user message node** to mid-viewport (`scrollBy` on `[data-conversation-scroll]`) then flashes it.
+- **Click to jump** — smooth-scrolls the chat to that message and centers it (`block:center`).
 - **Selected highlighting** — the clicked bar stays blue; all other bars turn white (faded) for at-a-glance orientation.
 - **Live updates** — new messages add bars automatically via MutationObserver.
 - **Session switching** — bars re-enumerate for the current session; selection resets on switch.
@@ -36,7 +36,7 @@ No build step. The client bundle is hand-written in the lazy-CJS bundle protocol
 
 - `shell.overlay` (list, root scope) — the rail container
 - `conversation.input.dock` (list, session scope) — the busy-queue hint banner above the composer card
-- Position: measured from the center column (`div[class*="centerCol"]`) via ResizeObserver
+- Position: measured from the conversation column (`centerCol` compat → Desktop `dshDesktopConversationSurface` → `[data-conversation-scroll]` ancestors) via ResizeObserver + short retry until the pane mounts
 - Bars read from DOM: `[data-chat-flow-kind="user"]` rows inside the chat scroll container
 
 ## Credits

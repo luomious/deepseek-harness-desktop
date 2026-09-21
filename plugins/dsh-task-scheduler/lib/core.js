@@ -9,11 +9,13 @@
  *   5. 覆盖防护：acquire 带 baseChange 基线校验，期间有新变更 → stale 警告；
  *   6. 合作式抢占：高优先级只标记 preempt-requested，不硬删活锁；
  *   7. 每种资源一个锁文件（lock-<sha1>.json），锁目录防膨胀有上限。
+ *   8. 归档有上限：变更时间线的裁剪归档恒定 ≤ KEEP_ARCHIVES 份（默认 5），不随运行时间增长。
  *
  * 存储布局（默认 ~/.dsh/.task-scheduler/，可用 DSH_TASK_SCHEDULER_STORE 覆盖测试）：
  *   locks/           锁文件目录
  *   changes.jsonl    变更时间线（追加写）
- *   changes.jsonl.old-<ts>  裁剪归档
+ *   changes.jsonl.old-<ts>  裁剪归档（只保留最近 KEEP_ARCHIVES 份，见 pruneOldArchives）
+ *   changes.jsonl.archive-deep-<date>.jsonl  深历史抢救件（人工放置；不匹配 old-<数字> ⇒ 永不被自动清理）
  */
 import { createHash, randomBytes } from 'node:crypto'
 import {
@@ -35,6 +37,37 @@ export function getStoreDir() { return storeDir() }
 const MAX_LOCKS = 512
 const MAX_CHANGES = 2000
 const DEFAULT_TTL_MS = 60 * 60 * 1000
+
+/* dsh patch task-scheduler retention v1 (2026-09-17)
+ * 轮转归档保留策略。此前 pruneChanges() 只把超限的 changes.jsonl 改名归档、从不清理旧归档，
+ * 实测 5 天堆积 238 份 / 216.8 MB（每份 ~2000 行滚动窗口，互相高度重叠 ⇒ 最新若干份即等价
+ * 近端覆盖，深历史需另行抢救为 archive-deep-*）。现给归档加上限，使份数恒定。
+ * 份数覆盖：DSH_TASK_SCHEDULER_KEEP_ARCHIVES（0 = 不保留任何归档）。
+ * 安全边界：只删除严格匹配 ^changes.jsonl\.old-<数字>$ 的文件；其它名字（含人工抢救件）永不触碰。
+ * fail-soft：整体 try/catch 包裹并只返回计数 —— 归档清理失败绝不影响加锁/释放主链路。 */
+const DEFAULT_KEEP_ARCHIVES = 5
+const OLD_ARCHIVE_PREFIX = 'changes.jsonl.old-'
+const OLD_ARCHIVE_RE = /^changes\.jsonl\.old-\d+$/
+function keepArchives() {
+  const raw = process.env.DSH_TASK_SCHEDULER_KEEP_ARCHIVES
+  if (raw === undefined || raw === '') return DEFAULT_KEEP_ARCHIVES
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_KEEP_ARCHIVES
+}
+/** 清理超额轮转归档，保留最近 keepArchives() 份；返回删除份数（fail-soft，永不抛）。 */
+function pruneOldArchives() {
+  let removed = 0
+  try {
+    const keepN = keepArchives()
+    const olds = readdirSync(storeDir())
+      .filter((f) => OLD_ARCHIVE_RE.test(f))
+      .sort((a, b) => Number(a.slice(OLD_ARCHIVE_PREFIX.length)) - Number(b.slice(OLD_ARCHIVE_PREFIX.length)))
+    for (const f of olds.slice(0, Math.max(0, olds.length - keepN))) {
+      try { unlinkSync(join(storeDir(), f)); removed++ } catch {}
+    }
+  } catch {}
+  return removed
+}
 
 // SELF-1 (2026-09-07): module-level observability state — appendChange/readChanges
 // failures are fail-soft by design (audit trail loss must not break lock ops), but
@@ -202,14 +235,15 @@ function readChanges(limit = 200) {
 }
 function pruneChanges() {
   try {
-    if (!existsSync(changesFile())) return
+    if (!existsSync(changesFile())) return pruneOldArchives()
     const lines = readFileSync(changesFile(), 'utf8').split(/\r?\n/).filter(Boolean)
-    if (lines.length <= MAX_CHANGES) return
+    if (lines.length <= MAX_CHANGES) return pruneOldArchives()
     const keep = lines.slice(-MAX_CHANGES)
     const oldFile = `${changesFile()}.old-${now()}`
-    try { renameSync(changesFile(), oldFile) } catch { return }
+    try { renameSync(changesFile(), oldFile) } catch { return pruneOldArchives() }
     writeFileSync(changesFile(), keep.join('\n') + '\n', 'utf8')
-  } catch {}
+    return pruneOldArchives() // dsh patch task-scheduler retention v1
+  } catch { return 0 }
 }
 
 /* ── 基线校验：baseChange 之后该资源是否又被 release 过（代表文件被改过） ── */
@@ -445,7 +479,10 @@ export function clear(opts = {}) {
   return { ok: cleared.length > 0 || refused.length === 0, cleared, refused }
 }
 
-export function prune() { pruneChanges(); return { ok: true, store: storeDir() } }
+export function prune() {
+  const removedArchives = pruneChanges() // dsh patch task-scheduler retention v1
+  return { ok: true, store: storeDir(), removedArchives: removedArchives ?? 0 }
+}
 
 export function checkUnsupervised(opts = {}) {
   const alerts = []

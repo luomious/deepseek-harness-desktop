@@ -23,6 +23,11 @@
 // from the row element, not the turn anchor), and let the browser skip the
 // layout/paint of offscreen chat rows (`content-visibility: auto`).
 //
+//   4. dsh-model-picker-group : a permanent 800ms timer ran a WHOLE-DOCUMENT
+//      attribute-substring querySelector (button[aria-label*="选择模型"]) on every
+//      tick, forever, to keep one aria-label in sync. Found by the 2026-09-17
+//      whole-bundle sweep; it is the only remaining ungated periodic DOM scan.
+//
 // Run: node scripts/apply-typing-lag-fixes.mjs [--dry-run]
 // Re-runnable: markers make it a no-op once applied; anchors that no longer
 // match (upstream bundle change) fail loudly instead of writing garbage.
@@ -38,6 +43,7 @@ const BACKUP_DIR = join(ROOT, '_backups', `typing-lag-fixes-${STAMP}`);
 const MARK_DIAGRAM = 'dsh typing-lag fix 2026-09-16 (diagram scan)';
 const MARK_ROWTEXT = 'dsh typing-lag fix 2026-09-16 (row text cache)';
 const MARK_CV = 'dsh typing-lag fix 2026-09-16 (row render skip)';
+const MARK_ARIA = 'dsh typing-lag fix 2026-09-17 (aria poll cache)';
 
 const PATCHES = [
   {
@@ -140,6 +146,41 @@ const PATCHES = [
           '}',
           '`;',
         ].join('\n'),
+      },
+    ],
+  },
+  {
+    id: 'model-picker-group: cache the model button instead of a whole-document scan',
+    rel: 'plugins/dsh-model-picker-group/lib/client.js',
+    marker: MARK_ARIA,
+    edits: [
+      {
+        find: [
+          '    function patchModelAriaLabel() {',
+          '      try {',
+          '        var btn = document.querySelector(\'button[aria-label*="选择模型"], button[aria-label*="Select model"]\')',
+          '        if (!btn) return',
+        ].join('\n'),
+        replace: [
+          `    // ${MARK_ARIA}: this 800ms timer used to run a whole-document`,
+          '    // attribute-substring querySelector on EVERY tick, forever, just to keep one',
+          '    // aria-label in sync. Cache the button and re-scan only when it is missing or',
+          '    // has been detached, so the steady state is one isConnected read per tick.',
+          '    var __mpgModelBtn = null',
+          '    function patchModelAriaLabel() {',
+          '      try {',
+          '        var btn = __mpgModelBtn',
+          '        if (btn && !btn.isConnected) btn = __mpgModelBtn = null',
+          '        if (!btn) {',
+          '          btn = document.querySelector(\'button[aria-label*="选择模型"], button[aria-label*="Select model"]\')',
+          '          __mpgModelBtn = btn || null',
+          '        }',
+          '        if (!btn) return',
+        ].join('\n'),
+      },
+      {
+        find: '      } catch (e) { /* 诊断失败不影响 */ }',
+        replace: '      } catch (e) { /* 诊断失败不影响 */ __mpgModelBtn = null }',
       },
     ],
   },

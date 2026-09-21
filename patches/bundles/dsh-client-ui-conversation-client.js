@@ -5536,31 +5536,45 @@ window.__ModuleLoader__.load({
 		}
 		/** Select a visible stable node/call identity, falling back only when layout
 		* has not exposed a visible box yet. */
+		/* dsh-scroll-fix-2026-09-17 (seat cache): the composer-seat lookup ran a subtree querySelector on every scroll frame;
+		   cache the node and re-resolve only when it leaves the DOM. */
+		const __dshComposerSeatCache = /* @__PURE__ */ new WeakMap();
+		function __dshComposerSeat(scrollport) {
+			const cached = __dshComposerSeatCache.get(scrollport);
+			if (cached !== void 0 && cached.isConnected) return cached;
+			const found = scrollport.querySelector("[data-composer-seat]");
+			if (found !== null) __dshComposerSeatCache.set(scrollport, found);
+			return found;
+		}
 		function pagingAnchor(list, scrollport) {
 			const viewport = scrollport.getBoundingClientRect();
-			const visibleBottom = scrollport.querySelector("[data-composer-seat]")?.getBoundingClientRect().top ?? viewport.bottom;
+			const visibleBottom = __dshComposerSeat(scrollport)?.getBoundingClientRect().top ?? viewport.bottom;
 			if (typeof document.elementsFromPoint === "function" && visibleBottom > viewport.top) {
 				const content = list.getBoundingClientRect();
 				const left = Math.max(viewport.left, content.left);
 				const right = Math.min(viewport.right, content.right);
 				const x = left + Math.max(0, right - left) / 2;
 				const height = visibleBottom - viewport.top;
-				const points = [
-					1,
-					Math.min(32, height / 3),
-					height / 2,
-					Math.max(1, height - 1)
-				];
-				for (const offset of points) for (const element of document.elementsFromPoint(x, viewport.top + offset)) {
+				/* dsh-scroll-fix-2026-09-17 (single hit point): four hit tests per scroll frame -> one (viewport.top + 1), as upstream
+				   ui-chat 0.1.3 does. A miss is now cheap because the fallback is O(log n). */
+				for (const element of document.elementsFromPoint(x, viewport.top + 1)) {
 					const row = element instanceof HTMLElement ? element.closest("[data-chat-anchor-key]") : null;
 					if (row !== null && list.contains(row)) return row;
 				}
 			}
-			const rows = [...list.querySelectorAll("[data-chat-anchor-key]")];
-			return rows.filter((row) => {
-				const rect = row.getBoundingClientRect();
-				return rect.bottom > viewport.top && rect.top < visibleBottom;
-			})[0] ?? rows[0] ?? null;
+			/* dsh-scroll-fix-2026-09-17 (binary anchor): the old fallback read a rect for EVERY anchor row (O(n) forced layout
+			   on each scroll frame). Binary-search the first row whose bottom sits below the
+			   viewport top instead (O(log n)) - the same strategy upstream ui-chat 0.1.3 uses. */
+			const rows = list.querySelectorAll("[data-chat-anchor-key]");
+			let low = 0;
+			let high = rows.length;
+			while (low < high) {
+				const middle = low + high >>> 1;
+				if (rows.item(middle).getBoundingClientRect().bottom > viewport.top) high = middle;
+				else low = middle + 1;
+			}
+			const binaryRow = rows[low];
+			return binaryRow !== void 0 && binaryRow.getBoundingClientRect().top < visibleBottom ? binaryRow : rows[0] ?? null;
 		}
 		/** Capture a reflow-resistant reader position from the current rendered window. */
 		function scrollPosition(list, scrollport) {
@@ -9350,7 +9364,7 @@ window.__ModuleLoader__.load({
 		var accessibility_module_css_default = { "visuallyHidden": "hXDBwq_visuallyHidden" };
 		//#endregion
 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/ReasoningRow.module.css.mjs
-		const css$3 = ".QWLzlG_root{flex-direction:column;display:flex}.QWLzlG_row{position:relative;overflow:hidden}.QWLzlG_root[data-state=running] .QWLzlG_row:after{content:\"\";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite QWLzlG_dsh-reasoning-row-sweep;position:absolute;left:0}@keyframes QWLzlG_dsh-reasoning-row-sweep{0%{left:-300px}90%,to{left:100%}}.QWLzlG_leading{flex-shrink:0}.QWLzlG_chevron{color:var(--dsw-alias-label-secondary)}.QWLzlG_title{font-weight:400}.QWLzlG_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.QWLzlG_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.QWLzlG_summary[data-follow-end]{text-overflow:clip}.QWLzlG_thinkBody{color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-word;padding:4px 0 4px 22px;font-size:14px;line-height:24px}@media (prefers-reduced-motion:reduce){.QWLzlG_root[data-state=running] .QWLzlG_row:after{animation:none}}";
+		const css$3 = ".QWLzlG_root{flex-direction:column;display:flex}.QWLzlG_row{position:relative;overflow:hidden}.QWLzlG_root[data-state=running] .QWLzlG_row:after{content:\"\";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:100%;background-size:300px 100%;background-repeat:no-repeat;background-position:left center;animation:2.6s ease-out infinite QWLzlG_dsh-reasoning-row-sweep;position:absolute;left:0}/* dsh-sweep-fix-2026-09-17 compositor-transform */@keyframes QWLzlG_dsh-reasoning-row-sweep{0%{transform:translateX(-300px)}90%,to{transform:translateX(100%)}}.QWLzlG_leading{flex-shrink:0}.QWLzlG_chevron{color:var(--dsw-alias-label-secondary)}.QWLzlG_title{font-weight:400}.QWLzlG_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.QWLzlG_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.QWLzlG_summary[data-follow-end]{text-overflow:clip}.QWLzlG_thinkBody{color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-word;padding:4px 0 4px 22px;font-size:14px;line-height:24px}@media (prefers-reduced-motion:reduce){.QWLzlG_root[data-state=running] .QWLzlG_row:after{animation:none}}";
 		const tagId$3 = "@deepseek-ai/dsh-client-ui-conversation/ReasoningRow.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$3) + "]") === null) {
 			const tag = document.createElement("style");
@@ -9556,7 +9570,7 @@ window.__ModuleLoader__.load({
 		});
 		//#endregion
 		//#region \0dsh-css:/home/runner/work/deepseek-harness/deepseek-harness/packages/client/ui-conversation/src/client/chat/GenericCommandCard.module.css.mjs
-		const css$1 = "._Xvjua_root{flex-direction:column;display:flex}._Xvjua_row{position:relative;overflow:hidden}._Xvjua_root[data-state=running] ._Xvjua_row:after{content:\"\";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite _Xvjua_dsh-command-row-sweep;position:absolute;left:0}@keyframes _Xvjua_dsh-command-row-sweep{0%{left:-300px}90%,to{left:100%}}._Xvjua_leading{flex-shrink:0}._Xvjua_chevron{color:var(--dsw-alias-label-secondary)}._Xvjua_title{font-weight:400}._Xvjua_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}._Xvjua_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}._Xvjua_summary[data-error],._Xvjua_body[data-error]{color:var(--dsw-alias-state-error-primary)}._Xvjua_body{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-markdown-code-block);max-height:260px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;border-radius:12px;margin:4px 0 4px 4px;padding:12px 16px;overflow:auto}@media (prefers-reduced-motion:reduce){._Xvjua_root[data-state=running] ._Xvjua_row:after{animation:none}}";
+		const css$1 = "._Xvjua_root{flex-direction:column;display:flex}._Xvjua_row{position:relative;overflow:hidden}._Xvjua_root[data-state=running] ._Xvjua_row:after{content:\"\";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:100%;background-size:300px 100%;background-repeat:no-repeat;background-position:left center;animation:2.6s ease-out infinite _Xvjua_dsh-command-row-sweep;position:absolute;left:0}/* dsh-sweep-fix-2026-09-17 compositor-transform */@keyframes _Xvjua_dsh-command-row-sweep{0%{transform:translateX(-300px)}90%,to{transform:translateX(100%)}}._Xvjua_leading{flex-shrink:0}._Xvjua_chevron{color:var(--dsw-alias-label-secondary)}._Xvjua_title{font-weight:400}._Xvjua_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}._Xvjua_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}._Xvjua_summary[data-error],._Xvjua_body[data-error]{color:var(--dsw-alias-state-error-primary)}._Xvjua_body{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-markdown-code-block);max-height:260px;color:var(--dsw-alias-label-primary);font:var(--dsw-font-markdown-code-block-small);white-space:pre-wrap;border-radius:12px;margin:4px 0 4px 4px;padding:12px 16px;overflow:auto}@media (prefers-reduced-motion:reduce){._Xvjua_root[data-state=running] ._Xvjua_row:after{animation:none}}";
 		const tagId$1 = "@deepseek-ai/dsh-client-ui-conversation/GenericCommandCard.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
