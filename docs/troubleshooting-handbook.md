@@ -25,6 +25,8 @@
 | 插件市场（community-market）加载慢/可安装一直转圈/图标卡住 | §18 |
 | 启动报 `invalid settings document` / settings.yaml 被写坏 | §19 |
 | 后台旧实例滞留（8787 被旧网关占用 / crashpad 僵尸） | §20 |
+| 打字卡顿 / 输入延迟（含「打字慢半拍显示」） | §21 |
+| 上下滑动对话内容卡顿（滚动掉帧） | §22 |
 | 安全类问题（误删/任意文件读/命令注入） | §12 |
 | 重打包 exe 后功能再次消失（补丁丢失） | §13 |
 | 皮肤（maid-atelier）不生效 | §14 |
@@ -177,7 +179,8 @@
 | `scripts/verify-features.ps1` | 功能终核 26 项 | — |
 | `scripts/gpu-mode.mjs` | GPU 模式查看 / 一键回滚（`--status` / `--software` / `--hardware`） | — |
 | `scripts/apply-typing-lag-fixes.mjs` | 打字卡顿客户端 3 处修复重打（marker 幂等） | ✅ |
-| `scripts/verify-patches.ps1` | 补丁 + 打字卡顿/GPU 策略 marker 校验（56 项） | — |
+| `scripts/verify-patches.ps1` | 补丁 + 打字卡顿/GPU 策略/滚动锚点 marker 校验（**64 项**） | — |
+| `scripts/apply-scroll-anchor-fixes.mjs` | 滚动锚点三处降本重打（canon→dev+pkg，`--check` 预演，marker 幂等） | ✅ |
 | `scripts/apply-settings-resilience.mjs` | settings.yaml 反腐化补丁重打（startup 容错 + market catalogCache 隔离） | ✅ |
 | `scripts/verify-core.mjs` | remote-workspace 核心逻辑 15 项 | — |
 
@@ -255,27 +258,50 @@
 - **预防**：机制常驻自动处理；若重启后网关无 `child exited` 记录（plugin-spawn.log）即接管成功；旧实例残留=0 属预期。
 - **参考**：CHANGELOG 2026-09-03 后台旧实例自动清理机制。
 
-## 21. 打字卡顿 / 输入延迟（GPU 被强制关闭 × 客户端全量 DOM 扫描）
+## 21. 打字卡顿 / 输入延迟（三层：GPU 被强制关闭 × 客户端全量 DOM 扫描 × 输入框覆盖层）
 
 - **症状**：在对话框打字有明显卡顿/延迟，回合**流式输出期间**尤甚；空闲时也有轻微滞后。用户 2026-09-16 报告。
 - **根因（实测 + 读运行中代码，非推断）**：
   1. **渲染被三重降级**：快捷方式 `DSH Desktop.lnk` 带 `--disable-gpu`，`apply-gpu-opaque-patches` #1/#5/#6 又加 `disableHardwareAcceleration()` + `--in-process-gpu` + `--disable-gpu-compositing` + 关掉遮挡/后台节流 ⇒ **每帧纯 CPU 光栅、合成器在主进程、不节流**。历史原因：本机显示适配器含 **GameViewer / spacedesk 虚拟适配器**，2026-09-07 曾因 GPU 子进程崩溃循环出「鬼影透明窗」。
   2. **客户端插件在每次 DOM 变动/击键做全量扫描**：`dsh-diagram-renderer`（观察 `document.body` 子树 → 全文档 `querySelectorAll('[data-tool]')`）、`dsh-session-history`（80ms 去抖读**外层回合** `textContent` + 全串空白正则）、`better-sidebar`（`#root` 子树观察 + 1.5s `locate()` 全文档 query）。
+  3. **输入框覆盖层（2026-09-17 补——用户「慢半拍显示」的主因）**：内核把输入框 textarea 渲染成**全透明**（`@deepseek-ai/dsh-client-ui-conversation/lib/client.js:3463`：`.uV2eYG_input{color:#0000;-webkit-text-fill-color:transparent}`，只留 `caret-color`），你看到的字符由 React 拼的覆盖层 `div[data-input-backdrop]`（`:4024-4030`）绘制 ⇒ 每个字符的上屏时机 = `input` → 输入状态机 → store `publish()`（`:1454-1462`）→ **React 提交 → 布局 → 覆盖层绘制**；主线程任何占用都把这一个字往后推。中文 IME 组字串同样被透明掉（placeholder 有自带 `-webkit-text-fill-color` 所以仍可见，反证该属性作用范围）。加剧项：`ConversationRoot:7161` / `ConversationSession:7406` 均 `useInput((s) => s)` 订阅**整个输入态**但 **2026-09-17 更正：这一层远比原先写的轻** —— 每行 `ChatNodeSeat` **已 `react.memo` + 按单节点订阅**（`:5480-5481`）⇒ **不是**「整树重算」（原「全库 `React.memo(` 命中 0」系我 grep 的 **假阴性**，真实文本为 `react.memo)(`）；真实代价仅「ChatView 重跑 `order.map` + 每行 props 浅比较（无 DOM 工作）」；`dsh-client-connection/lib/client.js:10149` 每条 WS 消息同步 `JSON.parse` + Zod 全量校验（实测单次 48–61ms 长任务）。**上游 0.1.3-alpha.2 已把 textarea 改成 contenteditable（bundle 内 `jsx("textarea")`=0）——官方已删掉这个覆盖层结构。**
+
+## 22. 上下滑动对话内容卡顿（滚动锚点每帧强制布局 × sticky 重绘 × 无虚拟化）
+
+- **症状**：滚动消息列表掉帧、发涩（用户 2026-09-17 报告，与打字卡顿同会话）。
+- **根因（三层，实测为静态读码 + 官方同源对照）**：
+  1. **A 层（主因）**：`@deepseek-ai/dsh-client-ui-conversation/lib/client.js:5744-5767` 的 `onScroll`（`:5776` 挂载，passive）在**不在底部**（`:5752` 到底早退）时**每滚动帧**执行锚点计算 `scrollPosition():5566` → `pagingAnchor():5539-5564`：`getBoundingClientRect()`×2–3、**每帧** `querySelector("[data-composer-seat]")` 子树扫描（`:5541`）、**≤4 次 `document.elementsFromPoint()`**（`:5542-5557`）、命中失败回退 `[...querySelectorAll("[data-chat-anchor-key]")]` 并对**每一行**读 `getBoundingClientRect()`（`:5559-5563`）= **O(行数) 强制同步布局**。放大器：composer `onWheel` **non-passive**（`:3688`），指针在输入框上滚到边界时写 `host.scrollTop += deltaY`（`:3686`）→ 再触发一次。
+  2. **B 层（绘制/合成）**：滚动口内两个常驻 sticky 层每帧重定位 + 其下渐变/阴影圆角卡重绘（`:7120` `.wSkVaW_composerSeat{z-index:7;渐变}`、`:5452` `.Md3f7G_toBottomSlot{z-index:8}`、`:3463` 卡片 `box-shadow`+`border-radius:22px`）；**全库几乎无合成/包含提示**（`will-change` 仅 `better-sidebar:2449` 且只在拖动时、`translateZ(0)` **0 处**）；**9 处「每帧重绘」型 infinite 动画**（`left` 扫光 ×5：`conversation:9353/9559`、`tool:627/1128`、`skill:11`；`background-clip:text` 微光 ×3：`conversation:4254/5452`、`better-sidebar:8357`；`box-shadow` ×1：`vision-engine:179/183`，多在流式门控内）。
+  3. **C 层（天花板）**：主列表**无虚拟化**（`:5851` `order.map(ChatNodeSeat)`）；窗口「最近 **50** 条消息」起步、每次「加载更早」**+50**（`dsh-client-runtime:7585`/`7391`）⇒ 成本随已加载行数线性增长（`trajectory` 视图反而有虚拟化：`:4349/4354/4374`）。另有本机自创的 Rule 9（`content-visibility:auto` + `contain-intrinsic-size:auto 240px`，官方无此机制）可能加剧快滚抖动。
+- **官方同源对照（定位加速器）**：0.1.3 把聊天渲染搬到**新包** `@deepseek-ai/dsh-client-ui-chat`（`ui-conversation` 里数出 0 是「代码搬走」而非「删除」——**这里曾误判过一次**），**没上虚拟化**，却在同一算法上做了三处降本：单点命中（`ui-chat:1956`）、**二分查找**（`:1962-1968`）、被动滚动 + 500ms 合并 + `scrollend` 结算（`:1905/:2348-2360`）。
+- **修复（两层，均刷新生效、免重启）**：
+  1. **S1 · Rule 11（纯 CSS）**：`plugins/dsh-ui-performance/lib/client.js` 加 `[data-conversation-scroll]{contain:paint}` + `[data-composer-seat]{contain:layout}`（**故意不给 seat `contain:paint`**：slot 子节点可能有下拉层会被裁切）。
+  2. **S2′ · 内核 dist 三处降本**：`node scripts/apply-scroll-anchor-fixes.mjs`（幂等/原子/备份/`--check`/锚点漂移 fail-loud）—— ① 逐行 rect → **二分 O(log n)**；② 命中点 **4→1**；③ seat 查询 → **WeakMap 缓存 + `isConnected`**。**权威源 `patches/bundles/dsh-client-ui-conversation-client.js`（canon）**，打补丁后回灌 dev + packaged 两处 ⇒ `port-user-patches.mjs` 不会冲掉。
+- **验证**：`--check` 预检 DRIFT 0/0/0（exit 1）→ 施加 `3/3` + 回灌 + `ALL OK` → 幂等二次运行 → **服务端实取 200 且含 3 marker、旧代码 0 命中** → 门禁 **ALL PASS (64 checks)** → **故障注入**：还原 canon 后门禁**恰好 1 条** FAIL（canon 那条）⇒ 归因唯一。
+- **一键回滚**：`_backups/scroll-anchor-fixes-*/`（canon/dev/pkg 三份 `.before`）覆盖回 dev+pkg → 刷新；Rule 11 删块 → 刷新。
+- **排查命令**：
+  ```powershell
+  node scripts/apply-scroll-anchor-fixes.mjs --check     # 补丁是否在位（3 处）
+  node scripts/probe-dsh-cpu.mjs 15 1000      # 零注入 CPU 采样（滚动期间跑才有意义）
+  powershell -NoProfile -File scripts\verify-patches.ps1 # 应 ALL PASS (64 checks)
+  ```
+- **预防**：滚动类问题先看「每事件/每帧的强制同步布局」与「sticky + 无包含提示」这两类；**不要**只改 CSS——JS 层不收敛，滚动卡顿会留残留（本次三路审计结论一致）。
 - **量化证据（先量再改，不要先怀疑 React）**：空闲 main ~32% / renderer ~9%；**流式期间 main 100–170% / renderer 60–108%（≈1 核被渲染占满）= 打字排队的那一段**（样本 `_backups/cpu-idle-baseline-20260916-223547.log`）。修复后：流式 renderer 30–47%（第一步）→ **19–27%**（第二步开硬件加速后）；`keydown/input` 的 inputDelay **p50 = 0ms、p95 ≤ 13ms**，loopLag p95 6ms，帧率 178–180fps。
-- **修复（两层，均已入补丁体系 + 门禁）**：
+- **修复（三层，均已入补丁体系 + 门禁）**：
   1. **客户端层（刷新页面即生效）**：`node scripts/apply-typing-lag-fixes.mjs`（幂等 / 原子写 / 先备份 / marker 判定 / 锚点漂移即 fail-loud）——diagram 重扫收窄到 `[data-conversation-scroll]` 且只对「新增子树真含 `[data-tool]`」排程；session-history 增加行文本缓存 `rowText`（改读行元素、正则前先 `slice(0,400)`）；ui-performance 新增规则九 `[data-chat-anchor-key] { content-visibility:auto; contain-intrinsic-size:auto 240px }`。
   2. **渲染路径（需重启）**：`node scripts/apply-gpu-opaque-patches.mjs`（patch #7）——默认开硬件加速 + `--force_high_performance_gpu`，**窗口保持不透明** `#202124`（不透明后即使 GPU 失效也只回退软件渲染，不会再透视）。
-  - **门禁（防插件重装/重建后静默丢失）**：`scripts/verify-patches.ps1` 的 3 条 `typing-lag: *`（分别对应 `plugins/{dsh-diagram-renderer,dsh-session-history,dsh-ui-performance}/lib/client.js` 的 marker `dsh typing-lag fix 2026-09-16 (...)`）+ `gpu policy: hw accel default (lib/main)`（marker `dsh-gpu-policy-2026-09-16`）；失败提示直接给出重打命令。
-- **一键回滚**：渲染层 `node scripts/gpu-mode.mjs --software` → 重启（回到软件渲染；不会再出鬼影，因为窗口不透明）；客户端层删掉 3 处 marker 或重装插件后重跑 `apply-typing-lag-fixes.mjs`。
+  3. **输入框原生绘制（2026-09-17，刷新页面即生效，免重启）**：`plugins/dsh-ui-performance/lib/client.js` 新增 **Rule 10**（marker `dsh typing-lag fix 2026-09-17 (native composer text)`）——① `[data-input-scroll] textarea[data-phase]:not(:disabled)` 把文字交回 **textarea 原生绘制**（不再等 React 提交）+ ② `[data-input-backdrop]{z-index:2;color:transparent}` 让装饰层只负责装饰并置顶。门禁 marker 误删时从 `_backups/typing-lag-native-text-*/client.js.before` 还原。
+  - **门禁（防插件重装/重建后静默丢失）**：`scripts/verify-patches.ps1` 的 6 条 `typing-lag: *`（2026-09-16 三条分别对应 `plugins/{dsh-diagram-renderer,dsh-session-history,dsh-ui-performance}/lib/client.js` 的 marker `dsh typing-lag fix 2026-09-16 (...)`； 2026-09-17 再增 `aria poll cache` 与 `native composer text` ×2）+ `gpu policy: hw accel default (lib/main)`（marker `dsh-gpu-policy-2026-09-16`）；失败提示直接给出重打命令。
+- **一键回滚**：渲染层 `node scripts/gpu-mode.mjs --software` → 重启（回到软件渲染；不会再出鬼影，因为窗口不透明）；客户端层删掉 3 处 marker 或重装插件后重跑 `apply-typing-lag-fixes.mjs`；输入框层（Rule 10）用 `_backups/typing-lag-native-text-*/client.js.before` 覆盖回插件（或删掉该块）→ 刷新页面。
 - **排查命令**：
   ```powershell
   node scripts/gpu-mode.mjs --status                    # hardware / software
   # 逐进程 CPU 采样（判断吃满的是 main 还是 renderer；流式期间采样才有意义）
   Get-Counter '\Process(DSH Desktop*)\% Processor Time' -SampleInterval 1 -MaxSamples 5
-  # 门禁：3 条 typing-lag + GPU 策略 marker（应 ALL PASS 56 checks）
+  # 门禁：6 条 typing-lag + GPU 策略 marker（应 ALL PASS 59 checks）
   powershell -NoProfile -File scripts\verify-patches.ps1
   # 进程归属（哪个 pid 监听 43120 = 内核 main）
   Get-NetTCPConnection -LocalPort 43120 -State Listen | Select-Object OwningProcess
   ```
 - **预防**：性能类问题先量「**renderer 单核占用**（空闲 vs 流式两段对比）+ 主线程 longtask」，再查启动参数与客户端扫描；`--disable-gpu` 这类「为稳定牺牲性能」的旧权衡会在数月后以「打字卡」的形式回来要账。
-- **参考**：CHANGELOG 2026-09-16 三节（根因定位 / 根治第二步 / 纳入门禁）；产出 `outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/`。
+- **参考**：CHANGELOG 2026-09-16 三节（根因定位 / 根治第二步 / 纳入门禁）+ 2026-09-17 两节（收口 / 输入框原生绘制 Rule 10）；产出 `outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/` 与 `outputs/2026-09-17-report-typing-lag-native-text/`。

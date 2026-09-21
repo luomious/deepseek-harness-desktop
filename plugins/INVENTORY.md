@@ -68,7 +68,7 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `dsh-remote-workspace` | patch-insert | core | ⚠️ | SSH/WSL/Docker 远程工作区连接 |
 | `dsh-routing-suite` | bundle | core | ✅ | 路由套件（含 super-injector，file: tgz 装配，在 bundles 数组） |
 | `dsh-self-maintenance` | bundle | core | ⚠️ | 应用内智能自检守护（取代计划任务）：每小时磁盘剩余（<5GB warn / <2GB error）+ 会话体积聚合判断，健康静默、异常 24h 去重通知，`/self-maintenance/status` 心跳；只观测绝不删文件；零依赖、`inject:['timer']` 惰性解析（2026-08-26 上线） |
-| `dsh-session-history` | bundle | core | ⚠️ | Web-chat 风格会话历史弹窗 |
+| `dsh-session-history` | bundle | core | ⚠️ | 对话左侧消息 mini-map：点击跳转到对应用户消息；悬停弹出 MiMo 式富卡片（粗体用户消息标题），点击后短时钉住预览 |
 | `dsh-session-hygiene` | bundle | core | ⚠️ | 会话文件大小卫生监控：每小时 stat 扫描 `~/.dsh/sessions/`，>4MB 提醒 / >8MB 强烈告警（Electron 通知 + 对话注入），`/session-hygiene/report` 报表（148 会话 38ms），闲置 24h 超阈值标建议归档（不自动归档，内核无归档 API）；零依赖、自调度退避、bundle 装配（2026-08-25 上线；`dev_inject_plugin` 运行时注入在当前 DSH 构建不可用，见 CHANGELOG） |
 | `dsh-session-watchdog` | patch-insert | core | ✅ | 会话续跑看门狗（定时检测中断/停滞的会话与目标，自动恢复续跑） |
 | `dsh-skills-manager` | bundle | core | ⚠️ | Skills 管理器（设置页，系统/用户技能分类展示、编辑、新建） |

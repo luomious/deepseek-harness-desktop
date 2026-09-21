@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-09-18T09:10:10.163Z",
+  "settings": "C:\\Users\\机械革命\\.dsh\\settings.yaml",
+  "phase": "concurrent",
+  "results": [
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 336,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"Forbidden\"}}"
+    },
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 281,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"Forbidden\"}}"
+    },
+    {
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 99,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"Forbidden\"}}"
+    }
+  ]
+}

@@ -6,6 +6,354 @@
 
 ---
 
+---
+
+## 2026-09-21 · vision-rotator 掉线找回 + 持久化登记修复 + 轮换链实测
+
+**现象**：消息图片自动读取失败「Every configured vision provider failed（gemini-api 503）」，备用视觉提供商一个都没被尝试。
+
+**根因（两层）**：① Gemini API 服务端间歇过载（503）；② **dsh-vision-rotator 未在运行**——注入清单无此插件、`GET /vision-rotator/status` 404、三个 profile 的 package.json 均无引用（README 宣称的 desktop profile 持久化已丢失）。
+
+**修复**：`dev_inject_plugin` 热注入（免重启）→ status 200、首轮探测 4 备用全 healthy；按 register-plugin 安全模式手动补登记 4 处（runtime/template 的 dependencies+bundles，junction 注入器已建）：原子写 + 5 项断言通过 + 备份 `_backups/plugin-register-vision-rotator-2026-09-21-10-59-48/`。注意：CLI 写 `~/.dsh` 被 workspace-write 沙箱拦（EPERM），task-scheduler 锁与 release 均改走 HTTP 通道。
+
+**轮换链实测（故障注入闭环）**：注入死端口到 openai 槽 → 连续 2 失败自动轮换 → 逐级实测 4 备用：siliconflow **402 余额不足**、dashscope **400 欠费**、groq **✓ 可用**、openrouter 探测 healthy（真实推理未单独复测）；gemini-api 503 间歇恢复（成功读过 1 次）。最终 3 次真实轮换（rotations=3），openai 槽稳定落在 **groq qwen3.6-27b**（走 7897 代理），dead 标记被探测周期自愈。
+
+**新发现**：① modlens 实配 3 槽（gemini-api/openai/claude-cli），claude-cli 提示本机 codex 有视觉能力但 modlens 未授权复用；② probe 只测 `/models` 鉴权接口，测不出推理侧欠费/配额（siliconflow/dashscope 探测绿但推理红）；③ 消息附件自动读图不走 `tools/post-execute` 钩子，rotator 对该路径只能靠 5 分钟探测周期兜底。
+
+**同日 · DSH 文件清理（~618MB，用户批准后执行）**：storages 残留 tmp 96.4MB + C:\Temp 运行时目录 31.9MB + `_tmp` 4 文件 + `_backups` 14 天前 53 目录 482.3MB（清单留档 `_backups/CLEANUP-2026-09-21-MANIFEST.md`）+ 8 月会话 zip 归档后清理 7.9MB（`_backups/sessions-2026-08-archive-20260921.zip`）。复验 `/health` 仅 preflight 遗留红（09-17 起）。执行偏差如实记录：C:\Temp 日期过滤失灵多删当天 7 个无句柄目录（~17MB，无实际损害；后续改「固化清单→按清单删」，详见 `.workbuddy/memory/2026-09-21.md`）。
+
+## 2026-09-20 · 已配置 API 模型全量复测（17 厂商 / 74 模型）+ 2 处配置修复
+
+**目标**：按用户要求把 `~/.dsh/settings.yaml` 的模型全量重测一遍，能修的修好。
+
+**结果**：修复前 r6 **46/75** → 修复后 r7 **47/74**；失败 27 = **23 需要你操作 + 4 上游临时**。
+
+**关键结论（上游在滑动，上轮结论已部分失效）**：
+- `amd/DeepSeek-V4-Flash` 从上轮「503 保留不动」变成 **400 `Unsupported model`**（彻底下线，两次复测同错）；openrouter `deepseek/deepseek-v4-flash-0731:free` 从上轮「可用」变成 **404 已转付费**。⇒ 这类清单**必须周期性重测**，静态记录会骗人。
+- `qiniu/deepseek/deepseek-v4-flash-vision-exp` 在 r6（并发 6）下两次 >60s 超时，**单独串行探测 1466ms OK**；r7 并发降到 4 后 qiniu **8/8 全绿** ⇒ 该超时是**并发排队假失败**，不是模型问题。
+- `zhipu-ai` 付费模型（glm-5.3 / glm-5.3-flash / glm-5.2 / glm-4.5-air）全部 `1113 余额不足或无可用资源包` ⇒ **该账户只有免费模型（glm-4-flash / glm-4.7-flash）可用**，补配 glm-5.x 无意义。
+- `yidong/DeepSeek-V4-Flash` 本轮转为 **`subscription_required`「当前账号没有可用套餐」** ⇒ 上一轮的默认模型厂商已欠费；现默认 `modlens-tokenrhythm01/deepseek-flash` 实测可用（tokenrhythm01 **14/14 全绿**）。
+- `dsh-settings-file` 用 chokidar `watch:true` **热重载** settings.yaml（`@deepseek-ai/dsh-settings-file/lib/index.js:37,179`）⇒ 改配置**免重启**。
+
+**已执行修复（2 处）**：
+
+| 位置 | 改动 | 写入后实测 |
+|---|---|---|
+| amd | 删除 `DeepSeek-V4-Flash`（400 Unsupported model） | 已从 74 个里消失；同厂 `DeepSeek-V4.1-Flash` / `Qwen3.8-Flash-Next` 保留可用 |
+| openrouter | `deepseek/deepseek-v4-flash-0731:free`（404 已转付费）→ `nex-agi/nex-n2.5-pro:free` | **OK 513ms**（r7 全量）+ 713ms（应用端点），2/2 稳定 |
+
+**验证与回滚**：写入前锚点唯一命中（≠1 拒写）；同目录 tmp + rename 原子替换；回读 sha256 `D6D748604D9550FEC22C96CF76CBA6497A3B2C5105A78B87037AE825CB05E6BE` MATCH；`12965B → 12915B`（−50B）。回滚 = `Copy-Item "$env:USERPROFILE\.dsh\settings.yaml.bak-r6-2026-09-20T09-01-35" "$env:USERPROFILE\.dsh\settings.yaml" -Force`；四件套 `_backups/modelfix-r6-20260920090135/`。
+
+**应用侧交叉验证**：`POST /model-whitelist/test`（带同源 `Origin`）实测 `amd/MiniCPM5-2B` OK 369ms、`openrouter/nex-agi/nex-n2.5-pro:free` OK 713ms、`amd/DeepSeek-V4-Flash` 400 Unsupported ⇒ 应用已读到磁盘新配置。
+
+**改不了的（账户侧 23 个）**：opencode-go 4（余额不足）、duoyuanx 5（无 Codex 美元预算）、apinex 7（签到/订阅）、modelscope 3（`insufficient balance`）、justdowork 2（Cloudflare 403）、tokenrouter 1（赠送余额 $0）、yidong 1（无可用套餐）。
+
+**上游临时 4 个**：amd/DeepSeek-V4.1-Flash（并发上限 32）、openrouter/poolside/laguna-xs-2.1:free（上游限流）、apinex ×2（5 次/分）。
+
+**候选实测（上游有、实测可用、本轮未配置，供选择）**：amd `MiniCPM5-2B` 2/2 OK；openrouter `cohere/north-mini-code:free`、`inclusionai/ling-3.0-flash-vl:free`（视觉）2/2 OK；qiniu `deepseek/deepseek-v4.1-flash`、`stepfun/step-3.7-flash`、`minimax/minimax-m2.7`、`qwen/qwen3.8-flash-next` 全 OK。**amd `MinerU2.5-Pro` 是 OCR 模型**（`/v1/ocr`，chat 端点 400）——别加进 models 列表。
+
+**产出**：`outputs/2026-09-18-model-availability-probe/`（新增 `r6/`、`r7/probe-results.json`，重生成 `MODEL-STATUS.md` / `model-status.csv`，新增脚本 `list-upstream.mjs` / `probe-list.mjs` / `apply-model-fixes-r6.mjs`）。
+
+**顺带修正**：`status-report.mjs` 补两条归因规则（`BADMODEL_400` → 配置可修；tokenrouter `gift balance` → 账户侧），日期改为从 `generatedAt` 自动取（不再硬编码）；`probe-list.mjs` 输出文件名加时间戳（修正上一轮 `candidates-probe.json` 被第二次运行覆盖的同类失误）。
+
+## 2026-09-18 · 模型管理面板新增「一键测试全部」按钮
+
+**目标**：在「模型管理」设置面板一键测完**所有厂商×模型**，实时进度 + 逐模型结果。
+
+**改动（纯前端，`plugins/dsh-model-whitelist/lib/client.js`，+57 行）**：
+- 新增 `runAllTests()`：遍历 `displayGroups` 全部 entries，逐个打既有单模型端点 `/model-whitelist/test`，**低并发 3**（避免把 apinex 的 5 次/分、sennsenhaus 的 tpm/rpm 打成假失败）；实时回填 `bulk` state（running/done + 逐模型 {ok, latencyMs, error}）。
+- 工具栏新增「测试全部」按钮（批量运行时显示 `测试全部 N/M…` 并禁用）；完成后显示 `测试全部：K/M 可用`。
+- **结果就近显示（用户反馈后优化）**：厂商行右侧加本组汇总徽标 `✓ K/N`（全绿/有红两色），展开后**每个模型行右侧**直接显示该模型结果 `✓ 1.2s` / `✗ 禁止访问(403)`（过长自动省略，`title` 悬停看全文）；**取消**了原先放在页面最底部的大结果面板（需要滚动才能看到，不方便对照）。
+- 复用既有单模型端点（不改 host），**刷新页面即生效**（服务端按请求读盘，实测已能取到含 `runAllTests` 的新 bundle，`status 200 / 30628B`）。
+**验证**：`node --check` OK；`git diff` 仅此文件（+81/-1）；门禁 `check-all.ps1` **ALL PASS**（`REGISTERED=27 DRIFTED=0`）；`SMOKE TEST: ALL PASS`；服务端实取新 bundle（`modelResult`/`groupSummary` 均在、底部面板文案已消失）。
+**回滚**：`git checkout -- plugins/dsh-model-whitelist/lib/client.js`（git HEAD = 打补丁前的原始版）。
+**注意（沿用已知偏差）**：面板用的仍是「测试连接」的判据（HTTP 200 即算可用；单模型端点硬编码 15s 超时会把慢但可用的模型判失败）——「测试全部」一键完整体检请用报告里的 `probe-models.mjs`（更严：200 且 body 含 choices + 串行复测）。
+## 2026-09-18 · 已配置 API 模型全量可用性测试（17 厂商 / 74→75 模型）+ 配置修复
+
+**目标**：把 `~/.dsh/settings.yaml` 里配的全部模型跑一遍，分出「可用 / 改配置能救 / 只能你去操作 / 上游临时」，能救的直接改好。
+
+**结果**：修复前 **44/74** → 修复后**全量实测 47/75**（r5）。失败 28 个 = 24 需用户操作（账户/额度）+ 4 上游临时。
+
+**关键结论**：
+- 17/17 个厂商的 `GET /models` 全部 **200** ⇒ **所有 API Key 本身有效**；坏的是额度/预算/已下线 slug。
+- **应用自带「测试连接」有假阳性**：只判 HTTP 状态码（`plugins/dsh-model-whitelist/lib/index.js:118`）。本轮用「200 且 body 含 `choices`」严口径，抓到真例：openrouter `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` 返回 **200**、body 却是 NVIDIA `ResourceExhausted` 错误体。
+- **并发探测会自造假失败**：codecraft 6 个首轮全报 CF 5xx，串行复测 **6/6 全 OK**；openrouter/groq 的 `fetch failed` 同理 ⇒ 结论一律以串行复测为准。
+- **默认模型曾因欠费中断会话**（会话日志实证）：`2026-09-18 15:59:09` `turn/end` ⇒ `429 insufficient balance` + `code:"QUOTA"`；当时 `agent-default-model` 指向已欠费的 `modlens-modelscope`。用户随后自行改到 `modlens-tokenrhythm01/deepseek-flash` → `modlens-yidong/DeepSeek-V4-Flash`（均实测可用）。
+
+**已执行修复（3 处，写入后均已复测）**：
+
+| 位置 | 改动 | 写入后实测 |
+|---|---|---|
+| openrouter | `stealth/union-alpha`（该站 445 个模型里没有）→ `deepseek/deepseek-v4-flash-0731:free` | OK 2.9s |
+| amd | 新增 `DeepSeek-V4.1-Flash`（原 `DeepSeek-V4-Flash` 上游 503/TIMEOUT 保留不动） | OK 16.2s |
+| tokenrouter | `z-ai/glm-5.3-free`（站内已无此 slug）→ `z-ai/glm-5.3` | 路由已通，仅卡余额 $0 |
+
+**验证与回滚**：写入前锚点必须唯一命中（≠1 就拒写）；同目录 tmp + rename 原子替换；写入后把 3 处改动反向还原，与备份 **逐字节相同（12866B）**。回滚 = `Copy-Item "$env:USERPROFILE\.dsh\settings.yaml.bak-modelfix-2026-09-18T08-43-28" "$env:USERPROFILE\.dsh\settings.yaml" -Force`；四件套在 `_backups/modelfix-20260918084328/`。
+
+**改不了的（账户/上游，已附上游原话）**：opencode-go 4（余额不足）、duoyuanx 5（无 Codex 预算）、apinex 9（每日签到/订阅）、modelscope 3（账号级 `insufficient balance`）、justdowork 2（Cloudflare 403 + 配置的 slug 在该站不存在）、tokenrouter 1（`credit limit: $0`）；上游临时 5 个（sennsenova×2 / openrouter poolside / zhipu glm-4.7-flash / amd）。
+
+**产出**：`outputs/2026-09-18-model-availability-probe/`（报告 + `MODEL-STATUS.md` + CSV + 6 个可重跑脚本：全量探针 / 权威清单 / 候选验证 / 状态汇总 / 会话日志解码 / 原子写与反向校验）。
+
+**顺带加固（默认模型故障兜底）**：今天正是默认模型欠费把 turn 打断的（`turn/end` code=QUOTA）。已在 `plugins/dsh-model-provider-failover/cordis.patch.yml` 的 fallback 里加一条 `modlens-yidong → modlens-tokenrhythm01`（+`fallbackModel: deepseek-v4-flash-0731`，仅 +2 行、缩进与兄弟行一致、原子写）。**`dev_reload_package` 在本机不可用（`loader.internal 不可用`）**，故同时用 `dev_provider_failover_configure` 运行时桥接 ⇒ 当下已生效（status 实测 **3 条映射**），文件内那份则保证**重启后仍生效**。回滚：`_backups/failover-default-20260918085836/cordis.patch.yml.before`。
+
+**验证**：仓库门禁 `scripts/check-all.ps1` ⇒ **CHECK-ALL: ALL PASS**（smoke test ALL PASS；`REGISTERED=25 DRIFTED=0`）。过程中它先报 1 项红 —— 是我最早一次调试将 `node -e` 导入模块导致 `main()` 空跑、把 `probe-results.json`（126B 空结果）误写到**仓库根目录**；已**移动**（非删除）到本报告目录留存 ⇒ 门禁转绿。
+
+**仍待你决定**：`justdowork` / `tokenrouter` 是否整块删（两家都 100% 不可用：CF 拦截 / 余额 $0；改 slug 也救不了）。
+
+**附：应用自带「测试连接」的两个已知偏差（本轮实测）**：① 只判 HTTP 状态码（`plugins/dsh-model-whitelist/lib/index.js:118`）⇒ 会放过「200 但 body 是错误体」；② 硬编码 **15s** 超时（`TEST_TIMEOUT_MS=15000`）⇒ 会把「能用但慢」的模型误判为失败（实例：`amd/DeepSeek-V4.1-Flash` 实测 16.2s 成功，端点却报「超时(>15s)」）。
+
+**上游会滑动（单次快照的局限，实测佐证）**：修复后连续跑了 3 轮全量（r3/r4/r5），可用数依次 46→44→**47**，但**成分在变**：`amd/DeepSeek-V4-Flash` 由 503 超时**恢复**（r4 9.6s / r5 16.4s OK）；`groq` 3 个模型在 r2/r3 均 OK，**r4 起全变 403 `Forbidden`**（串行重测 3/3 确认，属本轮之后的上游变化）；`openrouter/poolside`、`zhipu glm-4.7-flash`、`sennsenhaus` 则在失败/成功间摆动。⇒ **数字看趋势、不看单次**。
+
+**一次自我纠错（如实记录）**：r4 复测 groq 时错用了与 r4 同一个 `--out` 目录，把 75 模型的 `probe-results.json` **覆盖成了 3 行**，且 `MODEL-STATUS.md` 被按 3 行重生（假数据）。发现后**重跑全量（r5）并重生表格**；`status-report.mjs` 同时修掉了写死的数据源标签。⇒ 教训：**带 `--out` 的探针脚本必须把每次运行指向唯一目录**，不能复用。
+
+**运行时健康面**：`GET /health` = **503**，10 项里仅 `preflight` 红（19 次采样 89% 通过，最近 2 次失败均为 **2026-09-17**）⇒ 属**遗留**状态，非本次改动引入。
+
+---
+
+## 2026-09-17 · session-history：卡片改回 MiMo 左侧 rail 旁浮层（取消对话正中）
+
+**用户并排截图定论**：
+- DSH：小卡「继续」浮在**对话界面中央** → 错
+- MiMo：卡片在 **左侧 mini-map 横条右侧**（列表弹层位），标题/摘要/chips 完整 → 要的是这个
+
+**修正**：
+- `left = conversation.left + 48`（贴 rail 右侧），`transform: translateY(-50%)`，**删除** `translate(-50%,-50%)` 视口水平居中
+- `top` 跟随横条 `ratio`，并 clamp 在可见 `[data-conversation-scroll]` 内（避免贴死顶栏）
+- 卡片体量/chips/Think 过滤/深色实底逻辑保留
+- 点击跳转仍把 **用户消息** 滚到视口居中
+
+**生效**：桌面壳 `Ctrl+Shift+R` 硬刷新
+
+---
+
+## 2026-09-17 · session-history 卡片硬对齐 MiMo（用户实拍仍不满）
+
+**实拍问题**：卡片已出现，但是**小号 toast**、**无 chips**、摘要仍是 `Let me continue...` 规划/推理文，和 MiMo 大卡差一截。
+
+**修正**：
+1. **卡片尺寸**：宽 `320–460`，padding `18/20/16`，圆角 16，强阴影 —— 接近 MiMo 体量
+2. **深色实底**：按 body 亮度检测主题，强制 `#2a2b31`（暗）/ `#ffffff`（亮），不再吃半透明 token
+3. **chips**：改为沿 **chat flow 列表** document-order 扫描（不只 `nextElementSibling`），最大 14 个
+4. **摘要过滤**：`isNoiseBlurb` 拒绝 `Think` / `Let me` / `I need to` / `All verified` 等规划文，避免把推理贴到卡上
+5. **标题**：16px/700，可两行；摘要最多 4 行
+
+**生效**：桌面壳内 **Ctrl+Shift+R 硬刷新**（普通 F5 可能仍吃缓存）
+
+---
+
+## 2026-09-17 · session-history：卡片落在可见对话区中部 + 跳转按用户消息居中
+
+**反馈**：「还是没有居中，而且最顶部也会有」。
+
+**原因**：
+1. 上一版卡片 **跟着横条 y 走** → 顶部横条的预览贴到对话最上方
+2. 跳转对 **整条 turn anchor** `scrollIntoView(center)` → 超高回合「居中」后用户消息仍偏顶
+
+**修正**：
+1. 卡片固定在 **可见 `[data-conversation-scroll]` 视口** 的水平中线 + 约 **46%** 高度（`translate(-50%,-50%)`），并 clamp 在视口内、**避开顶部 chrome**；**不再**锚定 bar y
+2. `jumpTo` 优先对 **`[data-chat-flow-kind="user"]` 节点** 用 scroller `scrollBy` 把消息中心滚到视口中心；失败再退回 `scrollIntoView`
+3. 卡片 CSS **每次重写**（防热重载残留旧 keyframe）；会话切换清空 enrich 缓存
+
+**验证**：`node --check` OK；响应含 `visibleConversationBox` / `scrollBy` / `translate(-50%, -50%)`，typing-lag marker 仍在
+**生效**：硬刷新 GUI
+
+---
+
+## 2026-09-17 · session-history 卡片二次对齐：贴横条锚定 + 清洗标题/Think 摘要
+
+**用户实拍问题**（DSH 深色对话截图）：
+- 卡片浮在**对话正中**盖住正文 → 位置不对（MiMo 实际是**贴左侧横条**的 popover）
+- 标题混入 `17:58` 时间戳
+- 摘要是 `ThinkThe user says:...` 推理文，不是助手回复
+- 卡片底在深色主题下发灰/半透明，观感发糊
+
+**修正**：
+1. **位置**：`left = conversation.left + 48`，`top = 该横条的 y`，`translateY(-50%)`，并 clamp 在 surface 内；**不再**居中悬浮
+2. **标题**：`cleanTitle` 去掉 `\d:\d2` 时间戳；优先 `data-chat-flow-kind="user"` 节点文本
+3. **摘要**：`cleanSummary` 过滤 `Think`/`thinkthe`，剥 `the user says:` 前缀；找不到干净正文则摘要留空
+4. **卡片底**：优先 `bg-elevated` / `specific-tip` / `layer-2` 等更实的 token + 更强阴影
+5. 入场动画改为仅 `translateY`（匹配锚定 transform）
+
+**验证**：`node --check` OK；boot rev 更新；响应含 `cleanTitle`/`isThinkBlurb`/`BAR_PAD`，且不再含 `rect.width / 2` 居中定位
+**生效**：硬刷新 GUI
+
+---
+
+## 2026-09-17 · session-history 卡片对齐 MiMo：对话区居中浮层 + 动效 + 摘要/chips
+
+**用户反馈**：效果仍不像 MiMo——「不会集中再中间，没有动态效果」。对照截图，先前实现是**贴在横条旁的小气泡、无动画、只有标题**。
+
+**对齐点**：
+1. **位置**：卡片 `position:fixed`，在 **conversation surface 水平+约 42% 高度处居中**（`translate(-50%,-50%)`），宽 `min(420, surfaceWidth-96)`，不再挂在 bar 右侧
+2. **动效**：`shCardIn` 入场（fade+scale）；tool chips `shChipIn` 错峰；悬停/选中横条 **加宽+光晕**（transition）；跳转后目标消息 `shMsgFlash` 约 1s
+3. **信息**：标题 + 助手首段摘要 + 工具 chips（DOM `data-tool`，hover 时惰性 `enrichTurn` + 缓存；仍保留 typing-lag marker，不在 80ms 刷新路径扫回合）
+
+**文件**：`plugins/dsh-session-history/lib/client.js`（+ README/CHANGELOG）
+**验证**：`node --check` OK；HTTP boot rev 已更新且响应含 `shCardIn`/`enrichTurn`/居中 transform；marker 仍在
+**生效**：硬刷新 GUI 即可（boot graph 读盘重算 rev）；无需重启
+**回滚**：git / 上一 hash `376df7875dcc`
+
+---
+
+## 2026-09-17 · dsh-session-history 悬停预览改为 MiMo 式富卡片
+
+**目标**：对话左侧消息 mini-map（点击跳转）的悬停预览，从纯文本小气泡升级为 MiMo 风格卡片——圆角抬升卡片 + **粗体截断的用户消息标题**；点击跳转语义不变，点击后预览短时钉住（~1.8s）。
+
+**范围（用户选型）**：悬停富卡片；卡片内容默认**仅用户消息标题**（不加工具 chips / 助手摘要 / 产物路径，除非后续再开需求）。
+
+**改动**：
+- `plugins/dsh-session-history/lib/client.js`：`BUBBLE_STYLE` → `CARD_STYLE`（DSH token：layer-1 底 / border-l1 / shadow-lv3 / deepseek 选中色体系不变）；`data-session-history-card` 可测标记；pin 计时器在会话切换与卸载时清理；**保留** typing-lag marker `dsh typing-lag fix 2026-09-16 (row text cache)`（不扩 DOM 扫描，文本仍走 `rowText` 缓存）
+- `plugins/dsh-session-history/README.md`、`plugins/INVENTORY.md`：同步描述（修正过时「Web-chat 弹窗」文案）
+
+**验证**：`node --check plugins/dsh-session-history/lib/client.js` 通过；marker 仍在；task-scheduler 文件级登记。**未自动重启**——插件为 link 加载，需刷新客户端或按用户指示重启后生效。
+
+**回滚**：`_backups/session-history-hover-card-20260918-160626/`
+
+**二次修复（重启后仍无变化 · 根因）**：`centerColumn()` 只查 `div[class*="centerCol"]`，而 **Desktop advanced 壳**中心列类名是 `dshDesktopConversationSurface`（全仓 dist/conversation client **均无 centerCol**）⇒ `rect===null` ⇒ `MessageStrip` 直接 `return null`，rail/卡片从未挂出——刷新/重启自然「没变化」。现 `centerColumn()` 增加 Desktop surface / `[data-conversation-scroll]` 祖先回退；测量 effect 随会话重跑 + 250ms 短轮询直至中心栏出现。
+
+---
+
+## 2026-09-17 · 渲染卡顿根治：流式行扫光 `left` 动画 → `transform`（合成器）
+
+**背景**：用户报告「现在很卡」并追问「主对话结束了子代理还在跑」「是不是子 agent 插件没配好」「是不是插件开发太多」「刚开始用不卡」。
+
+**调查（5 步，含 4 次证伪，详见 `_backups/sweep-transform-fixes-2026-09-17/PLAN-AND-LOG.md`）**：
+1. **不是配置问题**（实测）：i7-13700HX 16C/24T、内存用 48%、提交 48%、页文件仅 899 MB（无换页）⇒ 瓶颈是**单进程单核饱和**：`probe-dsh-cpu` 实测 **main 139.4% / renderer 100.2%（单核百分比）**，应用自测 `rendererCpuPct=99`（阈值 25、streak 2）。**"所有对话都卡"的结构原因**：整个 GUI 只有 **1 个 renderer + 1 个 main**，所有对话共用。
+2. **不是看门狗续跑**（证伪）：`dsh-session-watchdog.log` 3919 行**全程 `goals=0 resumed=0`**、0 错误；但它暴露规模——`agents=` 由 2–3 涨到 **18**；另有实测：另一个项目（缺陷检测边缘设备）**今日 16 个会话被写**、采样时 1–3 个在持续生成。
+3. **不是插件常驻定时器**（部分证伪）：client 侧 `setInterval 5 / MutationObserver 5 / rAF 6`，但**逐个读码**——`diagram-renderer` 两个 interval 均为 `playing` 状态门控、rAF 自终止；`vision-engine` 已按 **PERF-3** 加 `document.hidden` 门控 + 3s 兜底早退。
+4. **不是 markdown 每 token 重算**（证伪）：打包内核客户端 bundle 内**没有** markdown-it/marked/micromark/hljs/shiki ⇒ 内容是结构化 block，客户端不解析。
+5. **命中**：4 个 `dsh-*-row-sweep` 扫光动画用 **`left`** + **`infinite`**，只挂在 `[data-state=running]`（= **流式/工具执行中**）的行上 ⇒ **每帧触发布局+绘制**，且成本随同时活跃行数 **×N**。
+
+**修复（等价改写，视觉不变）**：`:after` 由 `width:300px` 改 `width:100%` + `background-size:300px 100%` + `background-repeat:no-repeat` + `background-position:left center`；关键帧由 `left:-300px → left:100%` 改 **`transform:translateX(-300px) → translateX(100%)`**。等价性：`translateX` 的 % 参照元素自身宽，而元素此刻宽 = 行宽 ⇒ 与原 `left:100%`（参照包含块宽）**逐像素相同**；`transform` 可上合成器 ⇒ 主线程零布局成本。覆盖 conversation（reasoning/command 行）与 tool（tool/bash 行）共 **4 个 sweep**。
+**工具/体系**：新增 `scripts/apply-sweep-transform-fixes.mjs`（幂等 / `--check` / 原子写 / **写前 `node --check`** / 锚点漂移 fail-loud / canon→dev+pkg 传播）；**新建 tool canon**（`patches/bundles/dsh-client-ui-tool-client.js`，此前无 canon）+ 原版基线 `original/…orig-npm`；`MANIFEST.md` 重基并新增 2 行 ⇒ **13/13 OK**；`verify-patches.ps1` 新增 2 条 marker ⇒ 门禁 **ALL PASS (68 checks)**。
+
+**验证（全部实测）**：`--check` 前 `pending=4` exit 1 → 施加 → 后 `already compositor-based` exit 0（幂等）；4 个副本 `0%{left:-300px}` 命中 **0**、`translateX(-300px)` 命 **2**、marker 命 **2**；canon=dev=pkg 同哈希（conversation `89534da7…` / tool `9f7726b7…`）；**服务端实取** `GET /plugins/@deepseek-ai/dsh-client-ui-{conversation,tool}/client.js` 均 **200** 且 `old-left=0`、marker=2 ⇒ **刷新页面即生效，无需重启**。
+
+**未做/待验证（诚实边界）**：逐脚本 LoAF 归因未跑（探针 `@dsh-external/dsh-perf-probe` 已注入，其 client 半区需刷新加载）；2 个 `background-position` 微光（仅重绘、短时状态）未动；`vision-engine` 9 个 keyframes 未逐一审查；本补丁在 renderer 100% 中的**占比未量化**。
+
+**修复后实测（用户刷新页面后，探针采集）**：renderer **100.2% → 30.0%**（peak 140.6%→39.1%）、main **139.4% → 6.0%**、gpu **9.8% → 27.1%**（工作量从 CPU 布局/绘制迁往合成器，符合预期）；稳态 **fps 176–180 / frameP95 6 ms / loopLag p95 6 ms / LoAF 0 帧 / longtask 0 / `forcedStyleAndLayout` ≤7 ms**；刷新窗口内 LoAF 9 帧/1476 ms 全部来自**加载与引导**（`dsh-client-modules` 493 ms、`dsh-client-connection` 373 ms、`assets/index` 175 ms），非稳态。
+**⚠️ A/B 污染声明（不得把降幅全记为补丁功劳）**：① 刷新重置了 renderer 视图（`domNodes=4131`/`chatNodes=107` = 初始窗口）② 采样时**仅 1 个会话在生成**（修复前 1–3 个）③ **main 139%→6% 与 CSS 无关**（main 不渲染 CSS）⇒ 只可能由"并发对话活动减少"解释 ⇒ 既反证了「主进程负载 ≈ 并发对话量」，也使本次 A/B **无法归因**；**"本补丁贡献占比"仍未量化**（需同负载下仅回滚补丁的对照，未做）。
+**归因（探针独立证据）**：当前 26 个运行中动画里 **22–23 个是内核自带 `StateDot`**（`@deepseek-ai/dsh-client-ui-primitives/lib/StateDot.module.css`，被 11 处引用），其 `dsh-state-dot-chase` **只动 `opacity` + 离散台阶无补间** ⇒ 与 sweep 的 `left` 有本质差别、不构成热点，**决定不改**。探针随后已 `dev_uninject_plugin` 干净卸载（entry/junction/registry/client 模块表/patch 四处清理），原始报告留存 `_backups/perf-probe-reports.jsonl`。
+**卸载后的门禁收尾（实测）**：卸载会在 profile `cordis.patch.yml` 写一条 `disabled: true` 条目（设计上为阻断自装配）——它**没有对应 insert** ⇒ `startup-verify` **V3 `stale disabled (no matching insert): dsh-perf-probe`** 报红（V4 `orphans` 已恢复 PASS）。处置：备份后（`_backups/sweep-transform-fixes-2026-09-17/cordis.patch.yml.before-probe-cleanup`）原子移除该陈旧条目 ⇒ **`startup-verify` 10/10 PASS**、`perf-probe` 残留命中 **0**。⇒ 经验：**super-injector 卸载后要复跑 `startup-verify`**，其写的 disabled 条目需按 V3 口径清理。
+
+**记录**：`_backups/sweep-transform-fixes-2026-09-17/`（`PLAN-AND-LOG.md` 计划+证据链+等价性推导+风险收益+回滚 · `{conversation,tool}-canon.before.js`）。
+
+**B1 · 同负载 A/B 量化（2026-09-17 深夜，受控实验）**：为回答"30% 里补丁贡献多少"，新建 `scripts/perf-ab-run.mjs`（防标签错配：采样前断言补丁状态与 `--phase` 一致；记录并发会话等噪声；落 `samples.jsonl` + `--summary`）并给 `apply-sweep-transform-fixes.mjs` 加 **`--revert`**（幂等/原子/写前 `node --check`/read-back 校验 marker 消失）。协议：**P1 → A（`--revert`+刷新）→ B2（重打+刷新）**，固定工作负载＝采样器自身的前台工具调用（持续 20 s ⇒ 对话里必有 `[data-state=running]` 工具行 ⇒ 扫光处于活跃窗口）。
+**结果（8 样本；探针证实两相 `sweep=1` 均在跑 ⇒ 工作负载有效）**：同条件干净对照 **A = 59.9%（66.3/53.4）vs B2 = 29.7%（29.1/30.3）⇒ 差值 ≈ −30 个百分点（单核），A 相是 B 相的约 2 倍** ⇒ 按事先判据（≥5 pp 即有效）**补丁有效**。两相 **`LoAF=0`/`longtask=0`/`fps≈180`** ⇒ 该成本是**持续占满单核**而非长帧抖动（解释体感"慢半拍"）；GPU 由 A 的 39–47% 降至 B2 的 25–28%（transform 交合成器）。
+**测量学教训**：探针 **client 半区在场与否会抬高绝对值**（无探针的 B 相 10.5–12.7% vs 有探针的 B2 29–30%）⇒ **只能用同条件对比**，不可把 P1/B1 当作"补丁后真实成本"；另首版采样器读"最新报告"可能早于采样窗口（已修：等 `seq` 前进）。
+**过程事故（如实记录）**：A/B 期间用户报告一次**整屏黑**、再刷新即恢复。归因（**高置信推断，无直接日志证据**）：`--revert`/重打要改写运行中页面正在加载的两个 client bundle（各 3 处副本），刷新若落在"只改了一半"的窗口 ⇒ 加载到不一致模块对 ⇒ 客户端启动失败，露出**不透明深色窗口底**。**防复发规则**：① 先完成全部原子替换并自检一致性，**再**提示刷新（不得边改边请刷新）② 提示前校验两个 bundle 的 `marker/old-left/bytes` 同处一相 ③ 同批最多 2 次刷新且两次间不夹写操作。
+**记录**：`_backups/perf-ab-sweep-2026-09-17/{PLAN-AND-LOG.md, samples.jsonl, cordis.patch.yml.before-probe-cleanup}`。
+
+## 2026-09-17 · 调度器时间线轮转**根治** + uv 缓存回收（残留收口 · 第四批）
+
+**背景**：用户「可以做，同时评估风险和收益，要求对长期运行不出现问题，具有可维护性和可迭代性和可扩展性」。
+
+**根因（实测代码位置）**：`plugins/dsh-task-scheduler/lib/core.js:203-213` 的 `pruneChanges()` **只归档不清理** —— 超限时把 `changes.jsonl` 改名成 `changes.jsonl.old-<ts>`，却从不删除旧归档 ⇒ 5 天堆积 **238→239 份 / 216.8 MB**。
+
+**决策性证据（决定了清理策略，`rotation-inventory.json` 逐份记录行数/首尾时间戳）**：每份轮转是 **~2000 行的滚动窗口**——活文件 2000 行覆盖 09-11 18:01→09-17 13:16，**最新轮转几乎是同一窗口**（2022 行、同一区间），而**最老那份（2329 行）是 08-27 15:21→09-11 18:02 深历史的唯一副本**。⇒ 正确策略是「**保最新 N + 抢救最老 1**」，绝不是"一律留最新"。门禁不受影响亦有代码级证据：`core.js:192-200` 仅在活文件为空时才回退读**最新**一份轮转，`checkUnsupervised()` 只读活文件。
+
+**根治（v2 补丁 · 可重放 · 已登记门禁）**：新增 `scripts/apply-task-scheduler-retention.mjs`（幂等 / `--check` / 同目录原子替换 / **替换前先 `node --check` 临时文件** / 锚点漂移 fail-loud），对 `core.js` 施加 6 处编辑：`DEFAULT_KEEP_ARCHIVES = 5` + `keepArchives()`（`DSH_TASK_SCHEDULER_KEEP_ARCHIVES` 可覆盖，`0` = 不保留）+ `pruneOldArchives()`（**严格正则** `^changes\.jsonl\.old-\d+$`，其它名字永不触碰；整体 try/catch ⇒ fail-soft，绝不影响加锁主链路）+ `pruneChanges()` **每条返回路径**都收敛并返回删除数 + `prune()` 透传 `removedArchives`。
+**过程（一次被测试抓出的真实缺陷）**：v1 施加后**回归测试报 `removedArchives 期望 2 实际 0`** ⇒ 真因是 `prune()` 里 `pruneChanges()` 已顺带收敛、再调一次恒为 0（**可观测性失真**）；遂按五段流程**回退重做**（`core.js.before` 覆盖 ⇒ marker 0、`--check` exit 1 ⇒ 重放 v2）。另修掉幂等判定次序 bug（E2/E3/E4 的 replace 保留 find 原文 ⇒ 已施加时 `hits` 仍为 1，必须以"替换后内容是否已在位"先判）——该 bug 首次复跑即被**语法自检拦下且拒绝替换**，运行路径未留中间态。
+
+**一次性清理（走同一受控代码路径）**：最老轮转（917.1 KB / 2329 行）抢救为 `changes.jsonl.archive-deep-20260911.jsonl` → `KEEP_ARCHIVES=5 node scripts/task-scheduler.mjs prune` ⇒ `{"ok":true,"removedArchives":235}` ⇒ store **218.7 MB → 6.5 MB**、轮转 239 → **5 份（最新 5）**。
+
+**回归测试（常驻，随 `check-all.ps1` Step 3 运行）**：`tests/plugins/task-scheduler-retention.test.mjs` **7/7 通过** —— 隔离存储惰性读 env · 默认保留**最新** 5 份（删最老 3）· `env=0` 全清 · `env=2` 留 2 · **安全边界**（`archive-deep-*`/`old-abc`/`old-`/`keepme.txt` 均不碰）· E4 接线（裁剪后归档收敛到 5、活文件停在 2000 行）· **fail-soft**（存储不可读 ⇒ 不抛、返回 0）。
+
+**门禁**：`scripts/verify-patches.ps1` 新增 `task-scheduler: archive retention` + `task-scheduler: retention cap const` 两条 marker（插件重装/重建后静默丢失会被抓住）。
+
+**uv 缓存（收益口径更正 · 重要）**：已移除 `tools/markitdown/.uv-cache`（313.7 MB 目录项），`markitdown` 运行时完好（`.venv` 307.9 MB，`import markitdown` → `import-ok`，Python 3.13.9）。但**实测净释放≈0**（`D:` 仅 28.82 → 28.85 GB）⇒ 原批准清单中「回收 313.7 MB」**不成立**，更正为「移除缓存目录、实测净释放≈0」。**高置信推断（未验证）**：`uv` 默认以**硬链接**把缓存包接入 venv ⇒ 共享数据块；证伪尝试（事后测 `nlink>1` = 0）**对假设既不支持也不否定**（删掉一份链接后 nlink 自然回落），已如实标注为未验证。
+
+**端口/重启要求**：插件**进程内**仍是改动前代码（CLI 与测试走磁盘新代码）⇒ **自动保留策略需重启后才在运行中的调度器里生效**；本次一次性清理已完成，不重启不影响现状。**重启由用户执行**（按约定已告知）。
+
+**风险收益**：收益 = ① store 恒定 ≤6 份（此前 5 天涨 216.8 MB，**不再随运行时间增长**）② 释放 **212 MB**（C:）；风险 = R1 计时线丢失（**中**，已用"保最新 5 + 抢救深历史 1"覆盖，`rotation-inventory.json` 留全量可审计清单）· R2 门禁基线（**低**，代码级证据 + 实测复核）· R3 不可逆（**中**，唯一副本先抢救）· R5 插件改动（**中**，原子写 + 语法自检 + 测试 + 门禁 + `.before` 回滚）。
+
+**回滚**：`_backups/residue-round4-retention-2026-09-17T13-27-01-092Z/core.js.before` 覆盖 → 重启；门禁 marker 可删；抢救件 + 保留 5 份保住近端与深历史。
+
+**记录**：本目录 `PLAN-AND-LOG.md`（计划/风险收益/四项长期性对齐/执行日志/回滚）+ `rotation-inventory.json` + `core.js.before`；`outputs/` 无新增（属运维收口，记录在 `_backups` 与 CHANGELOG/memory）。
+
+## 2026-09-17 · 工作区冗余文件整理与清理（回收站可还原 · 约 18.7 MB）
+
+**触发**：用户「目前感觉还行，先帮我整理和清理多余文件吧，做好记录吧」→ 先出清单等批准 → 「按照你推荐的来执行」。
+
+**整理（非删除，消除脆弱引用）**：把**被当命令引用却住在临时目录**的采样器 `_tmp/scroll-probe/sample-dsh-cpu.mjs` 迁为 **`scripts/probe-dsh-cpu.mjs`**（原子写：先 `.probe-dsh-cpu.tmp.mjs` 再 rename —— `node --check` 不认 `.new` 扩展名会报 `ERR_UNKNOWN_FILE_EXTENSION`；`node --check` exit 0）；同步改写 4 处引用（`CHANGELOG` 本日滚动节、`outputs/2026-09-17-report-scroll-jank/README.md` 正文+证据表、`docs/troubleshooting-handbook.md` §22 排查命令）并在 `docs/CAPABILITY-REGISTRY.md` §3 登记。
+
+**清理（回收站删除，可还原）**：`_tmp/{typing-probe,scroll-probe,count-session-rows.mjs,upstream-verify}` + `C:\Temp` 7 项（`dsh-spill-{vgUZU3,AIpHMj,4l6UYR,5XF2A2}`、`dsh-subprocess-{sJylLN,ZwJCZq}`、`dsh-head-changelog.md`；判据＝**早于当前实例启动时刻 18:36:19**）⇒ 释放 **≈16.1 MB**。删除走 `Microsoft.VisualBasic.FileIO.FileSystem::DeleteDirectory/DeleteFile(..., 'SendToRecycleBin')`（显式回收站，不依赖 shell shim）。**保留**：`_backups/` 全部 152 目录（回滚取证网）、`C:\Temp\dsh-acl-locks`（基础设施）、`dsh-spill-ApVrFE`/`dsh-subprocess-P6ojY6`（晚于启动时刻＝本实例在用）。
+
+**取证保真（因反向检索而改计划）**：`_tmp/upstream-verify/package/lib/client.js`（366,559 B，官方 `ui-chat@0.1.3-alpha.2` 对照证据）**转存**至 `_backups/cleanup-redundant-files-2026-09-17T11-40-05-300Z/evidence/`（另存同版 `.tgz` 120,626 B），并把 2 处引用改指新路径 ⇒ 引用不悬空。
+
+**教训（写进记忆 §十一）**：上一轮判 `_mermaid-repro.tmpdir/` 「陈旧可删」用的判据是「在**目标插件代码**里 grep 0 命中」——**方向错了**；正确判据是**全仓库反向检索「谁引用它」**。反向检索发现它被 **3 份产出报告 + 1 个插件 README 共 13 处**引用（yolo 事故取证脚本 `guard-yolo*.ps1`/`decode-frames.cjs`/`session-last-calls.cjs`/`verify-v02.ps1`/`decide.mjs`）⇒ **删除立刻暂停**（未凭上一轮判据动手）。
+
+**第二轮 · B 执行（判据做严后才动手）**：按用户指令做「仔细分析和全面检查」——三轮迭代把判据从「文件名或 stem 子串」收紧到「**S1 目录限定 / S2 精确文件名 / S3 弱证据**」三层，并修掉**三个分析缺陷**：① **自证**——我自己的 `refs-analysis.json` 列出全部 52 个名字，等于让每个文件都"被引用"；② **同名异文件**——`mermaid.min.js` 的 22 处"强引用"**全部**指向 `plugins/dsh-diagram-renderer/assets/mermaid.min.js`，与临时目录副本无关；③ **依赖闭包从未生效**——repo walk 把该目录列入 SKIP_DIRS ⇒ 目录内引用恒为空、闭包等于没跑（已单独补 intra 扫描）。结论：**保留 9 个取证件（30.2 KB）、回收站删除 43 个（2,632.5 KB）**。其中体积**全部**来自 `mermaid.min.js`（2,571,900 B）：它与插件自带副本**字节完全相同**（`sha256 a43bc1afd446f9c4cc66ac5dd45d02e8d65e26fc5344ec0ef787f88d6ddb6f9e`）、插件副本**被 git 跟踪**且是 diagram 冒烟测试对象、其使用者（`repro*.html` 等）同在删除集内 ⇒ **删除零信息损失**。保留了 `guard-yolo.ps1`/`guard-yolo2.ps1`/`guard-yolo.log`/`stop-yolo.ps1`/`decode-frames.cjs`/`session-last-calls.cjs`/`verify-v02.ps1`/`verify-v02.mjs`/`decide.mjs`（依赖闭包实测 `verify-v02.ps1→decide.mjs`、`guard-yolo{,2}.ps1→guard-yolo.log`，且**删除集中无任何保留件的依赖**）。**删前核验**：目录被 `.gitignore:97 (*.tmpdir/)` 忽略且 **0 文件被 git 跟踪**（删除不进 git、不影响门禁）+ 插件代码 **0 处** tmpdir 硬引用 + 无相关计划任务。**删后核验**：DEL 名单 **43/43 已不存在**、回收站抽样（`mermaid.min.js`/`diag13.ps1`/`repro.html`/`repro2.html`/`scan-stream.cjs`/`watch45.ps1`）**全部 IN-BIN**、保留件 `node --check` ×4 exit 0 与 PowerShell AST 解析 ×4 errors=0、`guard-yolo.log` 首行仍可读 ⇒ **报告里的引用继续成立且工具可直接复用**。目录内新增 `README.md`（保留件清单 + 引用出处 + 删除清单 + 给后来 agent 的判据警告）。**未做「归位迁移」**（我上一轮口头提过）：13 处引用写的是**历史路径**，属取证报告「当时用哪个脚本」的一部分，迁移会迫使改写 13 处历史引用 ⇒ 原地保留 + README 说明。`_tmp/diff-deps-2010.mjs` + `official-2010-package.json`（被升级安全调研报告引用 3 处）按 A **保留**。
+**判据入库**：本轮教训已按用户批准写入 `docs/AGENT-RULES-DETAIL.md` **§7 安全守则**——「删文件前必须**全仓库反向检索引用者**（不是只 grep 目标代码）；三层判据 S1/S2/S3；**同名异文件须路径限定 + 字节比对 + git 跟踪确认**；**依赖闭包须独立 intra 扫描**（否则恒空）」，并附可复跑脚本与证据路径。
+
+**第三轮 · 残留项全面扫描（复用既有工具，不重造）**：① 复用他会话的**只读**残留扫描器 `_backups/_probe/residue-scan-20260917.mjs`（`C:\Temp\dsh-*` + **悬空 junction/符号链接** + 按名模式残留 + `_backups` 逐项体积）⇒ 悬空链接 **0**；② 把自建反向引用扫描器**参数化**（`node scan-refs.mjs <目录>`）扫 `_backups` 顶层**93 个散落文件**（未归日期批次目录的老残留）⇒ **23 被引用 / 70 为 0 引用**，据此回收纯 scratch **21 个 / 2,844.7 KB**（8 个 `*-inspect.js` 转储 + 6 个旧 `check-all-*` 日志 + 3 个 `lint-skills-after-*` 中间产物 + `shot.cjs` + 2 个 0 字节日志），另删 `C:\Temp\dsh_nano_patch`（09-01 的**空目录树**，0 文件）。删除前硬断言「名单必须全在 0 引用集内且不含 `.bak/.orig`」，删后核验 `still-present=0/21` + 回收站抽样全 IN-BIN + `_backups` 根 93→72。
+**两处「体积陷阱」被证据挡下（写进记录）**：① `_backups/INDEX.md` 明文——`archived-sessions-*`/`sessions-pre-upgrade-*` 的会话文件**在活跃 `~/.dsh/sessions/` 中已不存在，是唯一副本（对话历史），不得按体积清理** ⇒ 那 **448 MB 永久保留**；② `_backups/dsh-client-ui-settings-models-client.js.bak-20260824`（128 KB，0 引用）实为 `patches/bundles/original/` 下**缺失**的该 bundle 旧版基线（哈希 ≠ 在役）⇒ **保留**，不因「0 引用」删。
+**待用户批准的最大可回收项**：`tools/markitdown/.uv-cache` **313.7 MB**（uv 包缓存，可再生；其 `.venv` 307.9 MB 是运行时**不可删**）——按安全守则「可再生缓存永久删除需确认」，未擅自动手。`.electron-cache`(141 MB)/`.corepack`/`.electron-builder-cache` 为 `.gitignore` 内构建缓存，保留。
+**口径更正**：本日各处「释放 ≈18.7 MB」应读作**已移出工作区（回收站）**——**回收站未清空前磁盘空间并不真正释放**；需即时释放须走「永久删除 + 用户确认」。
+
+**门禁收尾（首次运行 `CHECK-ALL: 2 FAILED`，两处**均非**本次清理引入，而是当日上午 S2′ 滚动补丁的未收尾项）**：
+1. **Step 1.10 `verify-bundle-manifest.mjs` DRIFT(1)**：`patches/bundles/dsh-client-ui-conversation-client.js` 已被 S2′ 改写（448,117 B / `199a31e5…` → 449,222 B / `ca0d5dd8…`），但手维护的 `patches/bundles/MANIFEST.md` 基线未重基 ⇒ **回滚基线已失真**（正是该脚本存在的意义）。处置：先核验 canon 完好（`apply-scroll-anchor-fixes.mjs --check` = `1/1/1` ×3 处全在位、3 个 marker、exit 0）→ `verify-bundle-manifest.mjs --fix`（原子写）⇒ **`Compare-Object` 实测仅 1 行变化**（hash/大小/日期），复检 `total 11 ok 11 problem 0` exit 0。
+2. **Step 1.12 `check-unsupervised.mjs` 未登记(1)**：`scripts/probe-dsh-cpu.mjs`（新增 runtime）从未登记 + `CHANGELOG.md` 改后未再登记（DRIFTED）。处置：按**文件级**（不是目录级）重新 `acquire` + `release --summary` 登记 7 个文件（含 `docs/CAPABILITY-REGISTRY.md`、`docs/troubleshooting-handbook.md`、`outputs/…scroll-jank/README.md`、`patches/bundles/MANIFEST.md`、`.workbuddy/memory/2026-09-17.md`）⇒ 复跑 `REGISTERED=15 DRIFTED=0`、**`CHECK-ALL: ALL PASS`**。
+   - 注：`_tmp/diff-deps-2010.mjs`、`_tmp/official-2010-package.json` 仍为 `UNREGISTERED`（**info 级、不阻塞**），因其属另一会话报告的引用证据，未擅自登记或删除。
+
+**记录 / 回滚**：`_backups/cleanup-redundant-files-2026-09-17T11-40-05-300Z/CLEANUP-LOG.md`（计划+执行+证据+待决策）+ `gate-check-all.log`（首次 2 FAILED 的完整日志）+ `MANIFEST.md.before`（重基前快照）；回滚＝回收站还原（删除时间 2026-09-17 19:2x）／把 4 处引用改回 `_tmp/...`／MANIFEST 用 `.before` 覆盖；`scripts/probe-dsh-cpu.mjs` 无运行路径依赖，可直接删。
+
+## 2026-09-17 · 滚动卡顿：三路只读审计 + 官方同源对照 + S1/S2′ 修复（刷新生效）
+
+**背景**：用户追加报告「上下滑动对话内容也会卡顿」→「先进行调查和全面分析然后给出解决方法」→「按照你推荐的来做」。
+
+**方法（三路并行只读审计 + 主代理复核 + 官方对照）**：A=C**CSS/绘制层**全量普查（59 个 `client.js`）；B=**每个滚动事件都跑的 JS** 全量枚举（内核 + 工作区插件 + profile 第三方）；C=**官方 0.1.3 对照**（压缩性判定 + 逐符号计数 + 机制逆向 + 可回移性）。全程只读取证，未改任何运行路径。
+
+**根因（三层，详见产出报告）**：
+1. **A 层（主因）**：`ui-conversation/lib/client.js:5744-5767` 的 `onScroll` 在「不在底部阅读」时**每滚动帧**跑锚点计算（`:5566` → `pagingAnchor():5539-5564`）：≥2 次强制同步布局 + **≤4 次 `document.elementsFromPoint()`** + **每帧** `querySelector("[data-composer-seat]")` 子树扫描（`:5541`）+ 命中失败时**逐行** `getBoundingClientRect()`（`:5559-5563`，O(行数)）。三路独立审计均把它列第 1。
+2. **B 层（放大）**：滚动口内两个常驻 sticky 层（composer 座位 `z-index:7`+渐变 `:7120`、回到最新槽 `z-index:8`+阴影 `:5452`）；**全树几乎没有合成/包含提示**（`will-change` 仅 1 处且只在拖动时、`translateZ(0)` 0 处）；9 处「每帧重绘」型 infinite 动画（`left` 扫光 ×5、`background-clip:text` 微光 ×3、`box-shadow` ×1）。
+3. **C 层（天花板）**：主列表**无虚拟化**（`order.map(ChatNodeSeat) :5851`），窗口「最近 50 条消息」/页（`dsh-client-runtime:7585`，`loadOlder` +50）⇒ 成本随已加载行数线性增长（trajectory 视图反而有虚拟化 `:4349`）。
+
+**官方同源对照（关键）**：0.1.3 把聊天渲染搬到**新包** `@deepseek-ai/dsh-client-ui-chat`（**更正我先前的错误结论**：锚点机制不是被删，是整包搬走；只比 `ui-conversation` 才会数出 0），**没上虚拟化**，却在同一算法上做了三处降本。我方**亲自下载该包复核**：`:1956` 单点 `viewport.top + 1`、`:1962-1968` **二分查找**（`while (low < high)`）、`:1970` 命中后仅 1 次 rect。
+
+**修复**：
+- **S1 · Rule 11（纯 CSS · 刷新生效 · 免重启）**：`plugins/dsh-ui-performance/lib/client.js` 新增 `[data-conversation-scroll]{contain:paint}` + `[data-composer-seat]{contain:layout}`（故意不给 seat 加 `contain:paint`，其 slot 子节点可能挂下拉层）。
+- **S2′ · 内核 dist 三处降本（照官方实现 · 刷新生效）**：新增 `scripts/apply-scroll-anchor-fixes.mjs`（幂等/原子写/先备份/marker 判定/**锚点漂移即 fail-loud**/`--check` 预演）：① 回退查找 **逐行 rect → 二分 O(log n)**；② 命中点 **4 → 1**；③ seat 查询 **每帧子树扫描 → WeakMap 缓存 + `isConnected` 复验**。**权威源是 `patches/bundles/dsh-client-ui-conversation-client.js`（canon）**，先打补丁再回灌 dev 树 + packaged app，故 `port-user-patches.mjs`（从同一 canon 恢复）**不会冲掉本补丁**。刻意不做 500ms 合并采样（会牺牲「加载更早/流式 prepend 后位置复位」精度）。
+
+**验证（全部实测）**：预检 `--check` 3 处 `DRIFT 0/0/0` exit 1 → 施加 `canon patched (3/3)` + 回灌 2 处 + `ALL OK` exit 0 → **幂等**二次运行 = `already patched` + `up-to-date ×2` → **服务端实取** `GET /plugins/@deepseek-ai/dsh-client-ui-conversation/client.js` **200** 且 3 marker 各 1、旧代码 `const points = [`/`rows.filter((row) =>` 命中 **0** ⇒ 刷新生效未重启 → Rule 11 服务端实取 200 含 `contain: paint` → `node --check` 0（反引号计数 2）→ 门禁 **ALL PASS (64 checks)**（静态 58→**63**，新增 4 条 `scroll-anchor:*` + 1 条 `scroll: containment`）→ **故障注入**：canon 还原为补丁前 ⇒ 门禁**恰好 1 条** FAIL（`scroll-anchor: canon copy (patches/)`）、pkg 三条仍 PASS、exit 1 ⇒ **归因唯一、真能失败**；重打后复跑全绿。
+
+**过程失误（同一坑第二次，均被门禁当场拦下）**：Rule 11 的 CSS 注释里写了**反引号**（`will-change`），而整段 CSS 是 JS 模板字符串 ⇒ 模板提前闭合、`node --check` 失败；**门禁的语法完整性检查第二次抓住我**。现已在 Rule 11 注释内写成硬约定：「本样式表内禁止反引号」。
+
+**未做（等体感/后续实验）**：运行态毫秒量化（三路审计 + 复核**全部是静态读码**）；A/B 决策项：Rule 9（`content-visibility`）去留、自定义滚动条、office 插件 758KB 全局样式表。工具已备：`scripts/probe-dsh-cpu.mjs`（零注入 CPU 采样；2026-09-17 由 `_tmp/scroll-probe/sample-dsh-cpu.mjs` 迁入）、`_backups/diag-perf-probe/`（LoAF `forcedStyleAndLayoutDuration` + 按脚本名归因）。
+
+**回滚**：`_backups/scroll-anchor-fixes-2026-09-17T11-25-20-556Z/`（canon/dev/pkg 三份 `.before`）→ 刷新；Rule 11 删块即可。
+
+**产出**：`outputs/2026-09-17-report-scroll-jank/`（结论/方法/分层根因/排除项/修复/验证/回滚/诚实边界/证据索引）；排障手册 `docs/troubleshooting-handbook.md` **§22**。
+
+**参考**：`_backups/cleanup-redundant-files-2026-09-17T11-40-05-300Z/evidence/upstream-ui-chat-0.1.3-alpha.2-lib-client.js`（我方下载的官方 `ui-chat@0.1.3-alpha.2` 内 `lib/client.js` 原件，二分与单点命中即在此复核；2026-09-17 清理时从 `_tmp/upstream-verify/package/lib/client.js` 转存，同目录另存该版 `.tgz`）。
+
+：输入框可见文字改回原生绘制（Rule 10）
+
+**背景**：用户报告「打字还是有延迟，感觉慢半拍显示」。先只读取证，确认**不是旧根因复发**：GPU 硬件加速在运行态代码 `lib/main.js:42-59` 走硬件分支（`removeSwitch` 三件 + `force_high_performance_gpu`，`dsh-gpu-off.flag` 不存在）；4 条 typing-lag marker 齐在盘；`/self-maintenance/status` 遥测 renderer 空闲 CPU **8%**（阈值 25%）。
+
+**新根因（三层）**：
+
+1. **显示层（实测，主因）**：输入框 textarea 被内核渲染为**全透明**（`@deepseek-ai/dsh-client-ui-conversation/lib/client.js:3463`：`.uV2eYG_input{color:#0000;-webkit-text-fill-color:transparent}`，只留 `caret-color`），你看到的字符由 React 拼的覆盖层 `div[data-input-backdrop]`（`:4024-4030`，内容在 `:3890-3973`）绘制 ⇒ 每个字符的上屏时机 = `input` → `keyboard.setDraft`（`:3793`）→ store `publish()`（`:1454-1462`）→ **React 提交 → 布局 → 覆盖层绘制**；主线程任何占用都把这一个字符往后推。中文 IME 组字串同样被透明掉（placeholder 有自己的 `-webkit-text-fill-color` 所以仍可见，反证该属性的作用范围）。
+2. **放大层（推断，高置信，未插桩）**：`ConversationRoot:7161` 与 `ConversationSession:7406` 都 `useInput((s) => s)` 订阅**整个输入态**，而 `ConversationRoot:7275-7283` 渲染的正是整条消息列表；**【2026-09-17 更正·自查证伪】我先前 grep 的 `\.memo\(` 命中 **0** 是 **假阴性**：真实文本是 `react.memo)(`（`.memo)` 而非 `.memo(`）。实测 `ChatNodeSeat` **已 `react.memo` + 按单节点订阅**（`ui-conversation/lib/client.js:5480-5481`，消费点 `:5851` `order.map(ChatNodeSeat)`）⇒ **不存在「一个字重算整棵会话树」**。该层降级为：根/会话层订阅整个输入态 ⇒ ChatView 重跑 `order.map` + 每行 memo 的 props 浅比较（O(N) 次比较、**无 DOM 工作**，代价远小于原推断）。**主因（透明 textarea 覆盖层）与 Rule 10 修复不受此更正影响。**
+3. **阶梯层（实测，历史探针 34 份报告）**：`dsh-client-connection/lib/client.js:10149` 每条 WS 消息同步 `JSON.parse` + Zod 全量校验；LoAF 长任务/长动画帧全部归因 `handleMessage`（单次 **48–61ms**，14 窗口累计 15 次 / **3183ms**）。
+4. **上游佐证**：官方 **0.1.3-alpha.2** 已把 `<textarea>` 换成 contenteditable 富文本编辑器（bundle 内 `jsx("textarea")`=0、`contenteditable`=16、`backdrop`/`mirror`/`text-fill-color:transparent` 全 0）⇒ **官方自己删掉了这个覆盖层结构**，本机 0.1.1-rc.2 是老结构。
+
+**改动（P0 · 纯 CSS · 刷新生效 · 免重启）**：`plugins/dsh-ui-performance/lib/client.js` 新增 **Rule 10**（沿用现成 CSS 注入机制，零 React 依赖）：
+
+- `[data-input-scroll] textarea[data-phase]:not(:disabled), [data-input-scroll] textarea:not(:disabled) { color: var(--dsw-alias-label-primary) !important; -webkit-text-fill-color: currentColor !important; }` —— 文字回到浏览器**原生绘制**（与 `input` 事件同帧出现，不再等 React 提交），中文组字串一并回原生；`:not(:disabled)` 保留 workspace-trigger 惰性态原样。
+- `[data-input-backdrop] { z-index: 2; color: transparent !important; }` —— 覆盖层只负责装饰并**置顶于文字之上**；装饰各自类仍有颜色（`hlToken`/`textRef`/`chip`/`hint`/icon），因为父级 `transparent` 只影响「自己没有颜色声明」的纯文本段。
+- 选择器全用 `data-*` 结构属性（`data-input-scroll` / `data-phase` / `data-input-backdrop`），上游重建改 hash 类名也不会静默失效。
+
+**过程失误与拦截（值得记）**：初版把 CSS 注释写成含**反引号**的样式（`` `color:#0000` `` 式），而 CSS 位于 JS 模板字符串内 ⇒ 模板提前闭合、`node --check` 失败。**门禁的语法完整性检查（T13/O14）当场拦下**，修正后才放行——这正是该检查存在的意义。
+
+**验证（全部实测）**：`node --check` exit **0**；反引号计数 **2**（仅模板定界）；marker 各 1（**无重复施加**）；`GET /plugins/@dsh-external/dsh-ui-performance/client.js` **200** 且含 Rule 10 ⇒ 刷新即生效（未重启）；`scripts/verify-patches.ps1` **ALL PASS (59 checks)** exit 0（静态 56 → **58**，新增 `typing-lag: native composer text` + `(css)`）；**故障注入**：复制件删掉 marker 后同一检查命中 False（真文件 True）⇒ 该检查真能失败。
+
+**回滚**：`_backups/typing-lag-native-text-20260917-175705/client.js.before` 覆盖回插件（或删 Rule 10 块）→ 刷新页面；门禁侧删那 2 行即可。
+
+**未做（等确认）**：P1 收窄 `useInput(s=>s)`（内核 dist 补丁，需进 patches 三件套）；P2 `handleMessage` 大消息旁路/异步化；P3 升级官方 0.1.3+（已有 `_backups/upstream-probe-0.1.3-alpha.2/IMPACT-REPORT.md` 与 Phase 2 手册）。
+
+**参考**：产出 `outputs/2026-09-17-report-typing-lag-native-text/`；排障手册 `docs/troubleshooting-handbook.md` §21（已扩为三层）。
+
 ## 2026-09-17 · 文档/产出同步入库 + CHANGELOG 重复章节修复 + GPU 补丁脚本原子化
 
 **背景**：用户「帮我更新所有有关文档和 GitHub」——把 2026-09-16 打字卡顿根治（客户端 3 处 + GPU 硬件加速复原 + 门禁）与 09-17 临时件/残留清理两批工作补齐文档并入库。提交 `aeb1a5c`（12 文件，+630/-18）已推送 `origin/master`。
@@ -16,6 +364,49 @@
 - **产出**：`outputs/2026-09-17-report-typing-lag-fix-and-residue-cleanup/`（结论 / 根因 / 修复 / 清理判定 / 回滚表 / 证据索引 / **诚实边界**），`outputs/INDEX.md` 首行登记。
 - **入库纪律**：`outputs/INDEX.md` 有**其他会话 4 行未提交**改动 ⇒ 用**隔离索引**（`GIT_INDEX_FILE` + `read-tree HEAD`）只带本行 blob 提交，12 个路径全部经 allow-list 断言；推送后用 `git ls-remote origin master` 复核远端 sha 与本地 HEAD 一致（不采信「git push 无输出」）；其他会话的 4 行在工作区**原样保留**。
 - **过程教训（诚实记录）**：本次的批量文档编辑脚本**自己引入过一处语法错**（替换 `writeFileSync(p.file, …)` 那一行时把同行的 `} catch (cause) {` 一起吃掉了）——被脚本末尾内置的 `node --check` 自检**当场抓住并 fail-loud**，未落盘成坏文件；同类自检的**失败注入场景**也踩了一次「把 tmp 写进不存在的目录 ⇒ 实际抛在 `write` 而非 `rename`」（已修正为真正覆盖 rename 失败 + 清理路径）。⇒ 「写入后立刻自检」必须内置于脚本，而不是靠事后人工检查。
+
+---
+
+## 2026-09-17 · AGENTS.md 精简 242→121 行：生成器加列表上限 + 规则条文逐字搬入 docs/
+
+**背景**：`AGENTS.md` 被**每个会话自动加载**，用户自定硬约束是 **≤150 行**，实测 **242 行 / 205 非空 / 20,044 字符**。只读取证发现：**即使把策展区清零也到不了预算** —— `brief:auto:*` 自动区（标记间 **128 行**；含 6 个章节标题与空行 **145 行**）**没有任何上限**（全部目录 / 根级文件 / 插件 / 依赖 / 脚本 / 变更记录）。⇒ 必须**两处一起改**，否则改完仍超标。
+
+**改动 1：生成器加列表上限**（`plugins/dsh-project-brief/src/core.ts` → 同仓 tsc 编译 → `lib/core.js`）
+- 新增 `CAP`（dirs 14 / topFiles 6 / srcTree 10 / plugins 8 / deps 6 / commands 6 / changelog 4）与 `tailNote()`：**只在真被截断时**输出一行如实余量提示（`…（31 个插件见 plugins/INVENTORY.md）`、`…（109 个依赖见 package.json）`），不做静默省略。
+- `gatherFacts` 不再预先把依赖 `slice(0,20)`、变更记录 `slice(0,6)`（否则余量会**假报**）；采集全量、由渲染层统一截断并报真实余量。
+- 编译用**同仓 tsc**（`vendor/…/dsh-plugin-desktop/node_modules/typescript`）输出到临时 `outDir`，`git diff --no-index` **逐行核对只含本次改动**后再原子替换 `lib/core.js`（+ `core.js.map` / `types/core.d.ts`）；**`lib/index.js` 未动**（`src/index.ts` 无改动，避免无谓 churn）。
+- ⚠️ **该插件的 `lib/` 由 `plugins/dsh-project-brief/.gitignore` 按设计忽略**（构建产物）⇒ **入库的只有 `src/core.ts`**；`scripts/build.sh` 需要 DSH 源码 checkout（本机无，其 README 已记录此前提），故按 README 的「同仓 tsc 手动编译」执行，并已实测**重新编译的产物与提升进 `lib/core.js` 的文件字节一致**（可复现性断言，见下）。
+
+**改动 2：`AGENTS.md` 精简 + 规则条文搬家**
+- 原策展区 7 段（协作指南 / 五段流程＋plan 模板 / 架构与关键路径 / 三层维护架构 / 构建部署 / 常见坑位 / 安全守则）**逐字**搬入新 `docs/AGENT-RULES-DETAIL.md`（§1–§7，程序化搬移保证零丢失）。
+- `AGENTS.md` 只留 **14 条「铁律速查 + 小节锚点」**（重启守则 / 五段流程 / 相似问题 / 补丁体系 / 原子写 / 多对话协作 / 门禁 / 架构层级 / 健康自检 / 产出归档 / 安全守则 / 环境坑位 / 性能入口）。
+- 自动区用**新生成器离线重生成**（`gatherFacts` + `mergeBrief` 直接跑 `lib/core.js`）⇒ **本次不需要重启**；插件/工具侧在下次重启或热重载后使用新代码。
+- 连带修正：`docs/README.md` 的「三层维护架构」引用改指 `docs/AGENT-RULES-DETAIL.md §4`，并按该文件自己的约定**把新文档登记进索引**。
+
+**结果与验证（17/17 断言 + 各门禁）**
+- **242 → 121 行**（非空 102；**策展+meta 30 行 / 自动区 91 行**），字符数同步大幅下降。
+- **零丢失**：原策展区全部非空行（76 行）逐行断言存在于新文档；6 个 AUTO 标记齐全；指纹幂等（二次 `mergeBrief(force=false)` → `changed=false`）；文中 `→ §n` 指针目标全部存在。
+- **对照（必要性证明）**：同一草稿用**旧生成器**渲染 = **188 行** ⇒ 证明"仅压策展区不够、必须加列表上限"。
+- 门禁：`node --check lib/core.js` OK；插件自带冒烟 **8/8**；`verify-patches.ps1` **ALL PASS (57 checks)**（`project-brief git windowsHide` 锚点在重编译后仍在）；`check-docs-index.mjs` **51 docs / 0 missing**；`startup-verify.mjs` **V1–V10 全 PASS**（`V9 plugin bundle syntax: link plugins=40 files=93 all ok`）；**收口独立复核 `_backups/_probe/final-closure-check-20260917.mjs` 44/44 PASS**（含「`lib/core.js` 与重新编译产物字节一致」的可复现性断言）。
+- **回滚**：`_backups/agents-md-slim-20260917/`（`AGENTS.md.before` / `core.ts.before` / `core.js.before` / 编译产物 / `core-js.diff.txt` 逐行 diff / `slim-report.txt` / `build-report.txt` / `promote-report.txt`）。
+- **风险/收益**：低风险（规范+文档，加一个**纯函数**生成器的列表上限；不触 dist / 内核 / 启动链路 / profile 装配、**免重启**）；收益：每个会话的常驻上下文由 242 行降到 121 行，且规则**零丢失**（细节按锚点按需查阅），并消除「自动区随项目增长无上限」的结构性隐患。
+
+---
+
+## 2026-09-17 · 打字卡顿收口：幻影 P0 证伪 + 客户端 bundle 热路径全量扫描 + 轮询缓存化
+
+**背景**：接手「执行最推荐的下一步」。上一轮把 `better-sidebar` 的 `locate()` 全文档 query + 1.5s 定时器列为 **P0 待办**——本轮先做只读取证，**该结论被证伪**；于是把「打字卡顿」这一类问题做**全量收口**：22 个客户端 bundle 逐个体检，只改了唯一一处仍未收窄的周期性全文档扫描。
+
+- **幻影 P0 证伪（重要，避免后来者再修一遍）**：`~/.dsh/profiles/desktop/node_modules/dsh-better-sidebar/lib/client.js`
+  - `locate()`（11038-11058）**不是**全文档扫描：只有**一次** `document.querySelector('#root [data-slot="conversation"]')` + 与 `centerColRef` 比对，仅当中心列换节点时才新建 `ResizeObserver`；1.5s `setInterval(locate, 1500)`（11085）**每次 tick 就这一次查询**，且整个 effect 已带 2026-09-06 收窄门（11063 `if (!(state && (state.panelOpen || state.bottomOpen))) return`）——**两个面板都收起时连观察器、interval、rAF 都不创建**。
+  - 该收窄门由 `scripts/apply-ui-perf-patches.mjs` 施加，脚本实跑输出 `ok better-sidebar already patched (fix features present)` / `ok vision-engine already patched`（**按功能特征判定，不依赖 marker 文本**，文件里是手写注释 `DSH perf fix 2026-09-06`）。
+  - ⇒ **无需任何改动**；成品报告与当日 memory 里的「仍未修」条目已就地更正。
+- **全量热路径扫描**（`_backups/_probe/sweep-hotpaths-20260917.mjs`；22 个 bundle = 仓库 17 + profile 第三方 5，按 realpath 去重）：判据 R1 `MutationObserver` 在 body/documentElement 上 `subtree(+characterData)`、R2 `setInterval` 周期 <5s、R3 全文档 `querySelectorAll`、R4 document/window 级 input/keydown、R5 无任何标记。结果：**除 model-picker 外无新增真问题** —— diagram-renderer 的 2s/2.5s 是**播放器计时**（`playing` 门控 + 卸载清理）；vision-engine 的 3s 是全量回退计时（2026-09-06 有意保留）；better-sidebar 的 body 观察器已带 `[role=dialog]` 早退门；第三方 Office 预览包的 keydown 都挂在自己的编辑器 DOM 上。
+- **唯一落地修复**（`plugins/dsh-model-picker-group/lib/client.js`；由 `scripts/apply-typing-lag-fixes.mjs` 新增第 4 条 patch 落地，marker `dsh typing-lag fix 2026-09-17 (aria poll cache)`）：常驻 800ms 定时器原来**每 tick** 跑一次**全文档属性子串查询** `querySelector('button[aria-label*="选择模型"], …')`（永远跑、从不清理）——改为**缓存节点 + `isConnected` 校验**，只在缺失/被替换时重扫；800ms 周期与行为不变（modlens 标记仍在 0.8s 内同步）。
+- **验证 23/23 PASS**（`_backups/_probe/verify-aria-poll-cache-20260917.mjs`）——静态 4 项 + 桩 DOM 功能回放（首 tick 打标且只查 1 次 / **25 个稳态 tick 查询数保持 1** / 关闭时不查 / 断连节点恰好重扫 1 次 / 缺失时每 tick 扫且不抛 / 查询抛错被吞且**缓存复位后可自愈**）+ **故障注入对照**（同一夹具跑**改前备份**代码 ⇒ 26 个 tick **26 次查询**，证明断言非空转）+ **在役 webserver 已直接吐出新构建**（`GET /plugins/@dsh-external/dsh-model-picker-group/client.js` → 200，含 marker 与 `__mpgModelBtn`）⇒ **本次无需重启桌面应用**。
+- **门禁**：`scripts/verify-patches.ps1` 增第 4 条 `typing-lag: model aria poll cache`（静态 56 → **57**），实跑 **ALL PASS (57 checks)**。
+- **过程教训（诚实记录）**：自写验证夹具的 **2 条断言本身写错了**——T3 用新实例却断言「不查询」；T6 在缓存已命中、**根本不走查询路径**的情况下注入异常 ⇒ 那条断言**什么都没测到**。两条当场 FAIL 并修正为「同一实例先预热」「在重扫路径上注入」，复跑 23/23。⇒ 与当日早间那条同源：**失败注入要先确认异常抛在哪一步**，否则「测试通过」不代表测过。
+- **未执行（按铁律只提建议）**：`AGENTS.md` 现 **242 行 / 205 非空行 / 20,044 字符**，超自定 ≤150 行预算。**精确实测**：`brief:auto:*` 标记之间 **128 行**，加上 `## overview` … `## changelog` 6 个章节标题与空行合计 **145 行（第 90-234 行）** ⇒ **只压策展区（现 108 行 + meta 6 行）根本达不到预算**，必须同时给 `plugins/dsh-project-brief` 生成器加列表截断；因涉及项目规则文件本体，按 `AGENTS.md` 第 5 条**等用户批准**（方案见成品报告 §8.3）。
 
 ---
 

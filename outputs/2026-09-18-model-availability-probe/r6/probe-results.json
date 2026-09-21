@@ -1,0 +1,1661 @@
+{
+  "generatedAt": "2026-09-20T08:50:46.773Z",
+  "settings": "C:\\Users\\机械革命\\.dsh\\settings.yaml",
+  "phase": "concurrent+serial-retry",
+  "results": [
+    {
+      "provider": "amd",
+      "model": "DeepSeek-V4-Flash",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": false,
+      "status": 400,
+      "latencyMs": 280,
+      "attempts": 1,
+      "kind": "BADMODEL_400",
+      "error": "{\"error\":{\"message\":\"Requested model DeepSeek-V4-Flash not supported\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 400,
+        "latencyMs": 282,
+        "kind": "BADMODEL_400",
+        "error": "{\"error\":{\"message\":\"Unsupported model: DeepSeek-V4-Flash\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "amd",
+      "model": "DeepSeek-V4.1-Flash",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 116,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"detail\":{\"error\":{\"message\":\"Model 'DeepSeek-V4.1-Flash' is at its concurrency limit (32); please retry later or use another model\",\"type\":\"rate_limit_error\",\"code\":\"model_concurrency_rate_limit_exceeded\"}}}",
+      "retry": {
+        "ok": true,
+        "status": 200,
+        "latencyMs": 843,
+        "snippet": "OK",
+        "replied": true,
+        "variant": "max_tokens",
+        "usage": {
+          "prompt_tokens": 11,
+          "total_tokens": 13,
+          "completion_tokens": 2,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0,
+            "image_tokens": 0
+          },
+          "reasoning_tokens": 0,
+          "cost": 0.0000021,
+          "cost_details": {
+            "upstream_inference_cost": 0.0000021000000000000002,
+            "upstream_inference_prompt_cost": 0.00000154,
+            "upstream_inference_completions_cost": 5.6e-7,
+            "total_cost": 0.0000021,
+            "input_cost": 0.00000154,
+            "output_cost": 5.6e-7,
+            "cached_input_cost": 0,
+            "cache_write_input_cost": 0,
+            "request_cost": 0,
+            "web_search_cost": 0,
+            "image_input_cost": null,
+            "image_output_cost": null,
+            "audio_input_cost": null,
+            "data_storage_cost": 1.3e-7
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      }
+    },
+    {
+      "provider": "amd",
+      "model": "Qwen3.8-Flash-Next",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1816,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": false,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 59,
+        "total_tokens": 91,
+        "completion_tokens": 32,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0,
+          "image_tokens": 0
+        },
+        "reasoning_tokens": 32,
+        "cost": 0.000038929999999999995,
+        "cost_details": {
+          "upstream_inference_cost": 0.000038929999999999995,
+          "upstream_inference_prompt_cost": 0.00000885,
+          "upstream_inference_completions_cost": 0.000030079999999999997,
+          "total_cost": 0.000038929999999999995,
+          "input_cost": 0.00000885,
+          "output_cost": 0.000030079999999999997,
+          "cached_input_cost": 0,
+          "cache_write_input_cost": 0,
+          "request_cost": 0,
+          "web_search_cost": 0,
+          "image_input_cost": null,
+          "image_output_cost": null,
+          "audio_input_cost": null,
+          "data_storage_cost": 0.00000123
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 32,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/deepseek-v4-flash-0731",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 435,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 2088,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/deepseek-v4-pro-0813",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 436,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Rate limit exceeded. Max 5 requests per minute for this API key. Retry in 58s.\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 1341,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/deepseek-v4.1-flash",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 434,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 654,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/gemini-3.8-flash",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 442,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 650,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/glm-5.3-flash",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 636,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"Daily check-in required to use free models. Please visit https://apinex.bond/airdrop?tab=quests to check in.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 1003,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"Daily check-in required to use free models. Please visit https://apinex.bond/airdrop?tab=quests to check in.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/gpt-5.6-luna",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 1382,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"Daily check-in required to use free models. Please visit https://apinex.bond/airdrop?tab=quests to check in.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 742,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"Daily check-in required to use free models. Please visit https://apinex.bond/airdrop?tab=quests to check in.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/mimo-v2.5",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 659,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Rate limit exceeded. Max 5 requests per minute for this API key. Retry in 58s.\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 1782,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"Daily check-in required to use free models. Please visit https://apinex.bond/airdrop?tab=quests to check in.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/muse-spark-1.3",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 451,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Rate limit exceeded. Max 5 requests per minute for this API key. Retry in 58s.\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 940,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "apinex",
+      "model": "free/qwen-3.8-max",
+      "url": "https://api.apinex.bond/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 1298,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Rate limit exceeded. Max 5 requests per minute for this API key. Retry in 59s.\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":null}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 1354,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"This model is currently available only with a subscription. Buy a subscription at https://apinex.bond/subscriptions to use it.\",\"type\":\"billing_error\",\"param\":null,\"code\":null}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "baidu-qianfan",
+      "model": "ernie-4.5-turbo-128k",
+      "url": "https://qianfan.baidubce.com/v2/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1608,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 1,
+        "total_tokens": 8
+      }
+    },
+    {
+      "provider": "baidu-qianfan",
+      "model": "ernie-4.5-turbo-32k",
+      "url": "https://qianfan.baidubce.com/v2/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1115,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 1,
+        "total_tokens": 8
+      }
+    },
+    {
+      "provider": "baidu-qianfan",
+      "model": "ernie-4.5-turbo-vl",
+      "url": "https://qianfan.baidubce.com/v2/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 681,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 7,
+        "completion_tokens": 1,
+        "total_tokens": 8
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "claude-fable-5",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 15087,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 114,
+        "completion_tokens": 288,
+        "total_tokens": 402
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "claude-mythos-preview",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 11163,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 111,
+        "completion_tokens": 707,
+        "total_tokens": 818
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "claude-opus-5",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 15097,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 114,
+        "completion_tokens": 748,
+        "total_tokens": 862
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "gpt-5.6-sol",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 9232,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 117,
+        "completion_tokens": 126,
+        "total_tokens": 243
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "kimi-k3",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 6923,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 113,
+        "completion_tokens": 81,
+        "total_tokens": 194
+      }
+    },
+    {
+      "provider": "codecraft",
+      "model": "qwen3.8-max",
+      "url": "https://codecraftapi.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 8608,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 115,
+        "completion_tokens": 516,
+        "total_tokens": 631
+      }
+    },
+    {
+      "provider": "duoyuanx",
+      "model": "gpt-5.4",
+      "url": "https://chat.ai666.net/api/codex/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1358,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 1183,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "duoyuanx",
+      "model": "gpt-5.5",
+      "url": "https://chat.ai666.net/api/codex/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1722,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 582,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "duoyuanx",
+      "model": "gpt-5.6-luna",
+      "url": "https://chat.ai666.net/api/codex/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1830,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 528,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "duoyuanx",
+      "model": "gpt-5.6-sol",
+      "url": "https://chat.ai666.net/api/codex/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1243,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 512,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "duoyuanx",
+      "model": "gpt-5.6-terra",
+      "url": "https://chat.ai666.net/api/codex/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1649,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 522,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":\"该分组下未配置可用的 Codex 美元预算\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-120b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 696,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": false,
+      "snippet": "",
+      "usage": {
+        "queue_time": 0.11933939,
+        "prompt_tokens": 78,
+        "prompt_time": 0.013452056,
+        "completion_tokens": 32,
+        "completion_time": 0.066421381,
+        "total_tokens": 110,
+        "total_time": 0.079873437,
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        }
+      }
+    },
+    {
+      "provider": "groq",
+      "model": "openai/gpt-oss-20b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 932,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": false,
+      "snippet": "",
+      "usage": {
+        "queue_time": 0.22089626,
+        "prompt_tokens": 78,
+        "prompt_time": 0.004274902,
+        "completion_tokens": 32,
+        "completion_time": 0.034925582,
+        "total_tokens": 110,
+        "total_time": 0.039200484,
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        }
+      }
+    },
+    {
+      "provider": "groq",
+      "model": "qwen/qwen3.8-27b",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 528,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "queue_time": 0.023773755,
+        "prompt_tokens": 19,
+        "prompt_time": 0.001166004,
+        "completion_tokens": 2,
+        "completion_time": 0.00420962,
+        "total_tokens": 21,
+        "total_time": 0.005375624
+      }
+    },
+    {
+      "provider": "hy3-free",
+      "model": "hy3",
+      "url": "http://127.0.0.1:8787/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1085,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 22,
+        "completion_tokens": 2,
+        "total_tokens": 24
+      }
+    },
+    {
+      "provider": "hy3-free",
+      "model": "hy3-preview",
+      "url": "http://127.0.0.1:8787/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 267,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": false,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+      }
+    },
+    {
+      "provider": "justdowork",
+      "model": "claude-opus-5",
+      "url": "https://api.justwoker.icu/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 444,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 393,
+        "kind": "FORBIDDEN_403",
+        "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta",
+        "usage": null
+      }
+    },
+    {
+      "provider": "justdowork",
+      "model": "claude-opus-5-thinking",
+      "url": "https://api.justwoker.icu/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1132,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 194,
+        "kind": "FORBIDDEN_403",
+        "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta",
+        "usage": null
+      }
+    },
+    {
+      "provider": "modelscope",
+      "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 194,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"eb0f9057-007b-44da-84bb-a5e0f7fa7e56\"}}",
+      "retry": {
+        "ok": false,
+        "status": 429,
+        "latencyMs": 191,
+        "kind": "RATE_429",
+        "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"eb351e53-ee58-407c-95ea-a63651a6b853\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "modelscope",
+      "model": "deepseek-ai/DeepSeek-V4-Pro-0813",
+      "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 189,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"476e1321-eed1-4c21-ac4f-a11a53611374\"}}",
+      "retry": {
+        "ok": false,
+        "status": 429,
+        "latencyMs": 191,
+        "kind": "RATE_429",
+        "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"15e6aa13-b4ba-4d27-85ad-ac43f91d0285\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "modelscope",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 70,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"4c8523d7-56bb-4fa7-8896-432dd97dfa66\"}}",
+      "retry": {
+        "ok": false,
+        "status": 429,
+        "latencyMs": 189,
+        "kind": "RATE_429",
+        "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"59ddfdef-a39b-4c0d-9d53-430f8083a425\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "model": "deepseek-v4-flash",
+      "url": "https://opencode.ai/zen/go/v1/chat/completions",
+      "ok": false,
+      "status": 401,
+      "latencyMs": 1239,
+      "attempts": 1,
+      "kind": "AUTH_401",
+      "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+      "retry": {
+        "ok": false,
+        "status": 401,
+        "latencyMs": 795,
+        "kind": "AUTH_401",
+        "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "model": "deepseek-v4-pro",
+      "url": "https://opencode.ai/zen/go/v1/chat/completions",
+      "ok": false,
+      "status": 401,
+      "latencyMs": 2011,
+      "attempts": 1,
+      "kind": "AUTH_401",
+      "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+      "retry": {
+        "ok": false,
+        "status": 401,
+        "latencyMs": 397,
+        "kind": "AUTH_401",
+        "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "model": "glm-5.2",
+      "url": "https://opencode.ai/zen/go/v1/chat/completions",
+      "ok": false,
+      "status": 401,
+      "latencyMs": 1434,
+      "attempts": 1,
+      "kind": "AUTH_401",
+      "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+      "retry": {
+        "ok": false,
+        "status": 401,
+        "latencyMs": 392,
+        "kind": "AUTH_401",
+        "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "opencode-go",
+      "model": "kimi-k3",
+      "url": "https://opencode.ai/zen/go/v1/chat/completions",
+      "ok": false,
+      "status": 401,
+      "latencyMs": 1673,
+      "attempts": 1,
+      "kind": "AUTH_401",
+      "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+      "retry": {
+        "ok": false,
+        "status": 401,
+        "latencyMs": 410,
+        "kind": "AUTH_401",
+        "error": "{\"type\":\"error\",\"error\":{\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KZ62TP83NG3GYTWV5EZN6FQN/billing\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash-0731:free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": false,
+      "status": 404,
+      "latencyMs": 380,
+      "attempts": 1,
+      "kind": "NOTFOUND_404",
+      "error": "{\"error\":{\"message\":\"This model is unavailable for free. The paid version is available now - use this slug instead: deepseek/deepseek-v4-flash-0731\",\"code\":404},\"user_id\":\"user_3IDeFpujzBrPPGjxiYc6BLujQ6m\"}",
+      "retry": {
+        "ok": false,
+        "status": 404,
+        "latencyMs": 1619,
+        "kind": "NOTFOUND_404",
+        "error": "{\"error\":{\"message\":\"This model is unavailable for free. The paid version is available now - use this slug instead: deepseek/deepseek-v4-flash-0731\",\"code\":404},\"user_id\":\"user_3IDeFpujzBrPPGjxiYc6BLujQ6m\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 822,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 36,
+        "total_tokens": 59,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 32,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 634,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 20,
+        "total_tokens": 43,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 16,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 647,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 23,
+        "completion_tokens": 17,
+        "total_tokens": 40,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 13,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "openrouter/free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1617,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 20,
+        "completion_tokens": 28,
+        "total_tokens": 48,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 24,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "poolside/laguna-xs-2.1:free",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 514,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"poolside/laguna-xs-2.1:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Poolside\",\"is_byok\":false,\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortly, add your own provid",
+      "retry": {
+        "ok": true,
+        "status": 200,
+        "latencyMs": 1638,
+        "snippet": "",
+        "replied": false,
+        "variant": "max_tokens",
+        "usage": {
+          "prompt_tokens": 51,
+          "completion_tokens": 32,
+          "total_tokens": 83,
+          "cost": 0,
+          "is_byok": false,
+          "prompt_tokens_details": {
+            "cached_tokens": 32,
+            "cache_write_tokens": 0,
+            "audio_tokens": 0,
+            "video_tokens": 0
+          },
+          "cost_details": {
+            "upstream_inference_cost": 0,
+            "upstream_inference_prompt_cost": 0,
+            "upstream_inference_completions_cost": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 32,
+            "image_tokens": 0,
+            "audio_tokens": 0
+          }
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-flash-20260731",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": false,
+      "status": 0,
+      "latencyMs": 60006,
+      "attempts": 1,
+      "kind": "TIMEOUT",
+      "error": "timeout >60000ms",
+      "retry": {
+        "ok": true,
+        "status": 200,
+        "latencyMs": 1454,
+        "snippet": "OK",
+        "replied": true,
+        "variant": "max_tokens",
+        "usage": {
+          "prompt_tokens": 90,
+          "completion_tokens": 9,
+          "total_tokens": 99,
+          "prompt_tokens_details": {},
+          "completion_tokens_details": {
+            "reasoning_tokens": 7
+          }
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-flash-vision-exp",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": false,
+      "status": 0,
+      "latencyMs": 60004,
+      "attempts": 1,
+      "kind": "TIMEOUT",
+      "error": "timeout >60000ms",
+      "retry": {
+        "ok": false,
+        "status": 0,
+        "latencyMs": 60009,
+        "kind": "TIMEOUT",
+        "error": "timeout >60000ms",
+        "usage": null
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1551,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 12,
+        "total_tokens": 102,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 10
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "moonshotai/kimi-k3",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 35050,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 95,
+        "completion_tokens": 32,
+        "total_tokens": 127,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 24
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "qwen/qwen3.8-max",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2548,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 68,
+        "completion_tokens": 27,
+        "total_tokens": 95,
+        "prompt_tokens_details": {
+          "text_tokens": 68
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 23,
+          "text_tokens": 27
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "tencent/hy4-preview",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2195,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 28,
+        "completion_tokens": 20,
+        "total_tokens": 48,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 17
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "z-ai/glm-5.3",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2591,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 19,
+        "completion_tokens": 17,
+        "total_tokens": 36,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 13
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "z-ai/glm-5.3-flash",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2328,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 19,
+        "completion_tokens": 32,
+        "total_tokens": 51,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {}
+      }
+    },
+    {
+      "provider": "sennsenova",
+      "model": "deepseek-v4-flash",
+      "url": "https://token.sensenova.cn/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2036,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 11,
+        "total_tokens": 101,
+        "completion_tokens_details": {
+          "reasoning_tokens": 9
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "sennsenova",
+      "model": "deepseek-v4-pro",
+      "url": "https://token.sensenova.cn/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2423,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 15,
+        "total_tokens": 105,
+        "completion_tokens_details": {
+          "reasoning_tokens": 13
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "sennsenova",
+      "model": "kimi-k3",
+      "url": "https://token.sensenova.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 193,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"inference exceeds tpm/rpm limit\",\"type\":\"rate_limit_error\",\"code\":\"ModelAccountTpmRateLimitExceeded\"}}",
+      "retry": {
+        "ok": true,
+        "status": 200,
+        "latencyMs": 5962,
+        "snippet": "OK",
+        "replied": true,
+        "variant": "max_tokens",
+        "usage": {
+          "prompt_tokens": 93,
+          "completion_tokens": 29,
+          "total_tokens": 122,
+          "completion_tokens_details": {
+            "reasoning_tokens": 13
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "deepseek-flash",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1100,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 28,
+        "prompt_tokens": 37,
+        "total_tokens": 65,
+        "completion_tokens_details": {
+          "reasoning_tokens": 26
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "deepseek-v4-flash-0731",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 867,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 11,
+        "total_tokens": 13
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "deepseek-v4-pro-0813",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 648,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 11,
+        "total_tokens": 13
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "glm-5.2",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2959,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "completion_tokens": 32,
+        "prompt_tokens": 19,
+        "total_tokens": 51,
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "glm-5.3",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2077,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "completion_tokens": 32,
+        "prompt_tokens": 19,
+        "total_tokens": 51,
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "glm-5.3-flash",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3269,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 29,
+        "prompt_tokens": 19,
+        "total_tokens": 48,
+        "completion_tokens_details": {
+          "reasoning_tokens": 26
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "kimi-k2.6",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1684,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 31,
+        "prompt_tokens": 15,
+        "total_tokens": 46,
+        "completion_tokens_details": {
+          "reasoning_tokens": 30
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "kimi-k2.7-code",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 10451,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 26,
+        "prompt_tokens": 14,
+        "total_tokens": 40,
+        "completion_tokens_details": {
+          "reasoning_tokens": 23
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "mimo-v2.5-pro",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2736,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 24,
+        "prompt_tokens": 258,
+        "total_tokens": 282,
+        "completion_tokens_details": {
+          "reasoning_tokens": 21
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 192
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "qwen3.7-flash",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 787,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "completion_tokens": 32,
+        "prompt_tokens": 17,
+        "total_tokens": 49,
+        "completion_tokens_details": {
+          "reasoning_tokens": 32,
+          "text_tokens": 32
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 17
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "qwen3.8-flash",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1483,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 31,
+        "prompt_tokens": 68,
+        "total_tokens": 99,
+        "completion_tokens_details": {
+          "reasoning_tokens": 27,
+          "text_tokens": 31
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 68
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "qwen3.8-max",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3358,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 30,
+        "prompt_tokens": 68,
+        "total_tokens": 98,
+        "completion_tokens_details": {
+          "reasoning_tokens": 26,
+          "text_tokens": 30
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "text_tokens": 68
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "seed-2.1-pro",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3190,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 28,
+        "prompt_tokens": 53,
+        "total_tokens": 81,
+        "completion_tokens_details": {
+          "reasoning_tokens": 27
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrhythm01",
+      "model": "seed-2.1-turbo",
+      "url": "https://tokenrhythm.studio/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2263,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 36,
+        "prompt_tokens": 53,
+        "total_tokens": 89,
+        "completion_tokens_details": {
+          "reasoning_tokens": 35
+        },
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "tokenrouter",
+      "model": "z-ai/glm-5.3",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 758,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"This model cannot use part of your gift balance, remaining eligible quota: ＄0.000000, required pre-deduction amount: ＄0.000068 (request id: 20260920084429622564296Mhy7ZSkx)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"This model cannot use part of your gift balance\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}",
+      "retry": {
+        "ok": false,
+        "status": 403,
+        "latencyMs": 946,
+        "kind": "FORBIDDEN_403",
+        "error": "{\"error\":{\"message\":\"This model cannot use part of your gift balance, remaining eligible quota: ＄0.000000, required pre-deduction amount: ＄0.000068 (request id: 20260920085022378925382HAIuI2xG)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"This model cannot use part of your gift balance\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "yidong",
+      "model": "DeepSeek-V4-Flash",
+      "url": "https://zhenze-huhehaote.cmecloud.cn/v1/chat/completions",
+      "ok": false,
+      "status": 402,
+      "latencyMs": 187,
+      "attempts": 1,
+      "kind": "QUOTA_402",
+      "error": "{\"error\":{\"message\":\"当前账号没有可用套餐，请完成订购或续费后重试。\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"subscription_required\"}}",
+      "retry": {
+        "ok": false,
+        "status": 402,
+        "latencyMs": 257,
+        "kind": "QUOTA_402",
+        "error": "{\"error\":{\"message\":\"当前账号没有可用套餐，请完成订购或续费后重试。\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"subscription_required\"}}",
+        "usage": null
+      }
+    },
+    {
+      "provider": "zhipu-ai",
+      "model": "glm-4-flash",
+      "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2159,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "completion_tokens": 3,
+        "prompt_tokens": 12,
+        "total_tokens": 15
+      }
+    },
+    {
+      "provider": "zhipu-ai",
+      "model": "glm-4.7-flash",
+      "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 626,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"code\":\"1305\",\"message\":\"该模型当前访问量过大，请您稍后再试\"}}",
+      "retry": {
+        "ok": false,
+        "status": 429,
+        "latencyMs": 217,
+        "kind": "RATE_429",
+        "error": "{\"error\":{\"code\":\"1305\",\"message\":\"该模型当前访问量过大，请您稍后再试\"}}",
+        "usage": null
+      }
+    }
+  ]
+}

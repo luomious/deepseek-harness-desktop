@@ -81,9 +81,14 @@ node scripts/lint-skills.mjs                   # 格式门禁
 | install-hub-skills.mjs | hub skill 直装/回滚（CAP-1） | 扩装时 |
 | verify-patches.ps1 | dist 补丁存在性校验 | 部署后 |
 | dsh-maintenance.mjs | 日志轮转 + 磁盘配额（DATA-2/3） | 可定期/手动 |
-| apply-*.mjs（19 个，2026-09-17 实测） | 补丁幂等重放 | 重建后 |
+| apply-*.mjs（22 个，2026-09-17 实测） | 补丁幂等重放 | 重建后 |
 | gpu-mode.mjs | GPU 模式查看 / 一键回滚（打字卡顿渲染路径） | 卡顿 / 白屏 / 透视时 |
+| probe-dsh-cpu.mjs | 只读 CPU 采样（DSH Desktop 各进程 avg/peak % + 工作集，零注入） | 卡顿体感量化时 |
 | apply-typing-lag-fixes.mjs | 客户端打字性能 3 处修复重打 | 插件重装/重建后 |
+| apply-scroll-anchor-fixes.mjs | 滚动锚点三处降本重打（canon→dev+pkg，`--check` 预演，锚点漂移 fail-loud） | 滚动卡顿 / 重建后 |
+| apply-task-scheduler-retention.mjs | 调度器时间线轮转保留策略重打（归档恒定 ≤5 份，`DSH_TASK_SCHEDULER_KEEP_ARCHIVES` 可覆盖；插件重装会静默丢失 ⇒ 门禁 2 条 marker） | 插件重装/重建后 |
+| apply-sweep-transform-fixes.mjs | 流式行扫光 `left` 动画→合成器 `transform` 重打（conversation+tool 共 4 处；canon→dev+pkg；**`--revert` 可回滚**） | 重建后 / 性能对照 |
+| perf-ab-run.mjs | 同负载 A/B 采样（防标签错配 + 记录并发噪声 + `samples.jsonl`/`--summary`） | 量化性能改动贡献 |
 | promote-build.ps1 | 换版（≥2 build 门禁） | 升级日 |
 | resolve-dist.mjs | 定位当前 build 路径 | 被其他脚本引用 |
 

@@ -1,0 +1,91 @@
+- insert:
+    - id: file-explorer
+      name: '@dsh-external/dsh-file-explorer'
+    - id: force-reasoning-effort
+      name: '@dsh-external/dsh-force-reasoning-effort'
+    - id: project-brief
+      name: '@dsh-external/dsh-project-brief'
+    - id: session-watchdog
+      name: '@dsh-external/dsh-session-watchdog'
+    - id: system-notify
+      name: '@dsh-external/dsh-system-notify'
+    - id: remote-workspace
+      name: '@dsh-external/dsh-remote-workspace'
+    - id: task-scheduler
+      name: '@dsh-external/dsh-task-scheduler'
+
+# super-injector defaults to profiles/web/node_modules; desktop must override to profiles/desktop (ASCII, was GBK-garbled)
+- id: dsh-super-injector
+  config:
+    profileNodeModules: !!js (process.env.HOME || process.env.USERPROFILE) + '/.dsh/profiles/desktop/node_modules'
+
+# align modlens config with web profile (was missed during assembly; filled in)
+- id: modlens
+  config:
+    families: ['deepseek', 'glm', 'mimo', 'qwen', 'kimi', 'minimax', 'seed', 'grok', 'sensenova', 'gpt']
+# 2026-08-23: force-enable better-sidebar (its in-package !!js double-mount guard misfires under dsh 0.1.1-rc.2 loader; 0.15.2 chunk-loader injects its own client module system)
+- id: better-sidebar
+  disabled: false
+- insert:
+    - id: frontend-reload
+      name: '@dsh-external/dsh-frontend-reload'
+
+# 2026-08-23: align compaction with web profile (P1.5-2 regression audit):
+# compaction engine + /compact command + context lifecycle; P1.5-3 (02:38 verified):
+# pin summarization model to avoid intermittent 422 when trailing conversation-routed model
+- id: compaction-basic
+  disabled: false
+  config:
+    summarizationProvider: tokenrhythm01
+    summarizationModel: deepseek-v4-pro-0813
+- id: command-compact
+  disabled: false
+- id: dsh-context-lifecycle
+  disabled: false
+
+
+
+# 2026-08-25: route web search/fetch to the local bing plugin.
+# modsearch's firecrawl is IP-flagged on this network; this row overrides the
+# searchProvider: modsearch row shipped inside @liustack/modsearch/cordis.patch.yml.
+- id: web
+  config:
+    searchProvider: bing
+    fetchProvider: bing-fetch
+
+# 2026-08-25: session auto-title - raise maxOutputTokens (kernel default 64 is
+# always blown by thinking models -> finish_reason=max-tokens -> title fails)
+- id: session-title-llm
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 512
+    timeoutMs: 60000
+
+
+# 2026-09-02: Firecrawl MCP (merged from mcp-configs/firecrawl.cordis.yml)
+# @deepseek-ai/dsh-mcp-client stdio (official pattern)
+- insert:
+    - id: mcp-firecrawl
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: firecrawl
+        transport: stdio
+        command: npx
+        args: ["-y", "firecrawl-mcp"]
+        env:
+          FIRECRAWL_API_KEY: "fc-088d0f71d32c4e3cbb7261f34a599d39"
+        cwd: !!js process.cwd()
+
+# 2026-09-11: MarkItDown MCP (merged from mcp-configs/markitdown.cordis.yml)
+# @deepseek-ai/dsh-mcp-client stdio (official pattern)
+- insert:
+    - id: mcp-markitdown
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: markitdown
+        transport: stdio
+        command: 'D:\Deepseek-Harness\tools\markitdown\.venv\Scripts\markitdown-mcp.exe'
+        args: []
+        cwd: !!js process.cwd()

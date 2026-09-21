@@ -23,6 +23,7 @@
 - `EXIT-PROCESS-CLEANUP.md` —— **退出残留进程清理（2026-09-04）**：退出后「还有一个 DSH」根因（hy3 网关 detached 孤儿 + 退出守卫双弹窗吞退）、修复（插件退出钩子 + dist 补丁）、验证 / 防复发 / 回滚。
 - `EXTERNAL-REPO-ADAPTATION-ASSESSMENT-2026-09-09.md` —— **外部仓库适配评估（2026-09-09）**：10 仓库候选 → 已有能力对照 → 不加/改进现有/有条件新增判定；§10 含推荐项风险收益五维评估。**注意：§"72 个 skill 未装"已过时（CAP-1 已完成，实测已装 61 个）。**
 - `OPS-QUOTA-FAILOVER-VISION-2026-09-15.md` —— **运维手册（2026-09-15）**：配额 / 故障转移 / 视觉桥三场景的"看哪里、一条命令怎么查、怎么回滚"+ 速查表 + 8 条通用坑（多帧 zstd、`data.usage`、BOM、file policy、原子写、共享配置并发、本地 API 的 CSRF 守卫、modlens 不可热重载）+ 变更溯源。
+- `AGENT-RULES-DETAIL.md` —— **项目规则详解（2026-09-17）**：根 `AGENTS.md` 策展区的**逐字展开版**（§1 协作指南 / §2 五段流程+plan 模板 / §3 架构与关键路径 / §4 三层维护架构 / §5 构建部署 / §6 常见坑位 / §7 安全守则，含各自的原因、证据与完整命令）。`AGENTS.md` 为满足**≤150 行**预算只保留「动作要点 + 小节编号」⇒ **要细节就看这里**；`AGENTS.md` 的 `brief:auto:*` 自动区体积由 `plugins/dsh-project-brief` 的 `CAP` 上限控制。
 
 ### 2026-09-06 之后（此前索引未收录，2026-09-10 补录）
 
@@ -91,4 +92,4 @@
   - 插件：`plugins/` 下**含 `package.json` 的目录 = 35 个，且 35/35 都含 `lib/index.js`**（与 `GET /health` 的 `plugins` 探测同口径，2026-09-12 实测）+ 根级 **3** 个（`dsh-context-lifecycle` / `dsh-stuck-loop-guard` / `dsh-vision-rotator`（deprecated））；台账见 `plugins/INVENTORY.md`（**其计数可能滞后，以实测与 `/health` 为准**）；
   - 补丁基线哈希：`node scripts/verify-bundle-manifest.mjs`（对比 `patches/bundles/MANIFEST.md` 与实际文件）。
 - **日常维护**：三层内置架构（启动自愈 / session-hygiene 实时卫生 / self-maintenance 每小时自检），
-  无需计划任务与管理员操作；详见 `AGENTS.md`「三层维护架构」节。`scripts/dsh-maintenance.ps1` 仅离线兜底。
+  无需计划任务与管理员操作；详见 `docs/AGENT-RULES-DETAIL.md` **§4 三层维护架构**（2026-09-17 前在 `AGENTS.md`，为满足 ≤150 行预算已搬入该文件）。`scripts/dsh-maintenance.ps1` 仅离线兜底。

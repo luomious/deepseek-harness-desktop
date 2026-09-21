@@ -1,0 +1,353 @@
+{
+  "generatedAt": "2026-09-18T08:18:20.975Z",
+  "results": [
+    {
+      "provider": "tokenrouter",
+      "model": "z-ai/glm-5.3",
+      "note": "替代 z-ai/glm-5.3-free",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 844,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"User's credit limit is insufficient, remaining credit limit: ＄0.000000 (request id: 202609180814226827173195mqXIOlO)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"Your account quota is running low ($0.00), Please recharge to continue using the service.\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}"
+    },
+    {
+      "provider": "tokenrouter",
+      "model": "z-ai/glm-5.3-fast",
+      "note": "替代候选",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 271,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"User's credit limit is insufficient, remaining credit limit: ＄0.000000 (request id: 20260918081425467868573VBPsAzTN)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"Your account quota is running low ($0.00), Please recharge to continue using the service.\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}"
+    },
+    {
+      "provider": "tokenrouter",
+      "model": "z-ai/glm-5.2",
+      "note": "替代候选",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 571,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"User's credit limit is insufficient, remaining credit limit: ＄0.000000 (request id: 202609180814285375985031VPaDlCc)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"Your account quota is running low ($0.00), Please recharge to continue using the service.\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}"
+    },
+    {
+      "provider": "tokenrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "note": "替代候选",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 281,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"User's credit limit is insufficient, remaining credit limit: ＄0.000000 (request id: 20260918081431305178158vywVqZXM)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"Your account quota is running low ($0.00), Please recharge to continue using the service.\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}"
+    },
+    {
+      "provider": "amd",
+      "model": "DeepSeek-V4.1-Flash",
+      "note": "替代 amd/DeepSeek-V4-Flash",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 9421,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 11,
+        "total_tokens": 13,
+        "completion_tokens": 2,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0,
+          "image_tokens": 0
+        },
+        "reasoning_tokens": 0,
+        "cost": 0.0000021,
+        "cost_details": {
+          "upstream_inference_cost": 0.0000021000000000000002,
+          "upstream_inference_prompt_cost": 0.00000154,
+          "upstream_inference_completions_cost": 5.6e-7,
+          "total_cost": 0.0000021,
+          "input_cost": 0.00000154,
+          "output_cost": 5.6e-7,
+          "cached_input_cost": 0,
+          "cache_write_input_cost": 0,
+          "request_cost": 0,
+          "web_search_cost": 0,
+          "image_input_cost": null,
+          "image_output_cost": null,
+          "audio_input_cost": null,
+          "data_storage_cost": 1.3e-7
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "amd",
+      "model": "GLM-5.3-Flash",
+      "note": "替代候选",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": false,
+      "status": 0,
+      "latencyMs": 60016,
+      "attempts": 1,
+      "kind": "TIMEOUT",
+      "error": "timeout >60000ms"
+    },
+    {
+      "provider": "amd",
+      "model": "Qwen3.8-27B",
+      "note": "替代候选",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 52632,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 59,
+        "total_tokens": 91,
+        "completion_tokens": 32,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0,
+          "image_tokens": 0
+        },
+        "reasoning_tokens": 29,
+        "cost": 0.0002125,
+        "cost_details": {
+          "upstream_inference_cost": 0.00021250000000000002,
+          "upstream_inference_prompt_cost": 0.0000295,
+          "upstream_inference_completions_cost": 0.000183,
+          "total_cost": 0.0002125,
+          "input_cost": 0.0000295,
+          "output_cost": 0.000183,
+          "cached_input_cost": 0,
+          "cache_write_input_cost": 0,
+          "request_cost": 0,
+          "web_search_cost": 0,
+          "image_input_cost": null,
+          "image_output_cost": null,
+          "audio_input_cost": null,
+          "data_storage_cost": 0.0000012000000000000002
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 29,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "amd",
+      "model": "DeepSeek-V4-Flash-Vision-Exp",
+      "note": "替代候选",
+      "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+      "ok": false,
+      "status": 0,
+      "latencyMs": 60002,
+      "attempts": 1,
+      "kind": "TIMEOUT",
+      "error": "timeout >60000ms"
+    },
+    {
+      "provider": "openrouter",
+      "model": "qwen/qwen3.8-27b:free",
+      "note": "替代 stealth/union-alpha",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 1531,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-27b:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"ModelRun\",\"is_byok\":false,\"provider_error_code\":\"429\",\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry shortl"
+    },
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash-0731:free",
+      "note": "替代候选",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 820,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 25,
+        "total_tokens": 115,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 80,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 22,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "z-ai/glm-5.2:free",
+      "note": "替代候选",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 343,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"z-ai/glm-5.2:free is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Decart\",\"is_byok\":false,\"provider_error_code\":\"overloaded\",\"limit_source\":\"upstream_provider_shared_pool\",\"remedy_hint\":\"Retry short"
+    },
+    {
+      "provider": "openrouter",
+      "model": "dots-studio/dots-3-note-preview:free",
+      "note": "替代候选",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 653,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 20,
+        "completion_tokens": 29,
+        "total_tokens": 49,
+        "cost": 0,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 25,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    },
+    {
+      "provider": "openrouter",
+      "model": "thinkingmachines/inkling:free",
+      "note": "替代候选",
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 149,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"thinkingmachines/inkling:free is only available on agentic harnesses. Try plugging it into a coding agent or productivity app listed on https://openrouter.ai/apps\",\"code\":403,\"metadata\":{\"routing_funnel\":[{\"step\":\"Initial Endpoints\",\"endpoint_count\":1}],\"failed_routing_step\":\"Gate Free Endpoints by Agentic Harness\"}}}"
+    },
+    {
+      "provider": "justdowork",
+      "model": "claude-opus-4-8",
+      "note": "站内真实 slug",
+      "url": "https://api.justwoker.icu/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 785,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta"
+    },
+    {
+      "provider": "justdowork",
+      "model": "replay-aigateway/claude-opus-4.8",
+      "note": "站内真实 slug",
+      "url": "https://api.justwoker.icu/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 330,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 7]>    <html class=\"no-js ie7 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if IE 8]>    <html class=\"no-js ie8 oldie\" lang=\"en-US\"> <![endif]-->\n<!--[if gt IE 8]><!--> <html class=\"no-js\" lang=\"en-US\"> <!--<![endif]-->\n<head>\n<title>Attention Required! | Cloudflare</title>\n<meta charset=\"UTF-8\" />\n<meta"
+    },
+    {
+      "provider": "zhipu-ai",
+      "model": "glm-5.3-flash",
+      "note": "新增候选",
+      "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 204,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包,请充值。\"}}"
+    },
+    {
+      "provider": "zhipu-ai",
+      "model": "glm-4.7",
+      "note": "新增候选",
+      "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 120,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"code\":\"1113\",\"message\":\"余额不足或无可用资源包,请充值。\"}}"
+    },
+    {
+      "provider": "modelscope",
+      "model": "Qwen/Qwen3.8-27B",
+      "note": "判断是否账号级欠费",
+      "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 174,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"f3824b33-e989-4726-9a2b-94a22ca2be06\"}}"
+    },
+    {
+      "provider": "modelscope",
+      "model": "stepfun-ai/Step-3.7-Flash",
+      "note": "判断是否账号级欠费",
+      "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+      "ok": false,
+      "status": 429,
+      "latencyMs": 70,
+      "attempts": 1,
+      "kind": "RATE_429",
+      "error": "{\"error\":{\"message\":\"insufficient balance\",\"request_id\":\"ccfa156e-7a3a-41b5-bae3-99a7cb652a6e\"}}"
+    }
+  ]
+}

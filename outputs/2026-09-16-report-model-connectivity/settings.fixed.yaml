@@ -1,0 +1,476 @@
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+ui-theme:
+  preference: dark
+ui-conversation:
+  busyEnter: queue
+agent-presets:
+  default: standard
+llm-pi-ai:
+  providers:
+    xiaomi-token-plan-cn:
+      apiKeyEnv: XIAOMI_TOKEN_PLAN_CN_API_KEY
+      models:
+        - id: mimo-v2.5
+          name: MiMo-V2.5
+          contextWindow: 1048576
+          maxTokens: 131072
+        - id: mimo-v2.5-pro
+          name: MiMo-V2.5-Pro
+          contextWindow: 1048576
+          maxTokens: 131072
+        - id: mimo-v2-pro
+          name: MiMo-V2-Pro
+          contextWindow: 1048576
+          maxTokens: 131072
+      baseURL: https://token-plan-cn.xiaomimimo.com/v1
+      api: openai-completions
+      compat:
+        supportsDeveloperRole: false
+    opencode-go:
+      apiKeyEnv: OPENCODE_GO_API_KEY
+      baseURL: https://opencode.ai/zen/go/v1
+      models:
+        - id: deepseek-v4-flash
+          name: DeepSeek V4 Flash
+          contextWindow: 1000000
+          maxTokens: 384000
+        - id: deepseek-v4-pro
+          name: DeepSeek V4 Pro
+          contextWindow: 1000000
+          maxTokens: 384000
+        - id: glm-5.2
+          name: GLM-5.2
+          contextWindow: 1000000
+          maxTokens: 131072
+        - id: kimi-k3
+          name: Kimi K3 (2x usage)
+          contextWindow: 1048576
+          maxTokens: 131072
+      api: openai-completions
+      compat:
+        supportsDeveloperRole: false
+    sennsenova:
+      displayName: SenseNova
+      apiKeyEnv: SENNSENOVA_API_KEY
+      api: openai-completions
+      baseURL: "https://token.sensenova.cn/v1/"
+      retryPolicy:
+        mode: normal
+        maxRetries: 6
+        retryableCodes: [ RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT ]
+        backoff:
+          initialDelayMs: 5000
+          maxDelayMs: 65000
+          jitterRatio: 0.2
+      models:
+        - id: deepseek-v4-flash
+          name: deepseek-v4-flash
+          contextWindow: 1048576
+          compat:
+            supportsDeveloperRole: false
+        - id: deepseek-v4-pro
+          name: deepseek-v4-pro
+          contextWindow: 1048576
+          compat:
+            supportsDeveloperRole: false
+        - id: kimi-k3
+          name: kimi-k3
+          contextWindow: 1048576
+          compat:
+            supportsDeveloperRole: false
+      compat:
+        supportsDeveloperRole: false
+    duoyuanx:
+      displayName: duoyuanx
+      apiKeyEnv: DUOYUANX_API_KEY
+      api: openai-completions
+      baseURL: https://chat.ai666.net/api/codex
+      models:
+        - id: gpt-5.4
+        - id: gpt-5.5
+        - id: gpt-5.6-luna
+        - id: gpt-5.6-sol
+        - id: gpt-5.6-terra
+      compat:
+        supportsDeveloperRole: false
+    tokenrhythm01:
+      displayName: tokenrhythm01
+      apiKeyEnv: TOKENRHYTHM01_API_KEY
+      api: openai-completions
+      baseURL: https://tokenrhythm.studio/v1
+      models:
+        - id: qwen3.7-flash
+          contextWindow: 1000000
+          maxTokens: 131072
+        - id: kimi-k2.6
+          contextWindow: 256000
+        - id: qwen3.8-flash
+          contextWindow: 1000000
+          maxTokens: 131072
+        - id: mimo-v2.5-pro
+          contextWindow: 256000
+        - id: kimi-k2.7-code
+          contextWindow: 256000
+        - id: glm-5.2
+          contextWindow: 1000000
+        - id: qwen3.8-max
+          contextWindow: 1000000
+          input:
+            - text
+            - image
+        - id: deepseek-v4-flash-0731
+          contextWindow: 1000000
+        - id: seed-2.1-turbo
+          contextWindow: 262144
+        - id: seed-2.1-pro
+          contextWindow: 262144
+        - id: deepseek-v4-pro-0813
+          contextWindow: 1000000
+        - id: glm-5.3
+          contextWindow: 1048576
+        - id: glm-5.3-flash
+          contextWindow: 1048576
+          input:
+            - text
+            - image
+        - id: deepseek-flash
+          contextWindow: 1000000
+      compat:
+        supportsDeveloperRole: false
+    openrouter:
+      baseURL: https://openrouter.ai/api/v1/chat/completions
+      models:
+        - id: cohere/north-mini-code:free
+          name: "Cohere: North Mini Code (free)"
+          contextWindow: 256000
+          maxTokens: 64000
+        - id: google/gemma-4-26b-a4b-it:free
+          name: "Google: Gemma 4 26B A4B  (free)"
+          contextWindow: 131072
+          maxTokens: 32768
+        - id: google/gemma-4-31b-it:free
+          name: "Google: Gemma 4 31B (free)"
+          contextWindow: 262144
+          maxTokens: 32768
+        - id: inclusionai/ling-3.0-flash-vl:free
+          name: Ling-3.0-flash-VL (free)
+          contextWindow: 262144
+          maxTokens: 32768
+          input:
+            - text
+            - image
+        - id: nvidia/nemotron-3.5-lightning:free
+          name: "NVIDIA: Nemotron 3.5 Lightning (free)"
+          contextWindow: 1000000
+          maxTokens: 65536
+        - id: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+          name: "NVIDIA: Nemotron 3 Nano Omni (free)"
+          contextWindow: 256000
+          maxTokens: 65536
+        - id: nvidia/nemotron-3-super-120b-a12b:free
+          name: "NVIDIA: Nemotron 3 Super (free)"
+          contextWindow: 262144
+          maxTokens: 262144
+        - id: nvidia/nemotron-3-ultra-550b-a55b:free
+          name: "NVIDIA: Nemotron 3 Ultra (free)"
+          contextWindow: 1000000
+          maxTokens: 65536
+        - id: liquid/lfm-2.5-2.6b:free
+          name: Liquid LFM-2.5 2.6B (free)
+          contextWindow: 65536
+          maxTokens: 8192
+        - id: nex-agi/nex-n2.5-mini:free
+          name: Nex-N2.5-mini (free)
+          contextWindow: 262144
+          maxTokens: 32768
+        - id: openrouter/free
+          name: Free Models Router
+          contextWindow: 200000
+          maxTokens: 4096
+        - id: nex-agi/nex-n2.5-pro:free
+          name: Nex-N2.5-Pro (free)
+          contextWindow: 262144
+          maxTokens: 32768
+        - id: poolside/laguna-s-2.1:free
+          name: "Poolside: Laguna S 2.1 (free)"
+          contextWindow: 262144
+          maxTokens: 32768
+        - id: poolside/laguna-xs-2.1:free
+          name: "Poolside: Laguna XS 2.1 (free)"
+          contextWindow: 262144
+          maxTokens: 32768
+      apiKeyEnv: OPENROUTER_API_KEY
+      api: openai-completions
+      compat:
+        supportsDeveloperRole: false
+    yidong:
+      displayName: yidong
+      apiKeyEnv: YIDONG_API_KEY
+      api: openai-completions
+      baseURL: https://zhenze-huhehaote.cmecloud.cn/v1/
+      models:
+        - id: DeepSeek-V4-Flash
+          name: deepseek-v4-flash
+      compat:
+        supportsDeveloperRole: false
+    hy3-free:
+      displayName: 混元 hy3 (免费)
+      apiKeyEnv: HY3_PROXY_KEY
+      api: openai-completions
+      baseURL: http://127.0.0.1:8787/v1
+      models:
+        - id: hy3
+          name: hy3 (混元·免费)
+          contextWindow: 131072
+        - id: hy3-preview
+          name: hy3-preview (混元·免费)
+          contextWindow: 131072
+
+      compat:
+        supportsDeveloperRole: false
+    baidu-qianfan:
+      displayName: 百度千帆 (Baidu Qianfan)
+      apiKeyEnv: BAIDU_QIANFAN_API_KEY
+      api: openai-completions
+      baseURL: https://qianfan.baidubce.com/v2
+      models:
+        - id: ernie-4.5-turbo-128k
+          name: ERNIE-4.5-Turbo-128K
+          contextWindow: 131072
+          maxTokens: 8192
+        - id: ernie-4.5-turbo-32k
+          name: ERNIE-4.5-Turbo-32K
+          contextWindow: 32768
+          maxTokens: 8192
+        - id: ernie-4.5-turbo-vl
+          name: ERNIE-4.5-Turbo-VL
+          contextWindow: 32768
+          maxTokens: 8192
+          input:
+            - text
+            - image
+
+      compat:
+        supportsDeveloperRole: false
+    zhipu-ai:
+      displayName: 智谱AI (Zhipu)
+      apiKeyEnv: ZHIPU_API_KEY
+      api: openai-completions
+      baseURL: https://open.bigmodel.cn/api/paas/v4/
+      models:
+        - id: glm-4.7-flash
+          name: GLM-4.7-Flash
+          contextWindow: 200000
+          maxTokens: 4096
+        - id: glm-4-flash
+          name: GLM-4-Flash
+          contextWindow: 200000
+          maxTokens: 4096
+
+      compat:
+        supportsDeveloperRole: false
+    groq:
+      displayName: Groq
+      apiKeyEnv: GROQ_API_KEY
+      api: openai-completions
+      baseURL: https://api.groq.com/openai/v1/
+      models:
+        - id: openai/gpt-oss-120b
+          name: GPT-OSS 120B
+          contextWindow: 131072
+          maxTokens: 32768
+        - id: openai/gpt-oss-20b
+          name: GPT-OSS 20B
+          contextWindow: 131072
+          maxTokens: 32768
+        - id: qwen/qwen3.8-27b
+          name: Qwen3.8 27B
+          contextWindow: 32768
+          maxTokens: 32768
+
+      compat:
+        supportsDeveloperRole: false
+    justdowork:
+      displayName: justdowork
+      apiKeyEnv: JUSTDOWORK_API_KEY
+      api: openai-completions
+      baseURL: https://api.justwoker.icu/v1/
+      models:
+        - id: claude-opus-5
+        - id: claude-opus-5-thinking
+      compat:
+        supportsDeveloperRole: false
+    qiniu:
+      displayName: qiniu
+      apiKeyEnv: QINIU_API_KEY
+      api: openai-completions
+      baseURL: https://api.qnaigc.com/v1
+      models:
+        - id: deepseek/deepseek-v4-flash-20260731
+          contextWindow: 1000000
+        - id: deepseek/deepseek-v4-pro-0813
+          contextWindow: 1000000
+          maxTokens: 384000
+        - id: deepseek/deepseek-v4-flash-vision-exp
+          contextWindow: 1000000
+          maxTokens: 384000
+        - id: moonshotai/kimi-k3
+          contextWindow: 1048576
+          maxTokens: 1048576
+        - id: z-ai/glm-5.3
+          contextWindow: 1000000
+          maxTokens: 128000
+        - id: z-ai/glm-5.3-flash
+          contextWindow: 1000000
+          maxTokens: 128000
+        - id: qwen/qwen3.8-max
+          contextWindow: 1000000
+          maxTokens: 128000
+        - id: tencent/hy4-preview
+          contextWindow: 1000000
+          maxTokens: 128000
+      compat:
+        supportsDeveloperRole: false
+    amd:
+      displayName: amd
+      apiKeyEnv: AMD_API_KEY
+      api: openai-completions
+      baseURL: https://developer.amd.com.cn/radeon/api/v1
+      models:
+        - id: DeepSeek-V4-Flash
+          name: DeepSeek-V4-Flash
+          contextWindow: 1048576
+        - id: Qwen3.8-Flash-Next
+          name: Qwen3.8-Flash-Next
+          contextWindow: 262144
+      compat:
+        supportsDeveloperRole: false
+    modelscope:
+      displayName: modelscope
+      apiKeyEnv: MODELSCOPE_API_KEY
+      api: openai-completions
+      baseURL: https://api-inference.modelscope.cn/v1
+      models:
+        - id: deepseek-ai/DeepSeek-V4-Flash-0731
+          compat:
+            supportsDeveloperRole: false
+        - id: deepseek-ai/DeepSeek-V4-Pro-0813
+          compat:
+            supportsDeveloperRole: false
+        - id: deepseek-ai/DeepSeek-V4.1-Flash
+      compat:
+        supportsDeveloperRole: false
+    tokenrouter:
+      displayName: tokenrouter
+      apiKeyEnv: TOKENROUTER_API_KEY
+      api: openai-completions
+      baseURL: https://api.tokenrouter.com/v1
+      models:
+        - id: z-ai/glm-5.3-free
+          compat:
+            supportsDeveloperRole: false
+      compat:
+        supportsDeveloperRole: false
+    codecraft:
+      displayName: codecraft
+      apiKeyEnv: CODECRAFT_API_KEY
+      api: openai-completions
+      compat:
+        supportsDeveloperRole: false
+      baseURL: "https://codecraftapi.com/v1"
+      models:
+        - id: gpt-5.6-sol
+          name: GPT-5.6 Sol
+          contextWindow: 1050000
+        - id: claude-opus-5
+          name: Claude Opus 5
+          contextWindow: 1000000
+        - id: claude-fable-5
+          name: Claude Fable 5
+          contextWindow: 1000000
+        - id: claude-mythos-preview
+          name: Claude Mythos Preview
+          contextWindow: 1000000
+        - id: kimi-k3
+          name: Kimi K3
+          contextWindow: 1000000
+        - id: qwen3.8-max
+          name: Qwen3.8 Max
+          contextWindow: 1000000
+    apinex:
+      displayName: apinex
+      apiKeyEnv: APINEX_API_KEY
+      api: openai-completions
+      compat:
+        supportsDeveloperRole: false
+      baseURL: https://api.apinex.bond/v1
+      models:
+        # weight x3.24 (measured): worst case 3.24*(32768+8192) = 132710 weighted tokens/request
+        - id: free/gpt-5.6-luna
+          contextWindow: 32768
+          maxTokens: 8192
+        - id: free/glm-5.3-flash
+          contextWindow: 32768
+          maxTokens: 8192
+        - id: free/gemini-3.8-flash
+          contextWindow: 32768
+          maxTokens: 8192
+        # weight x2.16 (measured): worst case 2.16*(49152+8192) = 123864 weighted tokens/request
+        - id: free/deepseek-v4.1-flash
+          contextWindow: 49152
+          maxTokens: 8192
+        - id: free/qwen-3.8-max
+          contextWindow: 49152
+          maxTokens: 8192
+        - id: free/deepseek-v4-flash-0731
+          contextWindow: 49152
+          maxTokens: 8192
+        - id: free/deepseek-v4-pro-0813
+          contextWindow: 49152
+          maxTokens: 8192
+        # NOT metered by the free allowance (measured: a 200000-token reservation passed)
+        - id: free/mimo-v2.5
+          contextWindow: 131072
+          maxTokens: 32768
+        - id: free/muse-spark-1.3
+          contextWindow: 131072
+          maxTokens: 32768
+agent-default-model:
+  provider: modlens-modelscope
+  model: deepseek-ai/DeepSeek-V4.1-Flash
+  reasoningEffort: high
+llm-deepseek:
+  baseURL: https://api.deepseek.com
+dsh-community-market:
+  sources:
+    - sourceRecordId: 2ad8c51e-adbd-427b-b9a3-dba953f292e5
+      registrationKind: built-in
+      adapterId: market.dsh-1024store-v1
+      providerId: com.deepseek1024.catalog
+      builtInProviderKey: dsh-1024store
+      enabled: true
+      order: 0
+  installReceipts:
+    - receiptId: 0cf24e00-e7aa-4d9b-a23d-b5bfe0370fee
+      profileName: desktop
+      packageName: dsh-context
+      version: 0.33.1
+      integrity: sha512-R91poOtlX8attb9V1oqprWns1iZD1titgt7Obc11XxnpfE+RzsEUcynhAviY/oAHGAyYMT8pAw1CjneTA9MS2A==
+      bundlePatch: ./cordis.patch.yml
+      sourceRecordId: 2ad8c51e-adbd-427b-b9a3-dba953f292e5
+      providerId: com.deepseek1024.catalog
+      itemId: bowenliang123/dsh-context
+      displayName: dsh-context
+      installedAt: 2026-08-26T10:25:22.788Z
+    - receiptId: 3d18df7f-4971-4a49-9491-570b2f2f40be
+      profileName: desktop
+      packageName: "@openviking/dsh-memory-plugin"
+      version: 0.3.0
+      integrity: sha512-l1ecFnT9TICpByQvCt2MyiXcf36QXcA//+olqJjj0BFuqi8rxxVptF/NCIlEH9+oI2mNqSCSnkr/65hGNPIJvw==
+      bundlePatch: ./cordis.patch.yml
+      sourceRecordId: 2ad8c51e-adbd-427b-b9a3-dba953f292e5
+      providerId: com.deepseek1024.catalog
+      itemId: volcengine/OpenViking/examples/dsh-memory-plugin
+      displayName: dsh-memory-plugin
+      installedAt: 2026-09-02T06:39:54.907Z

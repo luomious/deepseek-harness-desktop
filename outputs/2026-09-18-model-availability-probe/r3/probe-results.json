@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-09-18T08:48:06.592Z",
+  "settings": "C:\\Users\\机械革命\\.dsh\\settings.yaml",
+  "phase": "concurrent",
+  "results": [
+    {
+      "provider": "tokenrouter",
+      "model": "z-ai/glm-5.3",
+      "url": "https://api.tokenrouter.com/v1/chat/completions",
+      "ok": false,
+      "status": 403,
+      "latencyMs": 1304,
+      "attempts": 1,
+      "kind": "FORBIDDEN_403",
+      "error": "{\"error\":{\"message\":\"User's credit limit is insufficient, remaining credit limit: ＄0.000000 (request id: 20260918084806709483008WDLmzBpC)\",\"type\":\"api_error\",\"param\":\"\",\"code\":\"insufficient_user_quota\"},\"id\":175896,\"message\":\"Your account quota is running low ($0.00), Please recharge to continue using the service.\",\"org_id\":\"\",\"role\":1,\"suffer\":\"money\"}"
+    }
+  ]
+}

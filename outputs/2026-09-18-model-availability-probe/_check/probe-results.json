@@ -1,0 +1,177 @@
+{
+  "generatedAt": "2026-09-18T07:58:42.054Z",
+  "settings": "C:\\Users\\机械革命\\.dsh\\settings.yaml",
+  "results": [
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-flash-20260731",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2344,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 43,
+        "completion_tokens": 22,
+        "total_tokens": 65,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 20
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-flash-vision-exp",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1525,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 37,
+        "completion_tokens": 12,
+        "total_tokens": 49,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 10
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "deepseek/deepseek-v4-pro-0813",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 2078,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 90,
+        "completion_tokens": 12,
+        "total_tokens": 102,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 10
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "moonshotai/kimi-k3",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1803,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 95,
+        "completion_tokens": 32,
+        "total_tokens": 127,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "qwen/qwen3.8-max",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1404,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 68,
+        "completion_tokens": 28,
+        "total_tokens": 96,
+        "prompt_tokens_details": {
+          "text_tokens": 68
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 25,
+          "text_tokens": 28
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "tencent/hy4-preview",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3761,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 28,
+        "completion_tokens": 32,
+        "total_tokens": 60,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 32
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "z-ai/glm-5.3",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 1680,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "OK",
+      "usage": {
+        "prompt_tokens": 19,
+        "completion_tokens": 16,
+        "total_tokens": 35,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 14
+        }
+      }
+    },
+    {
+      "provider": "qiniu",
+      "model": "z-ai/glm-5.3-flash",
+      "url": "https://api.qnaigc.com/v1/chat/completions",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 4189,
+      "attempts": 1,
+      "variant": "max_tokens",
+      "replied": true,
+      "snippet": "",
+      "usage": {
+        "prompt_tokens": 19,
+        "completion_tokens": 32,
+        "total_tokens": 51,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 31
+        }
+      }
+    }
+  ]
+}
