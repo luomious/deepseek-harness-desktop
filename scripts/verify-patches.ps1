@@ -120,6 +120,16 @@ $checks = @(
   # 报出 `state.surface[54].tool = undefined`。目标是 profile 插件（不在 dist）——
   # **插件重装/升级会静默丢失**。On FAIL: node scripts/apply-context-undefined-tool-fix.mjs
   @{ n = 'context-undefined-tool (dsh-context)';   f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-context\lib\index.js'; p = 'dsh patch context-undefined-tool v1' },
+  # tool-search-image-passthrough (2026-09-24, root cause of "images are not recognised natively"):
+  # the tool_call bridge returned only JSON.stringify({ok, value}) and dropped the real tool's
+  # rendered blocks, so every read_image image was lost while the tool still reported success.
+  # Measured: the session log read_image tool/result carried a single TEXT block (seq 341825 /
+  # 343710), contextTimeline.requests[] showed images 0 for all 673 requests, and a blind fixture
+  # scored 0/3 through the agent vs 3/3 sent straight to the same provider/model/key. The patch
+  # forwards non-text blocks via exec.deferContext - the same pattern the kernel run_code path uses.
+  # PROFILE plugin (npm install, not a junction) -> a plugin reinstall/upgrade drops it silently.
+  # On FAIL: node scripts/apply-tool-search-image-passthrough.mjs
+  @{ n = 'tool-search image passthrough';         f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-tool-search\lib\bridge.js'; p = 'dsh patch tool-search-image-passthrough v1' },
   # json-storage-retry (2026-09-23 重启后核对时发现)：投影缓存每 ~5 秒把 **60MB 整份文件**
   # 原子替换（临时文件 + rename 覆盖目标），Windows 上只要有别的句柄持有目标且未带
   # FILE_SHARE_DELETE（典型：实时杀软扫描刚写完的文件）就会 `EPERM: operation not permitted, rename`。

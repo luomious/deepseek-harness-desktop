@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-09-24 · 第七轮：「图片无法原生识别」真根因结案 —— `tool_call` 桥丢弃图像块
+
+**触发**：用户重启后要求「测试效果」。测到原生视觉环节时，**我自己的盲读就是错的**，于是往下挖到根因。
+
+**结论**：不是模态声明问题，而是**工具桥问题** —— agent 调延迟工具一律经 `tool_call` 桥，桥只回 `JSON.stringify({ok:true, value})`，**把真工具的渲染块 `result.content` 整份丢掉**（`read_image` 的图像块就在那里）。后果比「读不到图」更差：**工具报成功、模型只拿到元数据 ⇒ 编造图片内容**。
+
+**证据链（五步，每步可复核）**
+1. **盲测 0/3**：随机生成 400×300 三形状图（脚本不打印答案，真值写单独文件），先落盘答案再对 —— 真值「左下绿圆/右上紫圆/右下红方」vs 我的盲读「左上黑圆/右上橙方/右下绿圆」。**第一张探针图是无效测例**（生成脚本把预期内容打印了，我「读对」是被泄漏的答案）。
+2. **绕过 DSH 直连 provider：同一模型 3/3 全对**（`tokenrhythm01/deepseek-flash`，真 key，877ms）；图放在 **tool 结果**里 3/3、放在 **user 消息**里 3/3 ⇒ 模型能看、网关能传、tool 角色也能传。
+3. **内核自己的记账**：`contextTimeline` 显示本会话 **673 次请求 `images` 全 0**，`images>0 anywhere: false`。
+4. **会话日志**（离线解码 19228 帧/28067 行）：两次成功的 `read_image`，`tool/result` 内层块类型均为 **`["text"]`**（内容就是 JSON 信封）；全日志 `"type":"image"` 只出现 4 行，**全是用户自己发的图**。
+5. **代码定位**：`dsh-tool-search/lib/bridge.js:90` 丢 `result.content`；而 `dsh-tool-fs/lib/index.js:987 imageReadContent()` 确实产出 `[{text},{image}]`，内核 `dsh-tools/lib/index.js:3407` 也真的调了 `output.render` —— **桥没用**。内核在另一条路径上做对了：`dsh-tools/lib/index.js:1294`（run_code 嵌套分发）用 `exec.deferContext(createUserMessage({content: result.content}))`。
+
+**修复**：`scripts/apply-tool-search-image-passthrough.mjs`（marker `dsh patch tool-search-image-passthrough v1`）—— 在桥里把**非文本块**经 `exec.deferContext` 转发（与内核 run_code 路径**同一模式**，不发明新机制），**JSON 信封一字未改**（所有现有消费者不受影响）。目标在 **profile**（npm 安装）⇒ 插件重装/升级会静默丢失 ⇒ 已登记门禁。
+
+**验证**：故障注入 `tests/plugins/tool-search-image-passthrough.test.mjs` **补丁前红**（`0 !== 1`：桥确实不 defer 图）→ **补丁后 4/4 绿**（含反向断言：纯文本结果**不得** defer、错误结果不 defer 且仍返回 `{ok:false,error}`）；`node --check` exit 0；门禁 **+1 ⇒ 81 checks ALL PASS**；备份 `_backups/profile-tool-search-image-passthrough-2026-09-23T17-03-58-039Z/`。**需重启生效**；重启后验收判据：盲测应 3/3、`contextTimeline.images` > 0、`tool/result` 后应跟一条带图像块的 user 消息。
+
+**顺手查出的另一个真问题（已记录，未改）**：`zhipu-ai/glm-4.7-flash` 直连发图返回 **HTTP 400 `1210 …取值范围 ['text']`** ⇒ 该模型**不接受图像**；需确认它是否被反向误判声明为多模态（若已声明，同样会导致幻觉）。本轮未改配置。
+
+**报告**：`outputs/2026-09-24-report-native-vision-bridge-bug/REPORT.md`。
+
+---
+
 ## 2026-09-24 · 第六轮：崩溃残留清扫（新增 dist 补丁）+ 仓库入库 + `_backups` 保留判定
 
 **背景**：第五轮收尾时留下三项「需用户拍板」（仓库 32 项未提交 / 2 个孤儿 `.tmp` / `_backups` 130MB）。用户本轮授权「调查后自行判断并执行」，故本轮把三项做成**带证据的判断**并执行可执行部分。报告：`outputs/2026-09-24-report-crash-residue-and-repo-commit/REPORT.md`。
