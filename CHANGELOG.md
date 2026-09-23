@@ -39,6 +39,10 @@
 
 **⑤ 方法论（本轮新增两条）**：⑴ 判定「残留」必须先找**活样本**作对照（否则会把正在写入的 staging 文件当垃圾删）；⑵ 补丁器自检只能解析**可独立成立的片段** —— 首版 `--dry-run` 报 `Unexpected token ')'`，原因是我把**故意未闭合**的锚点行也塞进了 `new Function(...)`，改成只校验 helper 后通过（若迁就这个误报去删锚点，会把正确的补丁弄坏）。
 
+**⑥ 入库时顺带查出一个真问题（已修）**：`.gitignore:19` 的 `dist/` 规则**同时匹配 `tests/dist/`** ⇒ 四个 dist 故障注入测试（`log-write-guard` / `projcache-guard` / `json-storage-retry` / 本轮新增的 `json-storage-orphan-tmp-sweep`）**全部从未入库**。后果隐蔽：`verify-patches.ps1` 的注释引用它们、CHANGELOG 写着「故障注入 N/N 全绿」，但**新克隆拿不到这些文件** ⇒ 所有 dist 补丁的「可验证性」在仓库外是缺的。已用 `!tests/dist/` 显式恢复并入库（4 文件 / 524 行），`git check-ignore` 退出码 1（＝不再被忽略）。
+
+**提交**：`1055996`（视觉/模态）+ `9cf2bfb`（稳定性/门禁/记录）；工作区 clean，**未 push**。
+
 ---
 
 ## 2026-09-23 · 第五轮：DSH 全面自检（内置验证器 + 三切面并行审计）与四项修复

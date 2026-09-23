@@ -91,6 +91,10 @@ await rename(tmp, path);                      // 原子发布
 - **提交 2**（稳定性 + 门禁 + 记录）：`scripts/apply-{projcache-guard,json-storage-retry,json-storage-orphan-sweep,context-undefined-tool-fix,cordis-task-catch-fix}.mjs`、`tests/dist/**`、`plugins/dsh-host-services/lib/index.js`、`scripts/verify-patches.ps1`、`scripts/README.md`、`CHANGELOG.md`、`outputs/INDEX.md`、`.gitignore`、`profile/desktop/package.json`（pptwise/office-tools 依赖）。
 - **不入库**：`_tmp/`（1.26 MB 一次性探针脚本）⇒ 已加进 `.gitignore`，理由写在文件里。
 
+**★ 顺带查出一个真问题（已修，值得单独记）**：`.gitignore:19` 的 `dist/` 规则**同时匹配 `tests/dist/`** ⇒ 四个 dist 故障注入测试（`log-write-guard` / `projcache-guard` / `json-storage-retry` / **本轮新增的** `json-storage-orphan-tmp-sweep`）**全部从未入库**。后果很隐蔽：`verify-patches.ps1` 的注释引用这些测试、`CHANGELOG` 写着「故障注入 N/N 全绿」，但**新克隆根本拿不到这些文件** —— 所有 dist 补丁的「可验证性」在仓库外是缺的。已用 `!tests/dist/` 显式恢复并入库（4 文件 / 524 行），修复后 `git check-ignore` 退出码 1（＝不再被忽略）。
+
+最终提交：`1055996`（视觉/模态）+ `9cf2bfb`（稳定性/门禁/记录），工作区 **clean**。
+
 ---
 
 ## 六、风险与回滚
