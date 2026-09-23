@@ -142,18 +142,49 @@ function createBuiltinProbes(opts) {
     }
   })
 
-  // 6. 日志/状态目录可写性 + 顶层 *.log 新鲜度（写不进去 = 配置/会话都存不住）。
+  // 6. 日志/状态目录可写性 + 日志新鲜度。
+  //    dsh patch health-logs-runtime-dir v1：DSH_HOME 顶层只有 manual/janitor 一类日志，
+  //    真正的运行日志（内核 + 插件 + 主进程）落在 Electron userData 目录
+  //    （%APPDATA%\DSH Desktop\logs）。原实现只看 DSH_HOME ⇒ detail 里出现
+  //    「newest 13000m old」这种误导值，而真正的日志写入故障（2026-09-15 曾因
+  //    日志 append 失败触发 fail-loud 自杀，见 patches/bundles log-write-guard）
+  //    不会被本项发现。ok 语义保持不变（仍只判 DSH_HOME 可写），运行日志新鲜度
+  //    以附加字段暴露，供面板/巡检判断。
   probes.set('logs', () => {
     try { accessSync(home, fsConstants.W_OK) } catch (e) {
       return { ok: false, detail: `DSH_HOME not writable (${(e && e.code) || e})` }
     }
-    const logs = readdirSync(home).filter((f) => f.endsWith('.log'))
-    let newestMs = null
-    for (const f of logs) {
-      try { const m = statSync(join(home, f)).mtimeMs; if (newestMs === null || m > newestMs) newestMs = m } catch { /* skip */ }
+    const scan = (dir) => {
+      let count = 0
+      let newest = null
+      try {
+        for (const f of readdirSync(dir)) {
+          if (!f.endsWith('.log')) continue
+          count += 1
+          try { const m = statSync(join(dir, f)).mtimeMs; if (newest === null || m > newest) newest = m } catch { /* skip */ }
+        }
+      } catch { return { count: 0, newest: null, present: false } }
+      return { count, newest, present: true }
     }
-    const ageText = newestMs === null ? 'none' : `${Math.floor((Date.now() - newestMs) / 60000)}m old`
-    return { ok: true, detail: `DSH_HOME writable; ${logs.length} log file(s), newest ${ageText}`, writable: true, logFiles: logs.length }
+    const ageMin = (ms) => (ms === null ? null : Math.floor((Date.now() - ms) / 60000))
+    const homeLogs = scan(home)
+    const appData = typeof process.env.APPDATA === 'string' ? process.env.APPDATA : ''
+    const runtimeDir = appData === '' ? '' : join(appData, 'DSH Desktop', 'logs')
+    const runtimeLogs = runtimeDir === '' ? { count: 0, newest: null, present: false } : scan(runtimeDir)
+    const homeAge = ageMin(homeLogs.newest)
+    const runtimeAge = ageMin(runtimeLogs.newest)
+    return {
+      ok: true,
+      detail: `DSH_HOME writable; home ${homeLogs.count} log(s) newest ${homeAge === null ? 'none' : `${homeAge}m`}`
+        + `; runtime ${runtimeLogs.count} log(s) newest ${runtimeAge === null ? 'none' : `${runtimeAge}m`}`,
+      writable: true,
+      logFiles: homeLogs.count,
+      runtimeLogDir: runtimeDir,
+      runtimeLogFiles: runtimeLogs.count,
+      runtimeLogNewestAgeMin: runtimeAge,
+      // 6 小时无任何运行日志写入 ⇒ 值得看一眼（正常运行时内核/插件会持续落日志）。
+      runtimeLogsStale: runtimeLogs.present && runtimeAge !== null && runtimeAge > 360,
+    }
   })
 
   // 7. 预检历史（SLO）：可解析 + 样本数 + 成功率 + 最新样本时间。

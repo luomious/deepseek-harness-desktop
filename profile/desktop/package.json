@@ -56,7 +56,9 @@
     "@dsh-external/dsh-memory-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-memory-guard",
     "@dsh-external/dsh-developer-role-guard": "link:D:\\Deepseek-Harness\\plugins\\dsh-developer-role-guard",
     "@dsh-external/dsh-model-provider-failover": "link:D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover",
-    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator"
+    "@dsh-external/dsh-vision-rotator": "link:D:\\Deepseek-Harness\\dsh-vision-rotator",
+    "@liustack/pptwise": "0.35.0",
+    "dsh-office-tools": "1.0.3"
   },
   "dsh": {
     "profile": {
@@ -108,7 +110,9 @@
         "@dsh-external/dsh-memory-guard",
         "@dsh-external/dsh-developer-role-guard",
         "@dsh-external/dsh-model-provider-failover",
-        "@dsh-external/dsh-vision-rotator"
+        "@dsh-external/dsh-vision-rotator",
+        "@liustack/pptwise",
+        "dsh-office-tools"
       ]
     }
   }

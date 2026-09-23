@@ -41,6 +41,10 @@
 |------|------|
 | `apply-gpu-opaque-patches.mjs` | GPU 强禁 + 不透明窗口 + 遮挡检测 + ZombieCleanup 补丁 |
 | `apply-winhide-patches.mjs` | dist 级 windowsHide 补丁（幂等重打） |
+| `apply-projcache-guard.mjs` | 投影缓存三补丁（2026-09-23 OOM）：P1 `put()` 逐键隔离+点名坏键 / P2 有界缓存（超 500 淘汰最旧至 400，env 可覆盖）/ P3 `dsh-storage-json` 紧凑序列化（−45% 写盘瞬时字符串）；`--dry-run` 预演；重建后必重打，门禁 3 条校验；故障注入 `tests/dist/projcache-guard.test.mjs` |
+| `apply-context-undefined-tool-fix.mjs` | L3 根因补丁（2026-09-23）：`dsh-context` 插件把查不到的 tool 名写成 `undefined` ⇒ 整个 `contextTimeline` state 违反 plain-JSON 契约、该会话缓存永久不可写；改为只存字符串；目标是 profile 插件（重装/升级会静默丢失），门禁 1 条校验；验证 `node _tmp/diagnose-context-timeline-20260923.mjs` |
+| `apply-json-storage-retry.mjs` | 原子替换抗瞬时锁（2026-09-23）：`dsh-storage-json` 每 ~5 秒整份重写 60MB，Windows 上杀软/并发句柄会让 `rename` 报 `EPERM`；只对 EPERM/EBUSY/EACCES 有界重试（默认 5 次，`DSH_STORAGE_RENAME_RETRIES` 可覆盖）；门禁 1 条校验；故障注入 `tests/dist/json-storage-retry.test.mjs`（补丁前 exit 1 → 后 exit 0） |
+| `apply-json-storage-orphan-sweep.mjs` | 原子写入残留清扫（2026-09-24）：staging 文件只由 `writeAtomic` 自己的 catch 清理，硬杀（OOM/SIGKILL/断电）就永久遗留（实测 2026-09-23 两个 minidump 各留一个 0 字节孤儿在 `~/.dsh/storages`）；补丁在「每目录每进程首次写入」时回收严格 `.<uuid>.tmp` 形状且超过 10 分钟窗口的残留（`DSH_STORAGE_ORPHAN_TMP_MS` 可覆盖），只列一次目录、错误全吞；门禁 2 条校验；故障注入 `tests/dist/json-storage-orphan-tmp-sweep.test.mjs`（补丁前 3/4 红 → 后 4/4 绿） |
 | `port-user-patches.mjs` | canon → dev + 当前构建同步（重建后重跑即恢复） |
 | `fix-all.mjs` | 一键修复（聚合多个修复脚本） |
 | `fix-injector-loadcache.mjs` | super-injector loadCache 崩溃修复 |
@@ -50,7 +54,7 @@
 
 | 脚本 | 用途 |
 |------|------|
-| `verify-patches.ps1` | 补丁锚点校验（16 项，重建后必跑） |
+| `verify-patches.ps1` | 补丁锚点校验（79 项静态 + 3 块 + 1 dist 完整性 + 46 语法 = 80 项，重建后必跑） |
 | `verify-features.ps1` | 功能终核（50 项：装配/安全/回归守卫 + 运行时健康） |
 | `smoke-test.ps1` | 生产冒烟测试（静态 + 运行时） |
 | `test-siliconflow-vision.mjs` | SiliconFlow 视觉引擎连通性测试（`docs/modlens-free-engines.md` 引用，保留） |

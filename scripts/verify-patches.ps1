@@ -46,6 +46,40 @@ $checks = @(
   @{ n = 'zombie cleanup (lib/main)';            f = Join-Path $unpacked 'lib\main.js'; p = 'ZombieCleanup(' },
   @{ n = 'vision-engine runCli windowsHide';    f = Join-Path $root 'plugins\dsh-vision-engine\lib\index.js'; p = 'windowsHide: true' },
   @{ n = 'autoread run windowsHide';            f = Join-Path $root 'plugins\dsh-modlens-autoread\lib\index.js'; p = 'windowsHide: true' },
+  # 2026-09-23（两条插件侧修复，均来自「推荐了但没生效」复查的实测；工作区插件 —— 插件重装/更新会静默丢失）：
+  # ① vision-engine `/refresh` 把 ok 硬编码为 true 且丢弃 error ⇒ 面板「模型试读自测」对失败 profile 报假绿，
+  #    客户端 client.js:725-734 的 selfTestFail 分支永不触发。实测：p-gemini 经 /refresh 返回 ok:true + 空 summary，
+  #    而 /vision-engine/test 直通显示真错（Gemini 503 高需求）。测试 tests/plugins/vision-refresh-falsegreen.test.mjs。
+  # ② autoread 限流自愈的候选按「baseUrl 含 openrouter.ai」挑，但重试固定带 `--provider openai`，
+  #    该槽端点由 modlens config.json 决定且被 dsh-vision-rotator 改写 ⇒ 实测 400/1211「模型不存在」，
+  #    每次自愈白跑 ≤3 次 × 180s 且永不成功。改为「候选必须与当前槽同端点」。
+  #    测试 plugins/dsh-modlens-autoread/test/rate-limit-fallback.test.mjs。
+  @{ n = 'vision-engine refresh 失败透传';       f = Join-Path $root 'plugins\dsh-vision-engine\lib\index.js'; p = 'dsh patch vision-refresh-falsegreen v1' },
+  @{ n = 'autoread 端点匹配自愈';                f = Join-Path $root 'plugins\dsh-modlens-autoread\lib\index.js'; p = 'dsh patch autoread-endpoint-matched-fallback v1' },
+  # modality-vision-suffix-guard（2026-09-23）：TEXT_PATTERNS 的家族级通配把视觉变体判成纯文本 ——
+  # 实测 seed-3-vl（seed-*）/ ernie-4.5-vl-32b、ernie-5-vl（ernie-*）/ hy3-vl（hy3*）/
+  # deepseek-v3-vl（deepseek-v3*）全部判 text；且 seed-2.1-* / seed-* 两条**被网关端到端实测证伪**
+  # （真 key 发 64×64 PNG：seed-2.1-turbo / seed-2.1-pro 返回 200 且读对颜色）⇒ 已移除。
+  # 修法：在 TEXT 表之前加「无歧义视觉后缀」守卫（*-vl / *-vision* / *-omni* / *visual*），
+  # 刻意不收 `v[0-9]`（会把 deepseek-v4-* 的版本号当视觉标记，制造新误判）。
+  # 影响面：运行时通道不可达（实测表相关 reason = 0 条），实际生效点是
+  # scripts/classify-settings-modalities.mjs（新模型声明 input: 时的判定）。
+  # 测试 plugins/dsh-modlens-autoread/test/model-modality.test.mjs（9/9）。
+  @{ n = 'modality 视觉后缀守卫';                 f = Join-Path $root 'plugins\dsh-modlens-autoread\lib\model-modality.js'; p = 'dsh patch modality-vision-suffix-guard v1' },
+  # 2026-09-23 full self-check (three parallel audit facets) - two findings:
+  # 1) /health probe 6 "logs" only scanned the DSH_HOME top level (which holds only
+  #    manual/janitor logs); the real runtime logs live in %APPDATA%\DSH Desktop\logs,
+  #    so the detail line showed a misleading "newest 13000m old" and a genuine log-write
+  #    failure (the 2026-09-15 fail-loud self-kill mode) would not be noticed. Fixed by
+  #    scanning the runtime log dir too and exposing freshness as extra fields.
+  # 2) @deepseek-ai/cordis fiber runner used an optional chain that guarded only the FIRST
+  #    call: task optional-chain-catch followed by a bare .catch(...). With no task this
+  #    throws "TypeError: Cannot read properties of undefined (reading 'catch')" -
+  #    114 hits in 7 days, all inside agent/disposed dispatch, and the cleanup chain after
+  #    it was skipped. A whole-tree scan found this pattern EXACTLY ONCE. Fixed with
+  #    Promise.resolve(task). On FAIL: node scripts/apply-cordis-task-catch-fix.mjs
+  @{ n = 'health logs probe runtime dir';       f = Join-Path $root 'plugins\dsh-host-services\lib\index.js'; p = 'dsh patch health-logs-runtime-dir v1' },
+  @{ n = 'cordis fiber runner task catch';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\cordis\lib\index.js'; p = 'dsh patch cordis-task-catch v1' },
   @{ n = 'project-brief git windowsHide';       f = Join-Path $root 'plugins\dsh-project-brief\lib\core.js'; p = 'windowsHide: true' },
   @{ n = 'critical-guard source';               f = Join-Path $src 'critical-guard.ts'; p = 'shouldAllowQuit' },
   @{ n = 'critical-busy route source';          f = Join-Path $src 'critical-busy-route.ts'; p = 'CRITICAL_BUSY_PATH' },
@@ -68,6 +102,44 @@ $checks = @(
   @{ n = 'exit-cleanup guard bypass (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = 'dsh patch exit-cleanup v1' },
   @{ n = 'exit-cleanup relaunch flag (lib/main)'; f = Join-Path $unpacked 'lib\main.js'; p = '__dsh_relaunch_in_progress__' },
   @{ n = 'log-write-guard P2 (skill-filesystem)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-skill-filesystem\lib\index.js'; p = 'dsh patch log-write-guard v1' },
+  # projcache-guard (2026-09-23: main-process V8 heap OOM -> 应用反复自动关闭；minidump 异常码
+  # 0xE0000008 + 内嵌 "JavaScript heap out of memory")。P1 put() 逐键隔离（一个坏单元不再拖垮
+  # 整会话缓存，并点名坏键 = 「哪个 unit 违反 plain-JSON 契约」的诊断证据）；P2 有界缓存（超硬上限
+  # 按 identity.createdAt 淘汰最旧，缓存语义允许：淘汰=下次冷读多回放一段日志，永不写错）；
+  # P3 dsh-storage-json 紧凑序列化（整文件写入的瞬时字符串 105MB -> 59MB）。三条都在
+  # node_modules 里 —— 重建会静默丢失。应用脚本 scripts/apply-projcache-guard.mjs；
+  # 故障注入测试 tests/dist/projcache-guard.test.mjs（补丁前 9 项全红）。
+  # On FAIL: node scripts/apply-projcache-guard.mjs
+  @{ n = 'projcache-guard P1 (per-key isolation)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-projection-cache\lib\index.js'; p = 'dsh patch projcache-guard v1' },
+  @{ n = 'projcache-guard P2 (bounded cache)';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-projection-cache\lib\index.js'; p = 'DSH_PROJCACHE_SOFT_CAP' },
+  @{ n = 'json-storage-compact P3';                f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-storage-json\lib\index.js'; p = 'dsh patch json-storage-compact v1' },
+  # context-undefined-tool (2026-09-23, L3 根因)：dsh-context 插件的 contextTimeline 单元把
+  # `callNames` 里查不到的名字直接写成 `node.tool = undefined`（只校验了键是字符串、没校验值）⇒
+  # JSON.stringify 丢键 ⇒ 整个 unit state 违反 plain-JSON 契约，该会话缓存永久不可写（每 5 秒报错）。
+  # 定位方式：离线重放该会话真实日志（41383 帧 / 55536 条记录），在 event #48350 type=tool/result 处
+  # 报出 `state.surface[54].tool = undefined`。目标是 profile 插件（不在 dist）——
+  # **插件重装/升级会静默丢失**。On FAIL: node scripts/apply-context-undefined-tool-fix.mjs
+  @{ n = 'context-undefined-tool (dsh-context)';   f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-context\lib\index.js'; p = 'dsh patch context-undefined-tool v1' },
+  # json-storage-retry (2026-09-23 重启后核对时发现)：投影缓存每 ~5 秒把 **60MB 整份文件**
+  # 原子替换（临时文件 + rename 覆盖目标），Windows 上只要有别的句柄持有目标且未带
+  # FILE_SHARE_DELETE（典型：实时杀软扫描刚写完的文件）就会 `EPERM: operation not permitted, rename`。
+  # 实测今日 1 次（21:34:26，session-b14f2d2b）。原实现不重试 ⇒ 一次瞬时锁就让该会话 checkpoint 丢失。
+  # 补丁只对 EPERM/EBUSY/EACCES 有界重试（默认 5 次，40ms*attempt 退避，DSH_STORAGE_RENAME_RETRIES 可覆盖），
+  # 最终错误带尝试次数。On FAIL: node scripts/apply-json-storage-retry.mjs
+  @{ n = 'json-storage-retry (atomic replace)';    f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-storage-json\lib\index.js'; p = 'dsh patch json-storage-retry v1' },
+  # json-storage-orphan-sweep (2026-09-24, found while cleaning up after the OOM crashes):
+  # writeAtomic publishes a unit via open(.<uuid>.tmp,'wx') -> write -> fsync -> rename, and
+  # ONLY its own catch removes the staging file, so a hard kill (OOM / SIGKILL / power loss)
+  # in between strands it forever - nothing in the kernel ever revisits that directory.
+  # Measured: the 2026-09-23 OOM crashes left exactly one 0-byte orphan per minidump in
+  # ~/.dsh/storages (mtimes 14:45:27 and 19:22:18 == that day's two Crashpad dumps), while a
+  # live writer's staging file was observed to survive <5 s (a 53 MB projcache rewrite).
+  # The patch sweeps the exact .<uuid>.tmp shape once it is older than the stale window
+  # (10 min default; DSH_STORAGE_ORPHAN_TMP_MS overrides), once per directory per process,
+  # and swallows every error so the write path cannot break.
+  # On FAIL: node scripts/apply-json-storage-orphan-sweep.mjs
+  @{ n = 'json-storage-orphan-sweep (stale staging)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-storage-json\lib\index.js'; p = 'dsh patch json-storage-orphan-tmp-sweep v1' },
+  @{ n = 'json-storage-orphan-sweep (age gate)';       f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-storage-json\lib\index.js'; p = 'DSH_STORAGE_ORPHAN_TMP_MS' },
   @{ n = 'picker utf16 NUL fix (worker.cjs)'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-host-directory-picker-native\lib\worker.cjs'; p = 'DSH-2026-09-04 picker-utf16-nul fix' },
   # ui-perf patches (2026-09-06: better-sidebar collapse gate + vision-engine input light; targets live outside dist)
   @{ n = 'ui-perf: better-sidebar collapse gate'; f = Join-Path $env:USERPROFILE '.dsh\profiles\desktop\node_modules\dsh-better-sidebar\lib\client.js'; p = 'state && (state.panelOpen || state.bottomOpen)' },

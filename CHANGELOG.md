@@ -6,6 +6,245 @@
 
 ---
 
+## 2026-09-24 · 第六轮：崩溃残留清扫（新增 dist 补丁）+ 仓库入库 + `_backups` 保留判定
+
+**背景**：第五轮收尾时留下三项「需用户拍板」（仓库 32 项未提交 / 2 个孤儿 `.tmp` / `_backups` 130MB）。用户本轮授权「调查后自行判断并执行」，故本轮把三项做成**带证据的判断**并执行可执行部分。报告：`outputs/2026-09-24-report-crash-residue-and-repo-commit/REPORT.md`。
+
+**① 孤儿 `.tmp` 定性（关键：抓到一个「活文件」作对照）**
+
+- 两个 0 字节孤儿（`.01ae560d-….tmp` mtime **19:22:18** / `.a5003d55-….tmp` mtime **14:45:27**）的 mtime 与当日**两个 Crashpad minidump 精确对应**（即主进程 V8 堆 OOM 那两次）。
+- 调查期间第三个 0 字节 tmp 出现并在 **20 秒轮询内消失** ⇒ 那是**写入中的活 staging 文件**（一次 53 MB projcache 整份重写），**不是残留**。这个对照把「0 字节 tmp = 残留」的错误假设证伪了。
+- 代码根因（`dsh-storage-json/lib/index.js:25-57`）：`open(.${randomUUID()}.tmp,'wx')` → write → fsync → `rename`，而清理**只写在同一函数的 catch 里** ⇒ 硬杀（OOM/SIGKILL/断电）时 catch 永不执行，staging 文件永久遗留，**内核里没有任何代码会再回访该目录**。
+- 处置：两个孤儿**走回收站删除**（文件系统事实复核：`storages/` 现仅剩 3 个正常文件）。
+
+**② 新增硬化补丁 `dsh patch json-storage-orphan-tmp-sweep v1`**
+
+- 在 `writeAtomic` 的「每目录每进程首次写入」时清扫一次：只动**严格 `.<uuid>.tmp` 形状**且 **mtime 超过窗口**（默认 10 分钟，`DSH_STORAGE_ORPHAN_TMP_MS` 可覆盖）的文件；先把目录记为已扫再列目录；错误全吞 ⇒ 清扫永不弄挂写入路径。年龄门的依据就是上面量到的「活 staging 文件寿命 < 5 秒」。
+- 应用脚本 `scripts/apply-json-storage-orphan-sweep.mjs`（幂等 + `--dry-run` + 三锚点唯一性断言 + 备份 + 原子写 + 回读），备份 `_backups/dist-json-storage-orphan-sweep-2026-09-23T16-17-07-200Z/`。
+- 故障注入 `tests/dist/json-storage-orphan-tmp-sweep.test.mjs`：**补丁前 3/4 红 → 补丁后 4/4 绿**；含**负向对照**（窗口改成 1 小时时，5 分钟前的孤儿必须保留 ⇒ 证明保护并发写入的是年龄门而不是名字）。与 `json-storage-retry` / `projcache-guard` 两个既有补丁回归共测 **13/13 绿**。
+- 门禁 `scripts/verify-patches.ps1` **+2 条**：`79 static + 3 chunk + 1 dist integrity + 46 syntax = 80 checks`，**ALL PASS**。
+- **生效需重启**（dist 模块已加载在内存中）。
+
+**③ 仓库入库（32 项：13 修改 + 19 未跟踪）**
+
+- 分两个提交：①视觉/模态链路（modlens-autoread、vision-engine、model-picker-group 自愈、vision-rotator 真图探针、classify 脚本、两份视觉报告）②稳定性与门禁记录（projcache-guard / json-storage-retry / **orphan-sweep** / context-undefined-tool / cordis-task-catch 五个补丁脚本 + 对应测试 + host-services 健康探针 + verify-patches + scripts/README + CHANGELOG + INDEX + `.gitignore` + profile 依赖）。
+- `_tmp/`（1.26 MB 一次性探针）**不入库**，已写入 `.gitignore` 并附理由注释。
+- 回滚：`git reset --soft HEAD~2`（未 push）。
+
+**④ `_backups` 130MB：判定不动（不是遗漏）**
+
+- 其中 **96.2 MB** 是 7 个大会话 `session.jsonl.zstd`（已是 zstd 压缩产物），且是**唯一副本**（`archive-big-sessions.ps1` 是**移动**而非复制）。
+- 磁盘实测 C: 30.7 GB / D: **59.3 GB 空闲** ⇒ 无空间压力；二次压缩无收益；跨盘搬运会**破坏该脚本「restore = move back」的公开契约**。
+- 另：会话库现 368.1 MB，但最大的 17.1/16.1/13.9 MB 三个会话 `AgeD=0`（今天仍在写）—— `archive-big-sessions.ps1` 的 `IdleHours=24` 门禁**正确地跳过了它们**，非缺陷。
+
+**⑤ 方法论（本轮新增两条）**：⑴ 判定「残留」必须先找**活样本**作对照（否则会把正在写入的 staging 文件当垃圾删）；⑵ 补丁器自检只能解析**可独立成立的片段** —— 首版 `--dry-run` 报 `Unexpected token ')'`，原因是我把**故意未闭合**的锚点行也塞进了 `new Function(...)`，改成只校验 helper 后通过（若迁就这个误报去删锚点，会把正确的补丁弄坏）。
+
+---
+
+## 2026-09-23 · 第五轮：DSH 全面自检（内置验证器 + 三切面并行审计）与四项修复
+
+**方法**：先跑全部内置验证器，再按**正交切面**派 3 个子代理并行深审（日志错误普查 / 运行态与存储卫生 / 插件与机制健康），主代理补做未分配的切面（配置健全性、陈旧双胞胎、仓库版本控制、健康探针语义）。子代理结论**一律复核后才采信**，本轮**修正了 3 条**（见末段）。
+
+**内置验证器（全绿，实测）**：`check-all.ps1` **ALL PASS**；`verify-patches.ps1` **ALL PASS (78 checks)**（本轮 +2）；`startup-verify.mjs` **10/10**；`scan-dangling --strict` 四项全 0；`audit-plugin-inventory` PASS=11 WARN=0；`GET /health` 9 绿 1 红（唯一红 `preflight` = 历史窗口型假红，约 09-24 15:09 自动转绿）。
+
+**本轮修复（四项，各有证据与回滚路径）**
+1. **补齐 10 个模型的 `contextWindow`**（配置）。实测运行态证据：`modelscope/deepseek-ai/DeepSeek-V4.1-Flash` 的会话投影解析出 **262144**（内核兜底默认，链见 `dsh-llm-pi-ai/lib/index.js:639`），而该模型真实窗口 1M ⇒ 用它会**提前压缩**。12 个缺失项中 10 个有权威依据（本机同模型兄弟声明 / models.dev 一致）：modelscope×3（1000000 / 1048576）、tokenrouter `z-ai/glm-5.3`（1000000）、yidong（1000000）、duoyuanx gpt-5.x×5（1050000）；justdowork×2 因整站被 WAF 拦、无使用价值，未动。执行脚本 `_tmp/patch-settings-contextwindow-20260923.mjs`（锚点唯一性断言 + 原子替换 + 回读校验），计数 62→72；备份 `_backups/settings-contextwindow-20260923-231101/`。
+2. **下调投影缓存上界**（env 逃生门，重启生效）。实测缓存 **61.0MB / 453 条**，`softCap=400 / hardCap=500` ⇒ **淘汰尚未触发**、仍在上行。**修正子代理口径**：缓存并非「无界」（hardCap 是硬上界 ≈70MB），问题是上界对本机 16GB 偏高；且 **196 条孤儿记录**（会话已删、缓存行从不淘汰）`createdAt` 最旧 ⇒ 淘汰会**优先清掉它们**。执行 `setx DSH_PROJCACHE_SOFT_CAP 250` + `HARD_CAP 300` ⇒ 重启后首次 flush 淘汰约 204 条最旧记录、缓存降到 ~35MB。可逆（删环境变量）。
+3. **`/health` 第 6 项 `logs` 探针指向真实运行日志目录**（repo 插件，重启生效）。实测 `plugins/dsh-host-services/lib/index.js:146-157` 只扫 `DSH_HOME` 顶层（那里只有 manual/janitor 日志）⇒ detail 出现 `newest 13000m old` 误导值，而真实日志在 `%APPDATA%\DSH Desktop\logs`；**等于该项没有监控真正的日志**，而「日志写不进去」正是 2026-09-15 fail-loud 自杀事故的根因。修（marker `dsh patch health-logs-runtime-dir v1`）：同时扫运行日志目录并新增 `runtimeLogDir/runtimeLogFiles/runtimeLogNewestAgeMin/runtimeLogsStale` 字段；**`ok` 语义不变**（不引入新假红）。
+4. **`@deepseek-ai/cordis` fiber runner 的 `.catch` 链 TypeError**（dist 补丁，重启生效）。7 天日志里 `TypeError: Cannot read properties of undefined (reading 'catch')` **114 次，全部且仅出现在** `agent/disposed listener threw` 一个场景。根因：`cordis/lib/index.js:1265-1268` 的可选链**只护第一段**（`task?.catch(…).catch(…)`），`task` 缺失时尾随 `.catch()` 抛错，**且其后的 `finalizeDisposal(dispose)` 清理链被跳过**（对应子代理「疑资源泄漏」）。**唯一性证据**：全树扫描 `?.catch(` 仅命中 1 处；内核 4 个 `agent/disposed` 监听（agent-loop / file-reference-local / goal-round-driver / subagent）逐条核对均无此写法。修：`scripts/apply-cordis-task-catch-fix.mjs` 改为 `Promise.resolve(task).catch(`（与相邻行同款）；补丁器含**反向门**（替换后不得再有该字面量）—— 该门当场抓到我把字面量写进注释，已改写后重跑通过。备份 `_backups/dist-cordis-task-catch-2026-09-23T15-31-30-810Z/`。
+
+**子代理要点（复核后）**
+- `[E]` 级 32 行**全部出自 `mcp-client`**（openviking 24 / markitdown 6 / firecrawl 2）；`unhandledRejection` / `uncaughtException` / `fatal` / `heap out of memory` / `ENOSPC` / `EACCES` **全 0** ⇒ **09-15 自杀事故未复发**。
+- 任务调度器 **0 活锁 / 0 死锁**，`changes.jsonl` 轮转实测有效（审计期间抓到一次轮转、`old-*` 恒 5 份）；会话库 259 个 / 365.4MB、**0 空目录 0 无事件会话**；41 个 link 插件**无一加载失败**。
+- 2 个 0 字节孤儿 `.tmp` 判定为 OOM 崩溃残留（0 字节 + 独占打开成功无句柄 + mtime 与转储差 5–6s）；Crashpad 2×34MB 是 `crashpad-hygiene` 的 `maxKeep=2` **设计值非泄漏**。
+
+**明确不改（附理由）**：`_backups` 141MB（用户数据，需批准）、Crashpad 转储、`locks/*.stale-*` 无 retention（体积 131KB）、2 个孤儿 `.tmp`（工作区外需批准）、`openviking` 稳态失败（插件注释自述设计如此）、`firecrawl` 额度 -11（服务侧计费）、vision-rotator 双挂载（双份执行已证伪且每轮 reload 重建）、`compaction-basic` 双 `[active]`（**存疑未闭环**，改 loader 风险高）、日志行级交错（129 行/7d）、memory-guard 反复杀小 python（低可用内存 17% 的症状）。
+
+**修正子代理 3 处**：① 缓存「无界增长」→ 实为受 hardCap 约束；② `session-projection-cache` 2098 次「仍需修」→ 末次在 20:09:58，P1 补丁 20:52 生效后**当前这轮为 0 行**，属窗口未区分补丁前后；③ `/health logs 探针指错` 复核成立并已修。
+
+**另需注意（未执行）**：仓库有 **30 项未提交变更**（12 修改 + 18 未跟踪，含本会话全部补丁/测试/脚本）—— 提交属仓库级动作，需用户授权。
+
+---
+
+## 2026-09-23 · 第四轮：「推荐了但没生效」复查（端到端实测推翻 3 项旧结论）+ 修掉 2 个真缺陷
+
+**方法**：不再沿用首轮审计的「直连 HTTP 探活」结论，改为**走产品自身代码路径**复测 —— 视觉链路用插件的 `POST /vision-engine/refresh`（内置测试图跑真实读图）、模型 id 用网关/厂商 `/models` + 最小 `chat/completions` 请求。
+
+**复查结论（3 项旧结论被推翻，1 项被证实但不可修）**
+
+| 旧结论（首轮报告） | 端到端复测结果 | 判定 |
+|---|---|---|
+| zhipu-ai 2 个模型 id 不存在 | `/models` 列出 11 个 id；`glm-4-flash` **200 可用**、`glm-4.7-flash` **429「访问量过大」**（id 存在） | **证伪**，无需改 |
+| justdowork 2 个模型 id 不存在 | 其目录只有 `claude-opus-4-8`；`claude-opus-5(-thinking)` 与**该目录 id 全部 403**（Cloudflare 页，两种 UA 同结果） | **证实**，但根因是**整站被 WAF 拦**而非 id 写错 ⇒ 改 id 无收益，未动配置 |
+| minimax slug 下架 404 | `p-minimax-m3` 由**自己**服务（`model="minimax/minimax-m3:free"`，3.1s 读对图）；该 id 确实已从 OpenRouter 目录隐藏（456 个模型查无），但仍在服务 | **证伪**（目录 ≠ 可用性），无需改 |
+| 百炼欠费（3 个 profile 400） | 3 个百炼 profile **全部由自己服务、读图正确**（3.1–6.2s） | **证伪**，无需改 |
+| vision-engine 6/8 把 key 不在册 | **13/14 profile 实测正常**（唯一失败 `p-gemini`：Gemini 侧 **503 高需求**，属外部瞬时） | 大部分**证伪** |
+
+**新发现并修掉的 2 个真缺陷（都属「写了但从未生效」类）**
+1. **面板自测对失败 profile 报假绿**（`plugins/dsh-vision-engine/lib/index.js`）：`handleRefresh` 把 `test.ok` **硬编码为 true**，且不复制 `analyzeImage` 失败返回里的 `error`/`hint` ⇒ 客户端 `client.js:725-734` 的 `selfTestFail` 分支**永不触发**。实测：`p-gemini` 经 `/refresh` 返回 `ok:true` + 空 summary，而直通的 `/vision-engine/test` 显示真错（Gemini 503）。修复：如实透传 `r.ok`/`r.error`/`r.hint`（marker `dsh patch vision-refresh-falsegreen v1`）。测试 `tests/plugins/vision-refresh-falsegreen.test.mjs`（**3/3**，沙箱 HOME + 假 modlens CLI，完全离线：失败注入必须 ok:false+error、成功路径必须 ok:true+latency+summary）。
+2. **限流自愈的候选与端点错配**（`plugins/dsh-modlens-autoread/lib/index.js`）：候选按「baseUrl 含 openrouter.ai」挑，而重试固定带 `--provider openai` —— 该槽端点由 modlens `config.json` 决定、且被 `dsh-vision-rotator/lib/index.js:280-295` 动态改写。当槽指向智谱时，OpenRouter 的模型 id 被发到智谱端点 ⇒ **实测 `400 {"code":"1211","message":"模型不存在"}`**（子代理原样复现；上游报告写的 404 应更正为 **400**），每次自愈白跑 ≤3 次 × 180s 且**永不成功**。修复：候选必须与当前槽**同端点**（marker `dsh patch autoread-endpoint-matched-fallback v1`），端点未知则返回空 ⇒ 直接返回首错，不再无效重试。测试 `plugins/dsh-modlens-autoread/test/rate-limit-fallback.test.mjs`（**4/4**，含反向对照与安全降级）；既有 `model-modality.test.mjs` **7/7** 无回归；红/绿对照：同一 fixture 下旧逻辑返回跨端点候选 `["dots-studio/…","minimax/…"]`，修复后返回 `["glm-4v-flash","glm-4v-plus"]`。
+
+**明确不改（附证据，避免无谓改动）**
+- **`TEXT_PATTERNS` 过宽**（`plugins/dsh-modlens-autoread/lib/model-modality.js:84-96`）：确实过宽（实测 `seed-3-vl`/`ernie-5-vl`/`hy3-vl` 被判 text），但运行时通道**不可达**（`vision-channel.ndjson` 表相关 reason = **0 条**；内核 `pi-ai:1687` 的 `inputModalities` 恒为数组），唯一活调用点 `scripts/classify-settings-modalities.mjs:397` 被 `declared` 短路 ⇒ 收益仅为「防未来回归」，且需同步改测试。**列为 P3 待办**。
+- **vision-rotator 匿名重复挂载**：重复条目**实测存在**（同一包两条 active，匿名 id 现为 `d5c685ba`，上游报告的 `8806b932` 已过期），但**「双份定时器/双份请求」被证伪**（ESM 同一 URL 只求值一次，模块级 `applied` 守卫共享；日志中每个失败时间戳只出现 1 次；端点单状态）。清理 injector `registry.json` 需重启验证且有「万一 bundle 条目不是有效加载路径」的风险 ⇒ **不改，仅记录**。
+
+**生效方式**：两处修复都在**已加载的 ESM 模块**里，注入器热重载不可用（`dev_reload_package` 报 `loader.internal 不可用`）⇒ **需重启**。实测佐证：重启前 `/refresh p-gemini` 仍返回 `ok:true`（旧代码）。
+**门禁**：`verify-patches.ps1` 新增 2 条 → **ALL PASS (75 checks)**。
+
+**重启后核对（实测，两处均生效）**：`p-gemini` 经 `/refresh` 返回 **`ok=false` + 真实错误 `Gemini API error 503`**（假绿消除）；`p-zhiji-flash` 仍 `ok=true` / 2878ms / 读图正确（成功路径未坏）；既有修复保持（`non-plain-JSON` / `cache stays stale` / `EPERM` / `evicted` 全 0，无新 Crashpad 转储）。
+
+**第三处修复（同日追加，来自同一轮复查的代码级缺陷清单）**：**模态模式表把视觉变体判成纯文本**（`plugins/dsh-modlens-autoread/lib/model-modality.js`）
+- **实测（红/绿对照，同一批 id）**：旧表 → `seed-3-vl` / `ernie-4.5-vl-32b` / `ernie-5-vl` / `hy3-vl` / `deepseek-v3-vl` **全部判 `text`**；新表 → **全部 `image`**。另 `seed-2.1-turbo` / `seed-2.1-pro` 旧表判 `text`，而首轮**网关端到端实测**（真 key 发 64×64 PNG）证明二者**能原生读图**（200 且读对颜色）⇒ 该两条属**被实测证伪的错误条目**，已移除，改为 `unknown` 交「已声明 input: / 网关能力字段」判定。
+- **修法**：在 TEXT 表之前插入「无歧义视觉后缀」守卫（`*-vl` / `*-vl-*` / `*vl-*` / `*-vision*` / `*vision-*` / `*-omni*` / `*visual*`）；**刻意不收 `v[0-9]`** —— 那会把 `deepseek-v4-flash-0731` 的版本号当视觉标记，制造新误判（已加反向断言）。非 VL 成员（`hy3` / `deepseek-v3` / `ernie-4.5-8k`）仍判 `text`，无误伤。
+- **影响面（诚实标注）**：运行时通道**不可达**（`vision-channel.ndjson` 中表相关 reason = **0 条**；内核 `pi-ai:1687` 的 `inputModalities` 恒为数组）⇒ 真正生效点是维护脚本 `scripts/classify-settings-modalities.mjs`（**下次运行即用新表，无需重启**）；插件内的副本随下次重启更新，功能上无差异。
+- **验证**：`plugins/dsh-modlens-autoread/test/model-modality.test.mjs` **9/9**（新增 2 个用例：守卫生效 + 被证伪条目已移除），`rate-limit-fallback.test.mjs` **4/4** 无回归；门禁 `verify-patches` 新增 1 条 → **ALL PASS (76 checks)**。
+
+**本轮明确不改（附证据）**：`mcp-client(openviking)` 每次启动的连接失败 —— 实测服务端（volcengine/OpenViking）**本机从未安装**（pip 无、无 docker、端口 1933 未监听），而插件 `mcp.mjs` 的注释**自己写明**这是「**a steady state, not an incident**」（服务端没装时故意只重试 2 次、约 15s 静默）⇒ 属设计意图而非缺陷；卸载会连带移除 2026-09-02 主动安装的记忆功能与 `openviking-memory` 技能，故**不动**。
+
+---
+
+## 2026-09-23 · 第三轮收口：重启后核对全部通过 + L3 根因结案（`contextTimeline` 的 `undefined` tool 名）
+
+**背景**：上一节的三条补丁需重启生效；本节记录**重启后实测核对**，并把 L3（哪个 unit 违反 plain-JSON 契约）从「推断」推进到**代码级根因 + 已修**。
+
+**重启后核对（实测，全部通过）**
+| 核对项 | 结果 |
+|---|---|
+| 写盘失败是否停止 | **`cache stays stale` = 0 行**（20:52:50 重启后；重启前 313 次） |
+| 缓存文件是否降容 | **105.4 MB → 60.2 MB**，且已是紧凑格式（首字节即 `{"unit":…`，无缩进换行） |
+| 违约单元是谁 | 日志首次给出名字：`session "session-8d2fcb37-…" has 1 non-plain-JSON unit state(s) [contextTimeline]` |
+| 其他 json 存储是否正常 | `session_projcache.json` 重启后持续正常写入（20:54 起），应用无存储错误 |
+| 该会话缓存是否恢复 | **是** —— 其记录已含 **14 行**（只丢 `contextTimeline` 一行），此前**一行都写不进** |
+| 是否再崩溃 | 重启后无新 Crashpad 转储（最近两份仍是 14:45 / 19:22） |
+
+**L3 根因（实测，离线重放真实日志定位）**
+- 方法：`_tmp/diagnose-context-timeline-20260923.mjs` —— 假 ctx 捕获 `dsh-context` 注册的 unit 定义（`init`/`apply`），把该会话的 `session.jsonl.zstd` **逐帧解码**（41383 帧 → 55536 条记录），逐事件重放并做**带路径**的 plain-JSON 检查。
+- 结果：`*** FIRST NON-PLAIN STATE after event #48350 type=tool/result seq=772918 → path: state.surface[54].tool = undefined`。
+- 代码缺陷（`dsh-context/lib/index.js:517`）：
+  `else if (typeof blockId === "string") node.tool = st.callNames[blockId];`
+  **只校验了键是字符串、没校验值**；而 `callNames` 条目在该 tool/result 到达后即被删除（`:518-522`）⇒ 之后（或从缓存行 + 尾部冷读时）查表得到 `undefined` 并被写进 state。**一个 `undefined` 值属性就足以让整个 unit 永久不可 checkpoint**（`JSON.stringify` 丢键 ⇒ 有损 ⇒ 契约拒绝），且该节点一直留在 `surface` 数组里 ⇒ 永久中毒。
+
+**改动**
+1. `scripts/apply-context-undefined-tool-fix.mjs`（新，幂等 + 锚点唯一性门 + 原子写 + 回读校验 + 自动备份）：把该行改为 `typeof st.callNames[blockId] === "string"` 才赋值（与上一行 `srcName` 分支及该 unit 自身的 `tool: z.string().optional()` schema 一致）。目标为 **profile 插件**（`~/.dsh/profiles/desktop/node_modules/dsh-context/lib/index.js`），不在 dist ⇒ **插件重装/升级会静默丢失**，故登记门禁。
+2. `scripts/verify-patches.ps1` 新增 1 条校验 → **ALL PASS (72 checks)**。
+3. 备份 `_backups/dsh-context-undefined-tool-2026-09-23T13-20-20-164Z/`。
+
+**验证（同一份真实日志的前后对照）**
+- 补丁**前**：在 event #48350 报出 `state.surface[54].tool = undefined`。
+- 补丁**后**：**`folded 55536 events; state stayed plain-JSON throughout`**（全程无违约）。
+- 生效方式：**需重启**（运行中的进程已加载旧模块；重启后该 unit 会从日志重新 fold，中毒状态自然消失）。
+
+**顺带观察（L4 归档的可预期副作用）**：`workspace-registry` 对 7 个被归档会话记 `filtered session … from membership: session header is missing` —— 目录已移走故被移出工作区成员列表；恢复＝把目录移回原位（清单 `_backups/archived-sessions-20260923-202006/manifest.txt`）。
+
+**第二次重启后核对 + 附带发现并修复（`EPERM` 原子替换被瞬时锁打回）**
+- 核对：`non-plain-JSON` 告警 **0 行**、`cache stays stale` **0 行**、无新 Crashpad 转储 ⇒ **L3 修复生效，成功判据达成**。`session-8d2fcb37` 记录仍是 14 行属正常（该会话空闲、日志自 21:12 未再写 ⇒ 不触发 checkpoint；下次打开/产生事件时补上第 15 行）。
+- 新发现：`21:34:26 [W] … failed (cache stays stale): Error: EPERM: operation not permitted, rename '…\.tmp' -> '…\session_projcache.json'`（今日 **1 次**，瞬时）。成因：`dsh-storage-json.writeAtomic()` 是「临时文件 + rename 覆盖目标」的整份替换，而该文件每 ~5 秒被重写一次、体积 60MB；Windows 上只要有另一句柄持有目标且未带 `FILE_SHARE_DELETE`（典型为实时杀软扫描刚写完的文件；本机装有火绒）即返回 `EPERM`。原实现**不重试** ⇒ 一次瞬时锁就丢掉该会话的 checkpoint（fail-soft：下一轮写自愈，代价是冷读回放日志）。
+- 修复：`scripts/apply-json-storage-retry.mjs` —— 只对 `EPERM`/`EBUSY`/`EACCES` 有界重试（默认 5 次、40ms×attempt 退避、`DSH_STORAGE_RENAME_RETRIES` 可覆盖），最终错误带尝试次数；上游 catch 的 `.tmp` 清理保持有效。
+- 验证（故障注入 `tests/dist/json-storage-retry.test.mjs`，把目标路径先造成目录使 rename 必然失败）：**未打补丁 exit 1（pass 1 / fail 3）→ 打补丁 exit 0（4/4 全绿）**；实测按预算重试 3 次、退避 154ms、失败后无 `.tmp` 残留。备份 `_backups/dist-json-storage-retry-2026-09-23T13-39-30-794Z/`；门禁 **ALL PASS (73 checks)**；**需重启生效**。
+
+**仍未做（待拍板）**：23 个会话仍停在已移除的 modlens 双胞胎上（客户端自愈会在打开时逐个修；也可 `node scripts/check-stale-modlens-twins.mjs --fix` 立即缓解）、zhipu-ai / justdowork 4 个不存在模型 id、百炼欠费、minimax 下架 slug、autoread 限流自愈、`TEXT_PATTERNS` 过宽、vision-rotator 匿名重复挂载。
+
+---
+
+## 2026-09-23 · 第二轮收口：投影缓存「有界化 + 单会话可降级 + 写入减半」内核补丁（projcache-guard）
+
+**承上一节**（OOM 根因 = 主进程 V8 堆耗尽）。本节补齐**堆为什么被吃掉**的可执行证据链，并把根因修成机制，而不是靠清数据缓解。
+
+**新证据（实测）**
+1. **313 次写盘失败全部来自同一个会话**：`session-8d2fcb37-…`（今日 14:20:43 起，5 秒一次，`interval write` + `turn/end write` 皆然）；**09-22 日志同类错误 = 0 次**。该会话正是上一节「停在已被移除的 modlens 双胞胎上」的会话之一 ⇒ 同一根因既打挂压缩引擎，也把它的投影缓存永久卡死。
+2. **缓存规模实测**：`session_projcache.json` = **105 MB / 449 条会话记录**；同一份数据紧凑序列化只有 **59 MB** ⇒ 差额全是 pretty 缩进。分布很平（最大单条仅 1.4 MB，15 个 unit 行：sessionStats / contextTimeline / contextHeaders / title / goal / tokenUsage / contextPressure / contextBreakdown / subagentTiming / subagent / permissions / sessionListMetadata / imageLimits / todos / plan）。
+3. **写盘是「整文件重写」**：`dsh-storage-json` 的 `serialize()`（`lib/index.js:79`）对**整个 document** 做 `JSON.stringify(document, null, 2)`，再由 `writeAtomic()`（`:25`）落盘 —— 即每次 flush 都要在堆上造一个 **105 MB 级瞬时字符串**，而 flush 由「每会话事件计数 + 5 秒定时器 + turn/end」驱动。在会话正文同时驻留的情况下，这是持续的百 MB 级垃圾产出（**实测代码路径 + 推断其对 OOM 的贡献占比**；未取堆快照，故不宣称精确比例）。
+4. **plain-JSON 契约的拒绝面**（`@deepseek-ai/dsh-session/lib/types/json.js:104-129`）：非有限数 / `-0` / `undefined` / 函数 / 循环引用 / **非朴素原型对象（类实例）** / 稀疏数组 / symbol 或不可枚举键。**推断**该会话某 unit 存入了含 `undefined` 字段的值（模型条目已随双胞胎消失而解析不到）—— 待重启后由 P1 的日志点名确认。
+
+**改动（三条 dist 补丁 + 一键重打脚本，`scripts/apply-projcache-guard.mjs`）**
+1. **P1 逐键隔离 + 点名**（`dsh-session-projection-cache/lib/index.js` 的 `put()`）：整表快照失败时改为**逐键快照**，健康行照常落盘，坏键**按名字写进告警**（同签名只告警一次，不刷屏）；全坏才照旧抛 `TypeError`（调用方 fail-soft 语义不变）。⇒ 一个坏单元不再让整会话缓存永久失效，同时**把「哪个 unit 违约」变成日志里的事实**（此前只能靠堆快照，而本机没取）。
+2. **P2 有界缓存**（同文件）：`put()` 成功后若记录数超硬上限（默认 **500**）⇒ 按 `identity.createdAt` 淘汰最旧记录到软上限（默认 **400**），**绝不淘汰当前会话**；`DSH_PROJCACHE_SOFT_CAP` / `DSH_PROJCACHE_HARD_CAP` 可覆盖。淘汰符合该服务自身契约（「行只会过期、永不写错」：缺行 = 下次冷读多回放一段日志）。
+3. **P3 紧凑序列化**（`dsh-storage-json/lib/index.js` 的 `serialize()`）：`null, 2` 去掉，文档 JSON.parse 等价、字节减 ~45%（该文件 105 MB → 59 MB），每次 flush 的瞬时字符串与 GC 压力同步下降。**可独立回滚**（独立 marker `dsh patch json-storage-compact v1` + 门禁两条独立校验）。
+
+**验证**
+- **故障注入 `tests/dist/projcache-guard.test.mjs`：补丁前 9 项全红 → 补丁后 9/9 全绿**（含证伪前置：先证明注入的坏值确实违反 plain-JSON 契约、未打补丁必抛；再证明打完只丢坏键且点名；另有幂等、全坏保底、上限未触发零副作用、env 逃生门、以及走**真实写入路径**验证文件确实紧凑且数据无损）。
+- `scripts/verify-patches.ps1` 新增 3 条校验，**PASS**（P1 marker / P2 上限 / P3 marker）。
+- 运行中的应用不受影响（ESM 已加载，补丁**重启后生效**）。
+
+**顺带完成的 L4（可逆，非删除）**：`scripts/archive-big-sessions.ps1 -Execute` 归档 **7 个闲置大会话 / 96.2 MB**（0 跳过），清单 `_backups/archived-sessions-20260923-202006/manifest.txt`，恢复 = 把目录移回原位。
+
+**回滚**：`_backups/dist-projcache-guard-2026-09-23T12-38-08-501Z/`（两个 `.bak` 即原始文件）；恢复后重跑 `node scripts/verify-patches.ps1`。
+
+**遗留（待拍板，未动）**：zhipu-ai / justdowork 的 4 个不存在模型 id 的替换选型、百炼欠费、minimax 下架 slug、autoread 限流自愈、`TEXT_PATTERNS` 过宽通配、vision-rotator 匿名重复挂载。
+
+---
+
+---
+
+## 2026-09-23 · 「自动关闭」根因收口：主进程 V8 堆 OOM + modlens 失效双胞胎反向自愈
+
+**现象 A**：应用反复「自动关闭」（14:13 起的每一次运行都以非正常退出告终）。
+**现象 B**：会话报 `model "deepseek-flash" declares native image input, so its "(modlens vision)" entry no longer applies.`
+
+**根因 A（实测，铁证）**：**主进程 V8 JavaScript 堆耗尽 → Electron 主动 abort**。自写 minidump 解析器读 Crashpad 转储 `Crashpad\reports\*.dmp`，两份均为 `ExceptionCode = 0xE0000008`（Chromium kOomExceptionCode），转储内原文：
+`[26132:0923/192223.067:ERROR:electron\shell\common\node_bindings.cc:190] OOM error in V8: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory`。
+已排除：内存守卫击杀（全天只杀 python，且明确 `NOT killing unrelated processes`）、`log-write-guard` 自杀 bug 复发（`verify-patches.ps1` = ALL PASS 68 项）、用户手动关闭。另：17:21 的 `Kernel-Power 41 + EventLog 6008` 是**独立的整机脏关机**，与两次应用崩溃不是同一件事。
+
+**堆占用候选（实测 + 推断）**：`~/.dsh/storages/session_projcache.json` = **105 MB**；`session-projection-cache` 今日 **195 次**写盘失败（日志最高频错误），明确 `cache stays stale` ⇒ 内存投影缓存不被释放。**推断**其为堆耗尽主因（无堆快照，故标推断）。
+
+**根因 B（实测，代码级）**：`plainMap`（`dsh-model-picker-group/lib/client.js:54`）由 `llm.models` 全量目录构建 —— 模型一旦自行声明 image，modlens 不再包装它（`@liustack/modlens/dsh/index.js:585`），目录里该双胞胎条目消失，故 `maybeAutoTakeover`（`:221`）的 `if (!mp) return` 本就安全。**缺的是反向路径**：会话 `current` 停在已被移除的双胞胎上时，没有任何代码把它救回上游 ⇒ modlens 在 `resolveModel` 阶段拒绝（`:654-658`）。RPC 批量切换**不持久**：对非活跃会话只改内存态（实测 28 个会话切换后重启全部回退；会话日志中 `model-changed` 事件数 = 0）。
+
+**放大器（实测，需诚实归因）**：`basic-compaction-engine` 今日 11 次 `step compaction failed: model "deepseek-flash" declares native image input…` —— 双胞胎失效把**压缩引擎**也打挂，而压缩正是抑制会话膨胀的机制 ⇒ 会话/投影越长越大 ⇒ 更快撞堆上限。**但 OOM 非本次引入**：WER `RADAR_PRE_LEAK_64`（09-22 03:27，早于 09-23 04:10 的声明）与 09-14 的 Crashpad 转储表明既有膨胀/泄漏；本次声明把它从偶发推成每次运行必崩。
+
+**改动**
+1. `plugins/dsh-model-picker-group/lib/client.js`（+47 行，0 删除）：新增 `healStaleTwin()` —— 会话目录刷新时，若 `current` 在 modlens 渠道、而**按与 `groupedSelect` 完全相同的查表**已找不到该模型的包装（`plainMap[up\0model] || plainMap[\0model]` 均无）⇒ 自动 `selectModel` 切回上游。判据与改道逻辑**同源**，故「判定过期」与「不会再被改道」严格等价，不存在来回弹跳；仅在权威源就绪（`stableTakeoverLoaded`）时动作；幂等（按 sessionId 记一次，失败自动解除以便重试）。导出 `healStaleTwin` / `loadStableTakeover` 作测试钩子。
+2. `plugins/dsh-model-picker-group/test-stale-twin-heal.mjs`（新，5.9KB）：**故障注入**验证 9 例全 PASS —— 权威源未就绪不动 / 双胞胎仍在不乱切 / 已消失必须切回上游 / 幂等 / 失败可重试 / 上游渠道与空值不动 / `deepseek-modlens→deepseek-official` 别名映射。
+3. `scripts/check-stale-modlens-twins.mjs`（新）：离线巡检 + `--fix` 兜底（读 settings.yaml 声明作地面事实，逐会话查 `session.models`），供换机/换 profile、GUI 未打开（看门狗续跑）、以及声明新模型前后回归使用。退出码 0/1/2。
+4. 备份 `_backups/stale-twin-heal-20260923-1925/`（`client.js.before` 取自 git HEAD，`git diff --stat` 证实改前无未提交改动）。
+5. 报告 `outputs/2026-09-23-report-vision-modality-misjudgment/ROUND3-stale-twin-rootcause.md`、`ROUND4-main-process-oom.md`。
+
+**验证**：`node --check` 通过；既有 `test-picker-group.mjs` = ALL TESTS PASSED（无回归）；新增测试 9/9 PASS；浏览器实收 bundle（`/plugins/@dsh-external/dsh-model-picker-group/client.js`）已含 `healStaleTwin`/`stale-twin-heal`，`Cache-Control: no-cache` ⇒ 普通 F5 即生效。
+
+**待决策（未动）**：L2 给内核 `@deepseek-ai/dsh-session-projection-cache` 加「缓存上限 + 单会话失败降级」；L3 定位注入非纯 JSON unit state 的源头（`@deepseek-ai/dsh-session/lib/types/json.js:159` 校验）；L4 归档 7 个闲置大会话（系统计划可回收 ~96MB，当前 `actionEnabled=false`）；L5 抬高 V8 堆上限（**不推荐**：可用物理内存仅 3.9GB）。
+
+---
+
+## 2026-09-23 · 多模态模型被误判为纯文本：网关能力探测接入 + 18 模型落地 + 「写了但从未生效」普查
+
+**现象**：`deepseek-flash` 等**确为多模态**的模型被当成纯文本，图片一律走 modlens 视觉桥（由「配置的视觉模型」读图），而非原生送进模型。
+
+**根因（实测）**
+- 本机对模态只有**一个真正生效的开关**：`~/.dsh/settings.yaml` 手写的 `input:`。内核取值 `dsh-llm-pi-ai/lib/index.js:651` = `declaredInput(entry.input) ?? base?.input ?? ["text"]`（`:862`），而**本机 17 个 provider 中 14 个不在 pi-ai 内置目录**（实测 `@earendil-works/pi-ai/providers/all` 仅含 `opencode-go`/`openrouter`/`groq`）⇒ 未声明即恒为 text-only，`lib/index.js:1721` 直接抛 `UNSUPPORTED_CONTENT`。
+- **「先判断是否多模态」的机制代码在、从未生效**：`vision-channel.ndjson` 全量 69 条决策中模式表贡献 **0 条**（`table-image`/`table-text-or-unknown` 均为 0）；`dsh-modlens-autoread/lib/index.js:509` 的表兜底对 pi-ai 路由**不可达**（`resolveModelInfo` 永远返回 `inputModalities` 数组）；覆盖文件 `~/.modlens/model-modalities.json` 实测不存在。
+- `--web`（models.dev 复核）只在 `v.kind==='unknown'` 时触发，**被 `TEXT_PATTERNS` 误判成 text 的模型永远得不到纠正**；且该动作不进 `record()`，事后不可审计。
+
+**决定性实测（端到端）**：网关 `/v1/models` 自带能力字段。用 `~/.dsh/.credentials.yaml` 的真 key 发 64×64 红色 PNG：
+`deepseek-flash` → 200 `"Red"`、`seed-2.1-turbo` → 200 `"Red"`、`seed-2.1-pro` → 200 `"red"`、`qwen3.8-flash` → 200（收图）、`glm-5.3-flash` → 200 `"Red"`；
+`glm-5.3` / `deepseek-v4-flash-0731` → 400 `MODEL_CAPABILITY_NOT_SUPPORTED: vision`。
+与 `/models` 的 `supports_vision` **完全一致**。⇒ `glm-5.3-flash` **并未被误判**（审计日志 8 条 `native / catalog-declares-image`），用户原假设此点证伪。
+
+**改动**
+1. `scripts/classify-settings-modalities.mjs`（387 → 570 行）：新增 `--probe` —— 把 **provider 自己的 `GET {baseURL}/models`** 作为**最高优先级事实源**（判定序：网关实测 > 设置已声明 > models.dev > 分类表）。能力字段兼容 `supports_vision` / `architecture.input_modalities` / `modalities.input` / `capabilities.vision`，**取不到就返回 null（不猜）**；6h 缓存（`--probe-cache`/`--probe-no-cache`）；**fail-open**；新增 `DIFF` 段（FIX / WARN / 无法判定 三类）；`--apply` 在 `--probe` 下**只写网关实测确认的**模型。复用既有备份 / `atomicWrite` / `validateAfterApply` / `record()`，未重复造轮子。
+2. `~/.dsh/settings.yaml`：**18 个模型**补 `input: [text, image]`（tokenrhythm01 ×6、openrouter ×3、groq ×1、amd ×2、codecraft ×6）。备份 `~/.dsh/settings.yaml.bak-modality-20260923021944`，写后 js-yaml 校验 `providers=17` 通过，操作落 `settings-modality-patches.ndjson`。
+
+**关键坑（已处理）**：modlens 的 `shouldWrap`（`@liustack/modlens/dsh/index.js:585`）会把**声明了 image 的模型从包装组剔除** ⇒ `modlens-<route>/<model>` 条目消失，正在使用该双胞胎的会话每轮抛错（`:654-658`）。故新工具内置**双胞胎护栏**，本次**拦下当前会话模型 `deepseek-flash`**，留 3 步操作给用户。
+
+**三切面并行审计（子代理，严格只读）**
+- **插件生效性**：41 个目标全部 loader `[active]`，**无「注册了但从未跑起来」的插件**。**证伪**「vision-rotator 已卸载 + 写 disabled」：活跃 profile patch 无该条目，`disabled: true` 只在 2026-08-28 的备份文件里；它 2026-09-21 被重新注入，活路由 `/vision-rotator` 200 且探测数据新鲜。真实待办为配置卫生：匿名哈希重复挂载条目、`web-fetch-local` 的 `local-fetch` 被 `bing-fetch` 覆盖、`self-maintenance` 双反斜杠路径。
+- **代码死分支**：除上表外，还有 `diff-guard` 阶段 2 LLM 评审整块不可达（配置双 false）、`tier-router` 的单向护栏与 `ambiguous=low` 分支在当前配置下不可达、6 类 env 逃生门（`MODLENS_CLI`/`DSH_PROFILE`/`DSH_OLLAMA_MODELS`/`DSH_VISION_KEEP_OLLAMA`/`DSH_FILE_EXPLORER_ROOTS`/`DSH_STAGE_RESTORE`）全仓零生产赋值、`autoread` 的 `config.evidenceDetail` 无配置入口。
+- **配置死字段**：**P0 `settings.yaml:123` openrouter baseURL 多写 `/chat/completions`** ⇒ SDK 再拼一段，实测 `POST …/chat/completions/chat/completions` **404**（正确 URL 200），该 provider 下 6 个模型全部不可用（**本次未擅改**，属独立 P0）；**vision-engine.json 8 把 key 中 6 把不在凭据库**（百炼 3 profile 实测 400 `Arrearage`、tokenrhythm 2 profile 实测 402、`p-minimax-m3` slug 下架 404）；`zhipu-ai` 与 `justdowork` 各 2 个模型 id 在 `/models` 中不存在；`autoread` 限流自愈把 OpenRouter 模型 id 用 `--provider openai` 打到智谱端点，结构性失效。
+
+**生效方式**：`dsh-settings-file`(chokidar) + pi-ai `onChange` 热重注册 ⇒ **无需重启**。实测证据：写入同秒（`2026-09-22T18:19:44.765Z`）模型目录刷新事件出现，而该日志此前静默近 6 小时。**但建议刷新一次页面**：`dsh-model-picker-group` 的接管映射 `plainMap` 为「幂等增量、不清空」设计，仍留 98 条陈旧项。
+
+**验证**：`node --check` OK；`--probe` 对账「网关确认多模态 22 → 已声明 21，仅剩 deepseek-flash（受护栏保护）」；`--json` 复核一致；`settings.yaml` 中 `input: [text, image]` 实测 18 行；备份/证据归档见报告 §8。
+
+**回滚**：`node scripts/classify-settings-modalities.mjs --undo --providers <p> --only-models <m>`，或整体还原 `_backups/vision-modality-20260923-0225/settings.yaml.before`。
+
+**记录**：`outputs/2026-09-23-report-vision-modality-misjudgment/`（含 `capability-report.txt` / `capability-cache.json` / `vision-channel.ndjson.snapshot` / 改动前后配置）；**7 项待拍板见报告 §7**。
+
+**第二轮收口（同日 12:0x）—— deepseek-flash 配好 + 两个 P0 一并修掉**
+- **发现**：用本地 RPC（`POST /api/<method>`，信封 `{type:"client-request",rpcId,method,payload}` + 同源 `Origin`）实测**有两个运行中会话**都停在 `modlens-tokenrhythm01/deepseek-flash`（本会话 + `session-8d2fcb37`），直接声明会同时打断两者。
+- **执行**：先用 `session.selectModel` 把两个会话切到上游 `tokenrhythm01/deepseek-flash`（同模型同网关，只是不经包装层），再落声明。★ 本会话第一次调用返回 `ok=true` 但回读仍是旧值，**重发一次才生效** ⇒ 教训：RPC 切换后必须回读复核，不能只看 `ok`。同步修护栏：原先只比对模型名，会把已切上游的会话误判为危险；改为**同时要求会话确实停在 `modlens-*` 路由上**。
+- **P0-a openrouter baseURL**：`https://openrouter.ai/api/v1/chat/completions` → `https://openrouter.ai/api/v1`（依据 `@earendil-works/pi-ai/dist/api/openai-completions.js:505-507` → `new OpenAI({baseURL: model.baseUrl})`，SDK 再拼一段路径；实测拼接 URL **404** → 修复后 **200**）。备份 `settings.yaml.bak-openrouter-url-20260923041340`。
+- **P0-b vision-engine 陈旧 key**：2 个 tokenrhythm profile 的 key 换成凭据库那把（实测 **402** → **200** 读图成功）。备份 `vision-engine.json.bak-keyfix-20260923041340`。
+- **最终验收**：`settings.yaml` 解析出 **22 个** image 模型（与网关实测 22 个一致）；运行时目录 `tokenrhythm01` 含 deepseek-flash=true、**`modlens-tokenrhythm01` 含 deepseek-flash=false**（双胞胎消失，证明内核已按多模态处理）；当前会话 = `tokenrhythm01/deepseek-flash`。
+- **观察**：第一轮写入的 18 行被**第二个写入者重新序列化**为 `input: [ text, image ]`（js-yaml flow 风格），内容无损 ⇒ `settings.yaml` 会被整体重写，行级编辑必须写前重读、不可假设格式保持。
+
 ---
 
 ## 2026-09-21 · vision-rotator 掉线找回 + 持久化登记修复 + 轮换链实测

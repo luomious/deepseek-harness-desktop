@@ -17,6 +17,12 @@ locales/
 extracted/
 node_modules/
 dist/
+# Fault-injection tests for dist patches live in tests/dist/ - the generic `dist/` rule
+# above silently ignored them (found 2026-09-24: log-write-guard / projcache-guard /
+# json-storage-retry / json-storage-orphan-tmp-sweep tests were ALL untracked, so a fresh
+# clone could not verify a single dist patch even though verify-patches.ps1 cites them).
+# Re-include that one directory explicitly.
+!tests/dist/
 
 # OS
 Thumbs.db
@@ -92,6 +98,9 @@ proc-watch.log
 spawn-trace.log
 patches/wip/
 scripts/test-siliconflow-vision.mjs
+# _tmp/ = per-session probe / one-off scripts (2026-09-24: 1.3 MB of throwaway probes was
+# showing up as an untracked blob in every `git status`; durable scripts belong in scripts/)
+_tmp/
 # write-shim atomic-staging leftovers
 .*.tmpdir/
 *.tmpdir/
