@@ -131,6 +131,26 @@ return JSON.stringify({ ok: true, value: result.value });   // 信封不变
 | 影响面 | 所有经桥调用的工具受益（`read_image`、`modlens_read_image`、图表类工具等） |
 | 回滚 | `copy` 回 `_backups/profile-tool-search-image-passthrough-2026-09-23T17-03-58-039Z/bridge-*.bak`，再跑 `verify-patches` |
 
-## 七、顺手查出的另一个真问题（已记录，未改）
+## 七、顺手查出的问题：已核实并**排除**（含一份声明审计）
 
-`zhipu-ai/glm-4.7-flash` 直连发图返回 **HTTP 400 `1210 …取值范围 ['text']`** ⇒ 该模型**不接受图像内容**。需要确认它在 `settings.yaml` 里是否被声明为 `input: [text, image]`：若是，那是一个**反向误判**（把纯文本模型声明成多模态，同样会导致幻觉）——建议用上一轮的 `scripts/classify-settings-modalities.mjs --probe` 复核智谱全家族。**本轮未改配置**（需先确认声明现状）。
+起初我看到 `zhipu-ai/glm-4.7-flash` 直连发图返回 **HTTP 400 `1210 …取值范围 ['text']`**，担心是「反向误判」（把纯文本模型声明成多模态）。**核实后排除**：
+
+- `settings.yaml:224` 的 `glm-4.7-flash` **根本没有 `input:` 字段** ⇒ 内核本来就按 `["text"]` 处理，行为正确；
+- 我那个直连测试是**绕过了内核的声明门**（内核在发图前会先拦：`dsh-llm-pi-ai:1721` 会在模型未声明 image 时直接抛 `UNSUPPORTED_CONTENT`）⇒ 那个 400 是**预期行为**，不是配置错误。
+
+于是把问题反过来问：**声明了 `image` 的模型，是否真的能读图？** 用同一张盲测图（真值：左下绿圆 / 右上紫圆 / 右下红方）逐个实测（`_tmp/modality-declaration-audit-20260924.mjs`）：
+
+| 模型（均声明 `input: [text, image]`） | 实测 |
+|---|---|
+| tokenrhythm01/`kimi-k2.6` | **3/3** |
+| tokenrhythm01/`kimi-k2.7-code` | **3/3** |
+| tokenrhythm01/`qwen3.8-max` | **3/3** |
+| tokenrhythm01/`seed-2.1-turbo` | **3/3** |
+| tokenrhythm01/`glm-5.3-flash` | **3/3** |
+| tokenrhythm01/`qwen3.7-flash` | 3/3（首次 0/3 是**探针缺陷**：`max_tokens=300` 被 reasoning 烧完、正文为空；放大到 3000 后 3/3） |
+| tokenrhythm01/`qwen3.8-flash` | 3/3（同上） |
+| tokenrhythm01/`seed-2.1-pro` | HTTP 504（网关瞬时超时，未定性） |
+
+**结论：声明与现实一致，未发现反向误判**；这份审计还**独立复现了两条旧结论**——`seed-2.1-turbo` 确实能读图（09-23 把 `seed-*` 从 TEXT 表移除是对的）、`glm-5.3-flash` 确实能读图（09-23 的「未被误判」成立）。
+
+**方法论补充（我自己踩的坑）**：探针的 `max_tokens` 太小会把「推理模型正常回答」误报成「读图失败」——判定读图能力时，必须把**截断**与**失败**分开看（`finish_reason: length` vs 真错误）。

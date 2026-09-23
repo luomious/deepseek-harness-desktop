@@ -23,7 +23,7 @@
 
 **验证**：故障注入 `tests/plugins/tool-search-image-passthrough.test.mjs` **补丁前红**（`0 !== 1`：桥确实不 defer 图）→ **补丁后 4/4 绿**（含反向断言：纯文本结果**不得** defer、错误结果不 defer 且仍返回 `{ok:false,error}`）；`node --check` exit 0；门禁 **+1 ⇒ 81 checks ALL PASS**；备份 `_backups/profile-tool-search-image-passthrough-2026-09-23T17-03-58-039Z/`。**需重启生效**；重启后验收判据：盲测应 3/3、`contextTimeline.images` > 0、`tool/result` 后应跟一条带图像块的 user 消息。
 
-**顺手查出的另一个真问题（已记录，未改）**：`zhipu-ai/glm-4.7-flash` 直连发图返回 **HTTP 400 `1210 …取值范围 ['text']`** ⇒ 该模型**不接受图像**；需确认它是否被反向误判声明为多模态（若已声明，同样会导致幻觉）。本轮未改配置。
+**顺手查出的问题：已核实并排除（附一份「声明 vs 现实」审计）**：起初看到 `zhipu-ai/glm-4.7-flash` 直连发图返回 **HTTP 400 `1210 …取值范围 ['text']`**，担心是反向误判；**核实后排除** —— `settings.yaml:224` 的 `glm-4.7-flash` **根本没有 `input:` 字段**，内核本就按 `["text"]` 处理，而我的直连测试**绕过了内核的声明门**（`dsh-llm-pi-ai:1721` 会在未声明 image 时直接抛 `UNSUPPORTED_CONTENT`）⇒ 400 是预期行为。于是反过来审计：**声明了 image 的模型是否真能读图**（同一张盲测图）—— `kimi-k2.6` / `kimi-k2.7-code` / `qwen3.8-max` / `seed-2.1-turbo` / `glm-5.3-flash` / `qwen3.7-flash` / `qwen3.8-flash` **均 3/3**（前两个 PARTIAL 是**我的探针 `max_tokens=300` 太小**、推理模型把额度烧在 reasoning 上，放大到 3000 后 3/3），`seed-2.1-pro` 遇网关 504 未定性。⇒ **声明与现实一致，无反向误判**；并**独立复现两条旧结论**（`seed-2.1-turbo` 确能读图、`glm-5.3-flash` 确能读图）。**方法论**：判定读图能力时要把**截断**（`finish_reason: length`）与**失败**分开看。
 
 **报告**：`outputs/2026-09-24-report-native-vision-bridge-bug/REPORT.md`。
 
