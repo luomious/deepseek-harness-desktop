@@ -123,3 +123,20 @@ await rename(tmp, path);                      // 原子发布
 | 降 `HARD_CAP` 到 200 / 改按体积淘汰 | 当前 52.8 MB 稳定、无 OOM 复发；过度调参会牺牲冷读命中率，收益不明 |
 | Crashpad 转储（2×34 MB） | `crashpad-hygiene` 的 `maxKeep=2` 设计值，非泄漏 |
 | `compaction-basic` 双 `[active]` | 存疑未闭环，改 loader 组合风险高于收益 |
+
+---
+
+## 九、最终验证（实测）
+
+| 验证项 | 结果 |
+|---|---|
+| `scripts/verify-patches.ps1` | **ALL PASS (80 checks)**（79 static + 3 chunk + 1 dist integrity + 46 syntax） |
+| `scripts/check-all.ps1` | **CHECK-ALL: ALL PASS**（exit 0）；单测 **301 pass / 0 fail**（11 suites）；smoke-test **ALL PASS**（23 项） |
+| 补丁落地复核 | dist 文件内 marker + `sweepOrphanTmp` + 调用点均在位（行 25/33/66），`node --check` exit 0 |
+| 残留清理复核 | `~/.dsh/storages/` 现仅 3 个正常文件（`message_feedback.json` / `session_projcache.json` 52.9 MB / `workspace.json`），**0 个 `.tmp`** |
+| `GET /health` | **9/10 绿**；唯一红 = `preflight`（历史窗口型：19 样本 / 89%，2 条 09-17 失败样本仍在 7 天窗口内，**约今日 15:09 自动转绿**）；`logs` 项已是新语义（`runtimeLogDir` / `runtimeLogFiles:16` / `runtimeLogNewestAgeMin:32` / `runtimeLogsStale:false`）⇒ 第五轮那处修复确认已生效 |
+| git 工作区 | **clean** |
+
+**一个如实记录的过程细节**：第一次 `check-all` 报了 **1 FAILED**，条目是 `check-unsupervised` 的「unregistered runtime changes (1)」—— 因为我当时把 CHANGELOG / 报告改完还没提交。**提交后即 0 阻塞**（`REGISTERED=0 DRIFTED=0 UNREGISTERED=0`）并登记到调度器时间线。也就是说：那个 FAIL 是**真的**（确实存在未登记的运行态改动），不是误报；把它当成误报去改门禁反而会掩盖真实漂移。
+
+**提交**：`1055996` → `9cf2bfb` → `0f81ae9`（未 push）。

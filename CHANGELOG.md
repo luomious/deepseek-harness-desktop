@@ -41,7 +41,9 @@
 
 **⑥ 入库时顺带查出一个真问题（已修）**：`.gitignore:19` 的 `dist/` 规则**同时匹配 `tests/dist/`** ⇒ 四个 dist 故障注入测试（`log-write-guard` / `projcache-guard` / `json-storage-retry` / 本轮新增的 `json-storage-orphan-tmp-sweep`）**全部从未入库**。后果隐蔽：`verify-patches.ps1` 的注释引用它们、CHANGELOG 写着「故障注入 N/N 全绿」，但**新克隆拿不到这些文件** ⇒ 所有 dist 补丁的「可验证性」在仓库外是缺的。已用 `!tests/dist/` 显式恢复并入库（4 文件 / 524 行），`git check-ignore` 退出码 1（＝不再被忽略）。
 
-**提交**：`1055996`（视觉/模态）+ `9cf2bfb`（稳定性/门禁/记录）；工作区 clean，**未 push**。
+**提交**：`1055996`（视觉/模态）+ `9cf2bfb`（稳定性/门禁/记录）+ `0f81ae9`（补记）；工作区 clean，**未 push**。
+
+**最终验证（实测）**：`verify-patches.ps1` **ALL PASS (80 checks)**；`check-all.ps1` **CHECK-ALL: ALL PASS**（单测 **301 pass / 0 fail**、smoke **ALL PASS**）；`~/.dsh/storages/` 0 个 `.tmp`；`GET /health` **9/10 绿**（唯一红 `preflight` = 历史窗口型，2 条 09-17 样本仍在 7 天内，约今日 15:09 转绿；`logs` 项已是新语义，确认第五轮修复生效）。**如实记录**：第一次 `check-all` 报 **1 FAILED**（`check-unsupervised` 的 unregistered runtime changes）—— 当时 CHANGELOG/报告改完未提交，**该 FAIL 是真的**；提交后 0 阻塞。
 
 ---
 
