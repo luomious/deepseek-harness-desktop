@@ -121,11 +121,11 @@ function run(command, args, signal) {
   })
 }
 
-// ── 限流自愈（2026-09-03）：OpenRouter :free 免费模型共享配额，偶发 429/限流。
+// ── 限流自愈（2026-09-03；端点匹配修正 2026-09-23）──
 // modlens 故障链是 provider 级（openai→gemini-api→claude-cli），不会在同一个 openai
 // 槽位的多个模型间自动切换。这里在 autoread 层做 **model 级** 重试：检出限流特征后，
 // 用 `modlens -i <img> --provider openai --model <备用模型>` 依次尝试 vision-engine.json
-// 里登记的 OpenRouter 模型（最多 FALLBACK_LIMIT 个），成功即返回，全部失败返回首错。
+// 里**与当前 openai 槽同端点**的模型（最多 FALLBACK_LIMIT 个），成功即返回，全部失败返回首错。
 // 不改共享配置、不触碰 dsh-vision-engine 单写者；仅影响 autoread 这一次读图。
 const MODLENS_HOME = join(homedir(), '.modlens')
 const VE_CONFIG_PATH = join(MODLENS_HOME, 'vision-engine.json')
@@ -142,15 +142,39 @@ function readJsonSafe(file) {
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
 }
 
-/** 从 vision-engine.json 读 OpenRouter 槽的免费模型清单（去重保序）。 */
-function openRouterFallbackModels() {
+/** 归一化端点 URL 以便比较（去尾斜杠、小写）。 */
+function normalizeEndpoint(url) {
+  return typeof url === 'string' ? url.replace(/\/+$/, '').toLowerCase() : ''
+}
+
+/** 当前 openai 槽的端点（config.json providers.openai.baseUrl），读不到返回 ''。 */
+function currentOpenAIEndpoint() {
+  const cfg = readJsonSafe(MODLENS_CONFIG_PATH)
+  return typeof cfg?.providers?.openai?.baseUrl === 'string' ? cfg.providers.openai.baseUrl : ''
+}
+
+/**
+ * 从 vision-engine.json 读「与当前 openai 槽**同端点**」的模型清单（去重保序）。
+ *
+ * dsh patch autoread-endpoint-matched-fallback v1：自愈重试固定带 `--provider openai`，
+ * 而该槽的端点由 modlens config.json 决定，且会被 dsh-vision-rotator 动态改写
+ * （plugins/dsh-vision-rotator/lib/index.js:280-295 会整体改写 providers.openai）。
+ * 旧实现按「baseUrl 含 openrouter.ai」挑候选 ⇒ 当槽指向智谱时，把 OpenRouter 的模型 id
+ * 发到智谱端点，实测 `400 {"code":"1211","message":"模型不存在"}`，每次自愈最多白跑
+ * FALLBACK_LIMIT 次（每次上限 CLI_TIMEOUT_MS），永不成功。
+ * 改为「端点必须与当前槽一致」：只有同端点换模型才可能成功；端点未知或没有同端点候选时
+ * 返回空 ⇒ 调用方直接返回首错，不再做无效重试。导出供测试直接验证候选集。
+ */
+export function openRouterFallbackModels() {
   const ve = readJsonSafe(VE_CONFIG_PATH)
   if (!ve || !Array.isArray(ve.profiles)) return []
+  const endpoint = normalizeEndpoint(currentOpenAIEndpoint())
+  if (endpoint === '') return []
   const seen = new Set()
   const out = []
   for (const p of ve.profiles) {
     if (typeof p?.model !== 'string' || !p.model) continue
-    if (typeof p?.baseUrl === 'string' && /openrouter\.ai/i.test(p.baseUrl)) {
+    if (normalizeEndpoint(p?.baseUrl) === endpoint) {
       if (!seen.has(p.model)) { seen.add(p.model); out.push(p.model) }
     }
   }
@@ -176,7 +200,7 @@ async function readWithRateLimitSelfHeal(target, signal) {
   const current = currentOpenAIModel()
   const candidates = openRouterFallbackModels().filter((m) => m !== current).slice(0, FALLBACK_LIMIT)
   if (candidates.length === 0) return first
-  log(`rate-limit detected; retrying with OpenRouter fallback models: ${candidates.join(', ')}`)
+  log(`rate-limit detected; retrying with same-endpoint fallback models: ${candidates.join(', ')}`)
   let last = first
   for (const model of candidates) {
     try {

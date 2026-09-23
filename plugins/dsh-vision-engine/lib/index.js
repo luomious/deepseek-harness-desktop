@@ -51,13 +51,19 @@ const TEST_PNG_DATA_URL =
 // 预设表：local 与 OpenAI 兼容 API 共用 modlens 的 openai 槽；Gemini 用 gemini-api 槽。
 const PRESETS = {
   local: { name: '本地 Ollama', slot: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5vl:7b', structuredOutput: true, maxTokens: 4096 },
-  zhiji: { name: '智谱 GLM-4V', slot: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v-flash', structuredOutput: false, maxTokens: 2048 },
+  zhiji: { name: '智谱 GLM-4V', slot: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v-flash', structuredOutput: false, maxTokens: 1024 },
   bailian: { name: '阿里百炼 Qwen-VL', slot: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-vl-plus', structuredOutput: false, maxTokens: 4096 },
   siliconflow: { name: '硅基流动', slot: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-VL-7B-Instruct', structuredOutput: false, maxTokens: 4096 },
   gemini: { name: 'Google Gemini', slot: 'gemini-api', baseUrl: '', model: 'gemini-2.0-flash', structuredOutput: false, maxTokens: 4096 },
   custom: { name: '自定义 OpenAI 兼容', slot: 'openai', baseUrl: '', model: '', structuredOutput: false, maxTokens: 4096 },
 }
 const PRESET_ORDER = ['local', 'zhiji', 'bailian', 'siliconflow', 'gemini', 'custom']
+
+// 模型级 max_tokens 硬上限：低于 OpenAI 兼容槽 8192 下限的模型必须在此登记，
+// 否则面板「保存」会把上限写回 8192、读图直接 400（新增条目务必附实测证据）。
+const MODEL_MAX_TOKENS_CAP = {
+  'glm-4v-flash': 1024, // 智谱：错误 1210「max_tokens参数非法：限制数值范围[1,1024]」（2026-09-22 实测）
+}
 
 // ── modlens CLI 定位（与 autoread 一致：env 覆盖 → 当前 profile → 全 profile 扫描）──
 function findCli() {
@@ -249,7 +255,12 @@ function writeModlensSlot(profile) {
     // 大屏截图的 OCR 输出需要足够上限,过小会 finish_reason=length 截断、返回非 JSON
     // 导致读图失败(2026-08 审计)。OpenAI 兼容槽统一给 8192 下限保证余量。
     const VISION_MAX_TOKENS_FLOOR = 8192
-    extraBody.max_tokens = Number.isFinite(mt) && mt > 0 ? Math.max(mt, VISION_MAX_TOKENS_FLOOR) : VISION_MAX_TOKENS_FLOOR
+    const floorValue = Number.isFinite(mt) && mt > 0 ? Math.max(mt, VISION_MAX_TOKENS_FLOOR) : VISION_MAX_TOKENS_FLOOR
+    // 2026-09-22：少数视觉模型有**低于该下限的硬上限**，必须按模型钳制 —— 否则面板
+    // 再点一次「保存」就把上限写回 8192、读图直接 400（实测智谱 glm-4v-flash：
+    // {"error":{"code":"1210","message":"max_tokens参数非法：限制数值范围[1,1024]"}}）。
+    const cap = MODEL_MAX_TOKENS_CAP[String(profile.model || '').trim().toLowerCase()]
+    extraBody.max_tokens = Number.isFinite(cap) && cap > 0 ? Math.min(floorValue, cap) : floorValue
   } else {
     delete extraBody.max_tokens
   }
@@ -832,7 +843,12 @@ async function handleRefresh(req, res, body) {
   let test
   try {
     const r = await analyzeImage({ dataUrl: TEST_PNG_DATA_URL, profileId: profile?.id, signal: undefined })
-    test = { ok: true, latencyMs: r.latencyMs, provider: r.provider, model: r.model, profileName: r.profileName, summary: String(r.summary || '').slice(0, 80), ocrPreview: String(r.ocrPreview || '').slice(0, 60) }
+    // dsh patch vision-refresh-falsegreen v1：analyzeImage 失败时返回 {ok:false,error,hint} 而非抛异常；
+    // 旧写法把 ok 硬编码为 true 且不复制 error ⇒ 面板自测对失败 profile 报假绿
+    // （客户端 client.js:725-734 的 selfTestFail 分支因此永不触发）。这里如实透传。
+    test = r.ok === true
+      ? { ok: true, latencyMs: r.latencyMs, provider: r.provider, model: r.model, profileName: r.profileName, summary: String(r.summary || '').slice(0, 80), ocrPreview: String(r.ocrPreview || '').slice(0, 60) }
+      : { ok: false, error: String(r.error ?? 'unknown').slice(0, 200), hint: r.hint, latencyMs: Date.now() - t0 }
   } catch (e) {
     test = { ok: false, error: String(e?.message ?? e).slice(0, 160), latencyMs: Date.now() - t0 }
   }

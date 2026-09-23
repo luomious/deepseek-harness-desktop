@@ -80,13 +80,43 @@ export const VISION_PATTERNS = [
   'internvl*',
 ]
 
-/** 已知纯文本模式（保守：只收确证项；未知一律不在此列）。 */
+/**
+ * 视觉语义后缀守卫（dsh patch modality-vision-suffix-guard v1）。
+ *
+ * 2026-09-23 实测：TEXT_PATTERNS 里的家族级通配会把**视觉变体**判成纯文本 ——
+ * `seed-3-vl`（`seed-*`）/`ernie-4.5-vl-32b`、`ernie-5-vl`（`ernie-*`）/
+ * `hy3-vl`（`hy3*`）/`deepseek-v3-vl`（`deepseek-v3*`）全部命中 TEXT 表 ⇒ 判 text。
+ * 这些后缀是无歧义的视觉标记，故在 TEXT 表**之前**加一道守卫：命中即 image。
+ *
+ * 刻意**不**收录 `v[0-9]` 这类宽松规则 —— `deepseek-v4-flash-0731`、`glm-5.3` 等
+ * 会把版本号当成视觉标记，反而制造新的误判（实测该家族确为纯文本）。
+ */
+export const VISION_SUFFIX_PATTERNS = [
+  '*-vl',
+  '*-vl-*',
+  '*vl-*',
+  '*-vision',
+  '*-vision-*',
+  '*vision-*',
+  '*-omni',
+  '*-omni-*',
+  '*visual*',
+]
+
+/**
+ * 已知纯文本模式（保守：只收确证项；未知一律不在此列）。
+ *
+ * dsh patch modality-vision-suffix-guard v1：**移除 `seed-2.1-*` 与 `seed-*`** ——
+ * 首轮网关端到端实测（真 key 发 64×64 PNG）证明 `seed-2.1-turbo` / `seed-2.1-pro`
+ * **能原生读图**（200 且读对颜色），把它们标成纯文本属**实测证伪的错误条目**；
+ * 移除后该家族返回 unknown，交由「已声明 input: / 网关能力字段」判定，更保守也更准。
+ * 其余家族级条目（`ernie-*` / `hy3*` / `deepseek-v3*`）保留 —— 其**非 VL 成员**确为纯文本，
+ * 而 VL 成员由上面的 VISION_SUFFIX_PATTERNS 守卫先行拦下。
+ */
 export const TEXT_PATTERNS = [
   'deepseek-v4-pro*',
   'deepseek-v4-flash*',
   'deepseek-v3*',
-  'seed-2.1-*',
-  'seed-*',
   'mimo-v2.5-pro*',
   'mimo-v2-pro*',
   'minimax-m2.5*',
@@ -135,6 +165,11 @@ export function classifyModel(id) {
   }
   for (const pattern of VISION_PATTERNS) {
     if (globMatch(pattern, bare)) return { kind: 'image', source: 'vision-pattern', matched: pattern }
+  }
+  // dsh patch modality-vision-suffix-guard v1：家族级 TEXT 通配之前先认无歧义的视觉后缀，
+  // 否则 seed-3-vl / ernie-5-vl / hy3-vl / deepseek-v3-vl 会被判成纯文本（实测）。
+  for (const pattern of VISION_SUFFIX_PATTERNS) {
+    if (globMatch(pattern, bare)) return { kind: 'image', source: 'vision-suffix', matched: pattern }
   }
   for (const pattern of TEXT_PATTERNS) {
     if (globMatch(pattern, bare)) return { kind: 'text', source: 'text-pattern', matched: pattern }

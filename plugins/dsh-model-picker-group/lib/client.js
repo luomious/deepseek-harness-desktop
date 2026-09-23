@@ -241,6 +241,48 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ---------- 反向自愈：会话停在「已消失的 modlens 双胞胎」上（2026-09-23）----------
+    // 背景：某个上游模型一旦**自行声明** image（settings.yaml `input: [text, image]`），
+    // modlens 的 shouldWrap 就不再包装它（@liustack/modlens/dsh/index.js:585），目录里
+    // modlens-<up> 组的该条目随之消失。但**已存在的会话**可能仍把「当前模型」记在那个
+    // 已消失的 modlens 渠道上（会话恢复 / 历史持久化），此时 modlens 在 resolveModel
+    // 阶段直接拒绝，前端报：
+    //   model "<m>" declares native image input, so its "(modlens vision)" entry no longer applies.
+    // 上面 maybeAutoTakeover 只管「上游 -> modlens」的正向改道，没有任何反向路径，
+    // 所以这类会话会一直坏下去。这里补上：若 current 在 modlens 渠道、而按下面的
+    // 接管映射已查不到该模型的 modlens 包装 ⇒ 自动切回上游渠道（原生通道，图片照读）。
+    //
+    // 判据**故意与 groupedSelect/maybeAutoTakeover 用同一套查表**（先按上游坐标、再按
+    // 全局 model 兜底），这样「判定为过期」与「不会再次被改道」严格等价 → 不存在来回
+    // 弹跳。且只在权威源就绪（stableTakeoverLoaded）时动作，未就绪一律不动，绝不误判。
+    // 幂等：按 sessionId 记一次；切换失败会自动解除记录，留给下一轮重试。
+    var healed = {}
+    function healStaleTwin(sessions, req, cur) {
+      try {
+        if (!cur) return
+        if (!sessions || typeof sessions.selectModel !== 'function') return
+        var up = toUpstream(cur.provider)
+        if (!up) return // 不在 modlens 渠道 → 与本事无关
+        if (typeof cur.model !== 'string' || !cur.model) return
+        if (!stableTakeoverLoaded) return // 权威源未就绪 → 等下一轮
+        var mp = plainMap[up + '\u0000' + cur.model] || plainMap['\u0000' + cur.model]
+        if (mp) return // 双胞胎仍在 → 保持原样（由 selectModel 正常改道）
+        var sid = (req && req.sessionId) || ''
+        var key = sid || (cur.provider + '\u0000' + cur.model)
+        if (healed[key]) return
+        healed[key] = true
+        diag({ event: 'stale-twin-heal', sessionId: sid || null, from: cur.provider + '/' + cur.model, to: up + '/' + cur.model })
+        Promise.resolve()
+          .then(function () { return sessions.selectModel(Object.assign({}, req, { provider: up, model: cur.model })) })
+          .then(function (r) {
+            if (r && r.result && r.result.ok) return
+            delete healed[key] // 未成功 → 允许下一轮重试
+          }, function () { delete healed[key] })
+      } catch (e) {
+        console.error('[dsh-model-picker-group] stale twin heal error:', e)
+      }
+    }
+
     // ---------- 无缝接管（默认开启；kill-switch: localStorage dsh.model-picker-group.takeover = "off"）----------
     // 接管默认行为保留（modlens 视觉双胞胎合并 + 静默改道），但提供显式关闭开关
     // （投产审计 P1-E5）。开关改动后需重新加载页面生效。
@@ -297,6 +339,8 @@ window.__ModuleLoader__.load({
                     // 默认接管：transform 之后（plainMap 已就绪）再检查原始 current——
                     // 若会话停在上游纯文本渠道且有 modlens 包装，自动改走 modlens 视觉渠道
                     maybeAutoTakeover(sessions, req, origCurrent)
+                    // 反向自愈：会话停在已消失的 modlens 双胞胎上时切回上游（2026-09-23）
+                    healStaleTwin(sessions, req, origCurrent)
                   }
                 } catch (e) {
                   console.error('[dsh-model-picker-group] models transform error:', e)
@@ -351,6 +395,9 @@ window.__ModuleLoader__.load({
     exports.apply = apply
     exports.mergeGroups = mergeGroups
     exports.transformModels = transformModels
+    // 测试钩子（test-picker-group.mjs 用）：反向自愈 + 权威源装载
+    exports.healStaleTwin = healStaleTwin
+    exports.loadStableTakeover = loadStableTakeover
 
     // 会话运行在 modlens 视觉双胞胎上时,给模型按钮 aria-label 追加 "(modlens vision)" 标记。
     // modlens 粘贴裁决按该标记判定模型支持图片 → 不接管粘贴 → 图片原生嵌入消息。

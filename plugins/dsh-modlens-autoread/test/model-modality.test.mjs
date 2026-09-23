@@ -42,8 +42,34 @@ test('classifyModel: 已知纯文本（保守清单）', () => {
   assert.equal(mod.classifyModel('deepseek-v4-pro-0813').kind, 'text')
   assert.equal(mod.classifyModel('mimo-v2.5-pro').kind, 'text')
   assert.equal(mod.classifyModel('minimax-m2.5').kind, 'text')
-  assert.equal(mod.classifyModel('seed-2.1-turbo').kind, 'text')
   assert.equal(mod.classifyModel('hy3').kind, 'text')
+  assert.equal(mod.classifyModel('ernie-4.5-8k').kind, 'text', '非 VL 的 ernie 成员仍是纯文本')
+  assert.equal(mod.classifyModel('deepseek-v3').kind, 'text', '非 VL 的 v3 成员仍是纯文本')
+})
+
+// 2026-09-23（dsh patch modality-vision-suffix-guard v1）：
+// ① 旧 TEXT 表的家族级通配把视觉变体判成纯文本 —— 实测 seed-3-vl / ernie-5-vl / hy3-vl /
+//    deepseek-v3-vl 全部命中 TEXT 表；② `seed-2.1-*` / `seed-*` 两条**被网关端到端实测证伪**
+//    （真 key 发 64×64 PNG：seed-2.1-turbo / seed-2.1-pro 返回 200 且读对颜色）⇒ 已移除。
+test('classifyModel: 视觉语义后缀守卫（家族级 TEXT 通配之前生效）', () => {
+  assert.equal(mod.classifyModel('seed-3-vl').kind, 'image', 'seed-* 家族里的 VL 变体必须判 image')
+  assert.equal(mod.classifyModel('ernie-4.5-vl-32b').kind, 'image', 'ernie-* 家族里的 VL 变体必须判 image')
+  assert.equal(mod.classifyModel('ernie-5-vl').kind, 'image')
+  assert.equal(mod.classifyModel('hy3-vl').kind, 'image', 'hy3* 家族里的 VL 变体必须判 image')
+  assert.equal(mod.classifyModel('deepseek-v3-vl').kind, 'image', 'deepseek-v3* 家族里的 VL 变体必须判 image')
+  assert.equal(mod.classifyModel('nvidia/nemotron-3-nano-omni-30b-a3b-reasoning').kind, 'image', 'omni 后缀是视觉标记')
+  assert.equal(mod.classifyModel('seed-3-vl').source, 'vision-suffix')
+  // 反向：宽松的 v[0-9] 规则**不得**被引入（会把版本号当视觉标记）
+  assert.equal(mod.classifyModel('deepseek-v4-flash-0731').kind, 'text', '版本号 v4 不得被当成视觉标记')
+  assert.equal(mod.classifyModel('glm-5.3').kind, 'unknown', '版本号不得被当成视觉标记')
+})
+
+test('classifyModel: 被实测证伪的 seed 家族条目已移除（改为 unknown，交由声明/网关判定）', () => {
+  assert.equal(mod.classifyModel('seed-2.1-turbo').kind, 'unknown',
+    '网关实测 seed-2.1-turbo 能原生读图 ⇒ 不得再判 text')
+  assert.equal(mod.classifyModel('seed-2.1-pro').kind, 'unknown',
+    '网关实测 seed-2.1-pro 能原生读图 ⇒ 不得再判 text')
+  assert.ok(!mod.TEXT_PATTERNS.some((p) => p.startsWith('seed')), 'TEXT_PATTERNS 不应再含 seed 家族通配')
 })
 
 test('classifyModel: 未知名返回 unknown（保守，不误判）', () => {

@@ -4,8 +4,8 @@
  * Intelligent vision provider rotator for modlens.
  *
  * Maintains a priority-ordered pool of OpenAI-compatible vision providers
- * (defined in ~/.modlens/spare-keys.json). Periodically probes each one via
- * a lightweight models-list call; when the currently active provider fails
+ * (defined in ~/.modlens/spare-keys.json). Periodically probes each one with a
+ * real tiny-image chat request; when the currently active provider fails
  * on a real modlens_read_image call (quota exhaustion, rate limit, timeout,
  * or 5xx), the rotator automatically rewrites the openai slot in
  * config.json to the next healthy spare.
@@ -23,6 +23,15 @@
  *  5. NEVER block the host event loop: all probes are async. (2026-08-25:
  *     execFileSync curl probes froze the desktop UI for 6-21 s every probe
  *     interval; see CHANGELOG "卡死定案".)
+ *  6. Probe must exercise the REAL path (2026-09-22): the old probe asked only
+ *     for `GET /models` and accepted HTTP 200. Measured that day: all four pool
+ *     entries returned /models 200 (rotator reported every one "healthy") while
+ *     real image reads failed — siliconflow 402 "account balance is
+ *     insufficient", dashscope 400 "Arrearage", groq 404 model_not_found,
+ *     openrouter 404 no endpoints. A status-code probe is therefore a
+ *     false-positive generator whose rotation target is guaranteed broken
+ *     (that is how the 2026-09-22 autoread outage happened). Probes now send a
+ *     64x64 image to /chat/completions and require 200 + a choices payload.
  */
 
 import { execFile } from 'node:child_process'
@@ -39,6 +48,12 @@ interface SpareProvider {
   model: string
   proxy?: string
   priority?: number
+  /** Per-provider output cap. Needed because some vision models hard-cap
+   *  max_tokens (zhipu glm-4v-flash: 1..1024, error 1210) while others take
+   *  the 4096 default. */
+  maxTokens?: number
+  /** Per-provider JSON-forcing preference (local Ollama needs true). */
+  structuredOutput?: boolean
 }
 
 interface ProviderHealth {
@@ -48,6 +63,8 @@ interface ProviderHealth {
   model: string
   proxy?: string
   priority: number
+  maxTokens?: number
+  structuredOutput?: boolean
   status: 'healthy' | 'degraded' | 'dead' | 'unknown'
   consecutiveFailures: number
   lastCheck: number
@@ -75,6 +92,14 @@ const DEFAULT_CONFIG: Config = {
   spareKeysPath: 'C:/Users/机械革命/.modlens/spare-keys.json',
   configPath: 'C:/Users/机械革命/.modlens/config.json',
 }
+
+// ── Probe payload (see design rule 6) ───────────────────────────────────
+// 64x64 PNG (same self-test image dsh-vision-engine ships), tiny output cap.
+const PROBE_TINY_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAbElEQVR4nO3PQQ0AIBADQZTgXxReQASPzSXTrIDOOnuPbuUPAOoHAPUDgPoBQP0AoH4AUD8AqB8A1A8A6gcA9YMecD8GAAAAAAAAAAAAAAAAADAZ0AZQB1AHUAdQB1AHUAdQB1AHUAdQNx7wAA++dv1I/VJJAAAAAElFTkSuQmCC'
+const PROBE_TIMEOUT_S = 20
+/** max_tokens written when a spare does not declare its own cap. */
+const DEFAULT_ROTATION_MAX_TOKENS = 4096
 
 // ── Pure logic (exported for testing) ───────────────────────────────────
 const PROVIDER_FAILURE_PATTERNS = [
@@ -124,7 +149,14 @@ export function findNextHealthy(
 }
 
 // ── Plugin entry ────────────────────────────────────────────────────────
+// 幂等守卫：同 profile 下该插件可能被多个装配层重复挂载（bundle patch + 匿名条目），
+// 只让第一个实例执行 apply，避免重复注册 /vision-rotator 路由与重复定时器/钩子。
+// （2026-09-22：此守卫此前只存在于 lib 产物里、源码缺失 ⇒ 已收敛回源码，
+//  否则下一次 tsc 重建会把守卫丢掉。）
+let applied = false
 export function apply(ctx: any, rawConfig?: Partial<Config>): void {
+  if (applied) return
+  applied = true
   const config = { ...DEFAULT_CONFIG, ...rawConfig }
   const health = new Map<string, ProviderHealth>()
   let currentProviderId: string | null = null
@@ -158,20 +190,55 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
     } catch { return null }
   }
 
-  // ── Health probe (curl.exe models-list, ~1-3 s each, ASYNC) ───────────
+  // ── Health probe: real tiny-image chat request (ASYNC, bounded) ───────
   // 2026-08-25: was execFileSync — blocked the shared kernel/UI main thread
   // for up to 15 s per unreachable provider on every probe cycle (window
   // freeze + "not responding" + blank content, every 5 minutes). Now async.
+  // 2026-09-22: was `GET /models` + HTTP 200 — see design rule 6; that probe
+  // reported four dead providers as healthy and rotated into a 402 one.
   const execFileAsync = promisify(execFile)
-  async function probeOne(baseUrl: string, apiKey: string, proxy?: string): Promise<boolean> {
-    const args = ['-sS', '-m', '12', '-o', 'NUL', '-w', '%{http_code}']
+
+  async function probeVision(
+    baseUrl: string,
+    apiKey: string,
+    model: string,
+    proxy?: string,
+  ): Promise<{ ok: boolean; code: string; error?: string }> {
+    const body = JSON.stringify({
+      model,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,' + PROBE_TINY_PNG_B64 } },
+          { type: 'text', text: 'ok?' },
+        ],
+      }],
+      max_tokens: 8,
+    })
+    const args = ['-sS', '-m', String(PROBE_TIMEOUT_S), '-w', '\n__CODE__%{http_code}']
     if (proxy) args.push('-x', proxy)
-    args.push('-H', `Authorization: Bearer ${apiKey}`)
-    args.push(baseUrl + '/models')
+    args.push(
+      '-H', 'content-type: application/json',
+      '-H', `Authorization: Bearer ${apiKey}`,
+      '-d', body,
+      baseUrl + '/chat/completions',
+    )
     try {
-      const { stdout } = await execFileAsync('curl.exe', args, { encoding: 'utf8', timeout: 15_000, windowsHide: true })
-      return stdout.trim() === '200'
-    } catch { return false }
+      const { stdout } = await execFileAsync('curl.exe', args, {
+        encoding: 'utf8',
+        timeout: (PROBE_TIMEOUT_S + 5) * 1000,
+        windowsHide: true,
+        maxBuffer: 4 * 1024 * 1024,
+      })
+      const m = stdout.match(/__CODE__(\d+)\s*$/)
+      const code = m ? m[1] : 'NO_CODE'
+      const payload = stdout.replace(/__CODE__\d+\s*$/, '').trim()
+      // 200 且真的带回 choices 才算健康：空响应/错误体（402/400/404）一律不健康。
+      if (code === '200' && payload.includes('"choices"')) return { ok: true, code }
+      return { ok: false, code, error: payload.slice(0, 160).replace(/\s+/g, ' ') }
+    } catch (e) {
+      return { ok: false, code: 'CURL_ERROR', error: String((e as Error)?.message ?? e).slice(0, 160) }
+    }
   }
 
   async function runProbeCycle() {
@@ -184,6 +251,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
         h = {
           id, baseUrl: p.baseUrl, apiKey: p.apiKey, model: p.model,
           proxy: p.proxy, priority: p.priority ?? 99,
+          maxTokens: p.maxTokens, structuredOutput: p.structuredOutput,
           status: 'unknown', consecutiveFailures: 0,
           lastCheck: 0, lastSuccess: 0,
         }
@@ -191,10 +259,11 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
       }
       h.baseUrl = p.baseUrl; h.apiKey = p.apiKey; h.model = p.model
       h.proxy = p.proxy; h.priority = p.priority ?? 99
+      h.maxTokens = p.maxTokens; h.structuredOutput = p.structuredOutput
 
       h.lastCheck = Date.now()
-      const ok = await probeOne(p.baseUrl, p.apiKey, p.proxy)
-      if (ok) {
+      const res = await probeVision(p.baseUrl, p.apiKey, p.model, p.proxy)
+      if (res.ok) {
         h.consecutiveFailures = 0
         h.lastSuccess = Date.now()
         h.lastError = undefined
@@ -202,7 +271,7 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
       } else {
         h.consecutiveFailures++
         h.status = h.consecutiveFailures >= 5 ? 'dead' : 'degraded'
-        h.lastError = 'probe failed'
+        h.lastError = `probe ${res.code}${res.error ? ': ' + res.error : ''}`
       }
     }
 
@@ -215,7 +284,10 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
           if (currentProviderId) log(`detected manual switch: ${currentProviderId} -> ${matched}`)
           currentProviderId = matched
           const h = health.get(matched)!
-          h.consecutiveFailures = 0; h.status = 'healthy'
+          h.consecutiveFailures = 0
+          // 2026-09-22: 不要在这里把状态硬置为 healthy —— 同一次探测刚得出的结论会被丢掉，
+          // 死通道（实测 402）会被判成健康且当轮不轮换。手动切换只重置失败计数与冷却，
+          // 健康结论仍以本轮探测为准。
           lastRotationAt = Date.now()
         }
       } else {
@@ -232,9 +304,14 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
           health.set(synthId, h)
         }
         h.lastCheck = Date.now()
-        const ok = await probeOne(cur.baseUrl, cur.apiKey)
-        if (ok) { h.consecutiveFailures = 0; h.lastSuccess = Date.now(); h.status = 'healthy'; h.lastError = undefined }
-        else { h.consecutiveFailures++; h.status = h.consecutiveFailures >= 5 ? 'dead' : 'degraded'; h.lastError = 'probe failed' }
+        const res = await probeVision(cur.baseUrl, cur.apiKey, cur.model)
+        if (res.ok) {
+          h.consecutiveFailures = 0; h.lastSuccess = Date.now(); h.status = 'healthy'; h.lastError = undefined
+        } else {
+          h.consecutiveFailures++
+          h.status = h.consecutiveFailures >= 5 ? 'dead' : 'degraded'
+          h.lastError = `probe ${res.code}${res.error ? ': ' + res.error : ''}`
+        }
         currentProviderId = synthId
       }
     }
@@ -261,8 +338,10 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
         baseUrl: target.baseUrl,
         apiKey: target.apiKey,
         model: target.model,
-        extraBody: { max_tokens: 4096 },
-        structuredOutput: false,
+        // 2026-09-22: 按通道写上限，不再硬编码 4096 —— 智谱 glm-4v-flash 硬限 1024，
+        // 写 4096 会让轮换后的读图直接 400（错误 1210）。
+        extraBody: { max_tokens: target.maxTokens ?? DEFAULT_ROTATION_MAX_TOKENS },
+        structuredOutput: target.structuredOutput ?? false,
       }
       if (target.proxy) raw.providers.openai.proxy = target.proxy
       else delete raw.providers.openai.proxy
@@ -334,12 +413,14 @@ export function apply(ctx: any, rawConfig?: Partial<Config>): void {
               lastRotationTo, rotationCount,
               failureThreshold: config.failureThreshold,
               probeIntervalMs: config.probeIntervalMs,
+              probeKind: 'vision-chat', // 探针语义（2026-09-22 起：真实读图请求，非 /models）
               providers: Object.fromEntries([...health.entries()].map(([id, h]) => [id, {
                 status: h.status, priority: h.priority,
                 consecutiveFailures: h.consecutiveFailures,
                 lastCheck: h.lastCheck ? new Date(h.lastCheck).toISOString() : null,
                 lastSuccess: h.lastSuccess ? new Date(h.lastSuccess).toISOString() : null,
                 lastError: h.lastError, model: h.model,
+                maxTokens: h.maxTokens, structuredOutput: h.structuredOutput,
               }])),
             })
           }

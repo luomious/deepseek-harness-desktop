@@ -68,6 +68,11 @@ function parseArgs(argv) {
     json: argv.includes('--json'),
     syncVision: argv.includes('--sync-vision-engine'),
     applyAllImage: argv.includes('--apply-all-image'),
+    probe: argv.includes('--probe'),
+    probeCache: Number(get('--probe-cache') || 21600),
+    probeTimeout: Number(get('--probe-timeout') || 25000),
+    probeNoCache: argv.includes('--probe-no-cache'),
+    force: argv.includes('--force'),
     providers: (get('--providers') || '').split(',').map((s) => s.trim()).filter(Boolean),
     onlyModels: (get('--only-models') || '').split(',').map((s) => s.trim()).filter(Boolean),
   }
@@ -214,6 +219,146 @@ async function webVerdict(id) {
   return { kind: 'text', source: 'models.dev' }
 }
 
+// ── 网关能力探测（--probe）：provider 自己的 /models 是模态的权威事实源 ──────
+// 背景（2026-09-23）：内核 dsh-llm-pi-ai 的 model.input =
+//   declaredInput(entry.input) ?? pi-ai 内置目录 ?? ["text"]（lib/index.js:651,862）。
+// 本机 17 个 provider 中 14 个不在 pi-ai 内置目录（catalogModels 为空），
+// 因此「未声明 input:」= 恒为 text-only。而 provider 的 GET {baseURL}/models
+// 本身就带能力字段（tokenrhythm 为 supports_vision，OpenRouter 为
+// architecture.input_modalities），本工具因此直接读它，取代猜测与模式表。
+// 失败一律 fail-open（探测不到 → 该模型保持原有判定，绝不因此改配置）。
+const PROBE_CACHE = join(HOME, '.dsh', 'super-injector', 'model-capability-cache.json')
+const MODELS_PATH_RE = /\/chat\/completions$/i
+
+function modelsUrl(baseURL) {
+  const u = String(baseURL || '').replace(/\/+$/, '').replace(MODELS_PATH_RE, '')
+  return u ? `${u}/models` : ''
+}
+
+/** 从各种已知响应形状里抽视觉能力；拿不到就返回 null（不猜）。 */
+function extractVision(m) {
+  if (typeof m?.supports_vision === 'boolean') return { vision: m.supports_vision, field: 'supports_vision' }
+  const arch = m?.architecture?.input_modalities
+  if (Array.isArray(arch)) return { vision: arch.includes('image'), field: 'architecture.input_modalities' }
+  const mods = m?.modalities?.input ?? m?.input_modalities
+  if (Array.isArray(mods)) return { vision: mods.includes('image'), field: 'modalities.input' }
+  if (m?.capabilities && typeof m.capabilities.vision === 'boolean') return { vision: m.capabilities.vision, field: 'capabilities.vision' }
+  return null
+}
+
+function readProbeCache(maxAgeSec) {
+  try {
+    if (!existsSync(PROBE_CACHE)) return null
+    const raw = JSON.parse(readFileSync(PROBE_CACHE, 'utf8'))
+    const age = (Date.now() - Date.parse(raw.fetchedAt)) / 1000
+    if (!Number.isFinite(age) || age > maxAgeSec) return null
+    return raw
+  } catch { return null }
+}
+
+async function probeCapabilities(rows, credentials) {
+  if (!args.probeNoCache) {
+    const cached = readProbeCache(args.probeCache)
+    if (cached) {
+      console.error(`[probe] cache hit (age ${Math.round((Date.now() - Date.parse(cached.fetchedAt)) / 1000)}s, file=${PROBE_CACHE})`)
+      return cached.providers
+    }
+  }
+  const wanted = [...new Set(rows.map((r) => r.provider))]
+  const providers = {}
+  for (const pid of wanted) {
+    const row = rows.find((r) => r.provider === pid)
+    const url = modelsUrl(row?.baseUrl)
+    if (!url) { providers[pid] = { error: 'no-baseURL', models: {} }; continue }
+    const keyEnv = credentials.__apiKeyEnv?.[pid]
+    const key = keyEnv ? credentials[keyEnv] : undefined
+    const rec = { url, keyPresent: Boolean(key), models: {} }
+    try {
+      const res = await fetch(url, {
+        headers: key ? { authorization: `Bearer ${key}` } : {},
+        signal: AbortSignal.timeout(args.probeTimeout),
+      })
+      rec.status = res.status
+      if (res.ok) {
+        const body = await res.json()
+        const list = body?.data ?? body?.models ?? (Array.isArray(body) ? body : [])
+        rec.modelCount = list.length
+        for (const m of list) {
+          const id = m?.id ?? m?.name
+          if (typeof id !== 'string') continue
+          const v = extractVision(m)
+          if (v) rec.models[id] = v
+        }
+      } else {
+        rec.error = `HTTP ${res.status}`
+      }
+    } catch (e) {
+      rec.error = String(e?.message ?? e).slice(0, 120)
+    }
+    providers[pid] = rec
+    console.error(`[probe] ${pid.padEnd(18)} ${rec.status ?? 'ERR'} models=${rec.modelCount ?? '-'} caps=${Object.keys(rec.models).length} ${rec.error ?? ''}`)
+  }
+  try {
+    mkdirSync(dirname(PROBE_CACHE), { recursive: true })
+    atomicWrite(PROBE_CACHE, JSON.stringify({ fetchedAt: new Date().toISOString(), providers }, null, 2) + '\n')
+  } catch { /* 缓存写失败不阻断 */ }
+  return providers
+}
+
+/** 网关判定（无缓存/无能力字段 → null）。 */
+function probeVerdict(probed, provider, id) {
+  const rec = probed?.[provider]
+  if (!rec || !rec.models) return null
+  const hit = rec.models[id]
+  if (!hit) return null
+  return { kind: hit.vision ? 'image' : 'text', source: `gateway:${hit.field}`, matched: rec.url }
+}
+
+// ── modlens 双胞胎风险护栏（--apply 专用）─────────────────────────────
+// 一旦某模型声明了 image，@liustack/modlens 的 shouldWrap()
+// （dsh/index.js:585）会把它从包装组剔除 ⇒ `modlens-<route>/<model>` 条目消失。
+// 若该条目正是某会话当前选中的模型，该会话每轮都会抛
+// “...no longer applies. Select the same model from the provider group...”
+// （dsh/index.js:654-658）。本护栏读 picker-diag.log 的末条 current 作为
+// 尽力而为的探针；命中则拒写，除非显式 --force。
+const PICKER_DIAG = join(HOME, '.modlens', 'picker-diag.log')
+const DEFAULT_FAMILIES = ['deepseek', 'glm']
+
+function readFamilies() {
+  try {
+    const patch = join(HOME, '.dsh', 'profiles', 'desktop', 'cordis.patch.yml')
+    if (!existsSync(patch)) return DEFAULT_FAMILIES
+    const m = readFileSync(patch, 'utf8').match(/families:\s*\[([^\]]+)\]/)
+    if (!m) return DEFAULT_FAMILIES
+    return m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+  } catch { return DEFAULT_FAMILIES }
+}
+
+function readCurrentModel() {
+  try {
+    const lines = readFileSync(PICKER_DIAG, 'utf8').trim().split(/\r?\n/)
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
+      try {
+        const j = JSON.parse(lines[i])
+        if (j.currentProvider && j.currentModel) return { provider: j.currentProvider, model: j.currentModel }
+      } catch { /* 跳过坏行 */ }
+    }
+  } catch { /* 无诊断日志 */ }
+  return null
+}
+
+/** 该模型当前是否有 modlens 双胞胎（= 声明 image 会把它移除）。 */
+function hasModlensTwin(row, families) {
+  const id = String(row.id)
+  const unaliased = id.replace(/^~/, '')
+  const bare = unaliased.slice(unaliased.lastIndexOf('/') + 1)
+  const inFamily = families.some((f) => unaliased.toLowerCase().startsWith(f) || bare.toLowerCase().startsWith(f))
+  if (!inFamily) return false
+  if (/(deepseek-(vl|ocr)|janus|glm-[\d.]*v(\b|-)|\bvision\b)/i.test(bare)) return false
+  if (row.input.includes('image')) return false
+  return true
+}
+
 // ── 主流程 ───────────────────────────────────────────────────────────────
 const args = parseArgs(process.argv.slice(2))
 const mod = await import(MODALITY_MODULE)
@@ -226,19 +371,35 @@ async function main() {
     .filter((r) => args.providers.length === 0 || args.providers.includes(r.provider))
     .filter((r) => args.onlyModels.length === 0 || args.onlyModels.includes(r.id))
 
-  // 1) 判定
+  // 0) 网关能力探测（--probe）：凭据库 → apiKeyEnv 映射
+  let probed = null
+  if (args.probe) {
+    const creds = { __apiKeyEnv: {} }
+    try {
+      const credFile = join(HOME, '.dsh', '.credentials.yaml')
+      if (existsSync(credFile)) Object.assign(creds, yaml.load(readFileSync(credFile, 'utf8'))?.refs ?? {})
+    } catch { /* 无凭据库 → 未鉴权探测 */ }
+    const pi = doc?.['llm-pi-ai']?.providers ?? {}
+    for (const [pid, p] of Object.entries(pi)) {
+      if (typeof p?.apiKeyEnv === 'string') creds.__apiKeyEnv[pid] = p.apiKeyEnv
+    }
+    probed = await probeCapabilities(rows, creds)
+  }
+
+  // 1) 判定（优先级：网关实测 > 设置已声明 > models.dev(--web) > 分类表）
   const verdicts = []
   for (const r of rows) {
-    let v = r.input.includes('image')
-      ? { kind: 'image', source: 'settings-declared' }
-      : r.input.length > 0 && !r.input.includes('image')
-        ? { kind: 'text', source: 'settings-declared' }
-        : mod.classifyModel(r.id)
-    if (args.web && v.kind === 'unknown') {
+    const declared = r.input.length > 0 ? (r.input.includes('image') ? 'image' : 'text') : null
+    const gw = args.probe ? probeVerdict(probed, r.provider, r.id) : null
+    let v
+    if (gw) v = gw
+    else if (declared) v = { kind: declared, source: 'settings-declared' }
+    else v = mod.classifyModel(r.id)
+    if (!gw && !declared && args.web && v.kind === 'unknown') {
       const wv = await webVerdict(r.id)
       if (wv) v = { kind: wv.kind, source: wv.source, matched: wv.note }
     }
-    verdicts.push({ ...r, verdict: v })
+    verdicts.push({ ...r, declared, gateway: gw ? gw.kind : null, verdict: v })
   }
 
   // 2) 审计表
@@ -251,6 +412,19 @@ async function main() {
   log('MODEL                        PROVIDER              VERDICT   SOURCE')
   for (const v of verdicts) {
     log(`${v.id.padEnd(28)} ${v.provider.padEnd(20)} ${v.verdict.kind.padEnd(8)} ${v.verdict.source}${v.verdict.matched ? ` (${v.verdict.matched})` : ''}`)
+  }
+
+  // 2b) 差异段：网关实测 vs 本机有效值（这是「误判」的正式定义）
+  if (args.probe) {
+    const needFix = verdicts.filter((v) => v.gateway === 'image' && v.declared !== 'image')
+    const overClaim = verdicts.filter((v) => v.gateway === 'text' && v.declared === 'image')
+    const unknownGw = verdicts.filter((v) => v.gateway === null)
+    log('')
+    log(`DIFF: 网关说多模态但未声明（= 会被当成纯文本 / 走视觉桥）: ${needFix.length}`)
+    for (const v of needFix) log(`  FIX  ${v.provider.padEnd(18)} ${v.id.padEnd(34)} gateway=image declared=${v.declared ?? '(none)'}`)
+    log(`DIFF: 已声明 image 但网关说不支持（= 发图会在中途报错）: ${overClaim.length}`)
+    for (const v of overClaim) log(`  WARN ${v.provider.padEnd(18)} ${v.id.padEnd(34)} gateway=text declared=image`)
+    log(`DIFF: 网关未给出能力字段（无法判定，维持原状）: ${unknownGw.length}`)
   }
 
   // 3) 应用/回滚
@@ -287,10 +461,16 @@ async function main() {
       log('\nUNDO: nothing to remove (no list-form input lines found in scope).')
     }
   } else if (args.apply) {
-    const targets = verdicts.filter((v) => v.verdict.kind === 'image' && (args.applyAllImage || args.onlyModels.length > 0))
+    // --probe 模式下只写「网关实测确认 image」的模型（不拿模式表的猜测去改配置）。
+    const targets = verdicts.filter((v) => v.verdict.kind === 'image'
+      && (!args.probe || v.gateway === 'image')
+      && (args.applyAllImage || args.onlyModels.length > 0))
     if (targets.length === 0) {
       log('\nAPPLY: no image-declared model in scope. Use --only-models <id,...> or --apply-all-image.')
     } else {
+      const families = readFamilies()
+      const current = readCurrentModel()
+      const blocked = []
       let text = sourceText
       const lines = text.split('\n')
       const changed = []
@@ -298,8 +478,21 @@ async function main() {
         const hit = findPiAiModelItem(lines, t.provider, t.id)
         if (!hit) continue
         if (hasInputDecl(lines, hit.line, hit.itemIndent)) { log(`  skip (already declared): ${t.provider}/${t.id}`); continue }
+        // 双胞胎护栏：声明 image 会移除 modlens 包装条目；只有当会话**确实停在
+        // modlens 包装路由上**时才会被打断（会话已在上游路由则安全）。
+        const onTwin = current && typeof current.provider === 'string'
+          && (current.provider === 'deepseek-modlens' || current.provider.startsWith('modlens-'))
+        if (!args.force && onTwin && current.model === t.id && hasModlensTwin(t, families)) {
+          blocked.push(`${t.provider}/${t.id}`)
+          log(`  BLOCKED (会话 ${current.provider}/${current.model} 停在它的 modlens 双胞胎上，写入会立刻打断会话): ${t.provider}/${t.id}`)
+          continue
+        }
         insertInputLine(lines, hit.line, hit.itemIndent)
         changed.push(`${t.provider}/${t.id}`)
+      }
+      if (blocked.length > 0) {
+        log(`\n  处理方式：在模型下拉里把当前会话从 modlens 双胞胎切到上游条目，`)
+        log(`  或先切到另一个模型，再重跑本命令；确实要立即写入则加 --force。`)
       }
       if (changed.length > 0) {
         const bak = backup(args.file)

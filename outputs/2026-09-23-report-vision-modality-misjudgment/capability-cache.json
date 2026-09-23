@@ -1,0 +1,2427 @@
+{
+  "fetchedAt": "2026-09-22T18:18:49.543Z",
+  "providers": {
+    "opencode-go": {
+      "url": "https://opencode.ai/zen/go/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 33
+    },
+    "sennsenova": {
+      "url": "https://token.sensenova.cn/v1/models",
+      "keyPresent": true,
+      "models": {
+        "deepseek-v4-flash": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "glm-5.2": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "sensenova-u1-fast": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "sensenova-6.8-flash-lite": {
+          "vision": true,
+          "field": "modalities.input"
+        },
+        "sensenova-u1.5-lite": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "deepseek-v4-pro": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "kimi-k3": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "deepseek-flash": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "deepseek-v4.1-flash": {
+          "vision": false,
+          "field": "modalities.input"
+        }
+      },
+      "status": 200,
+      "modelCount": 9
+    },
+    "duoyuanx": {
+      "url": "https://chat.ai666.net/api/codex/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 7
+    },
+    "tokenrhythm01": {
+      "url": "https://tokenrhythm.studio/v1/models",
+      "keyPresent": true,
+      "models": {
+        "glm-5.1": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "minimax-m2.7": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "kimi-k2.6": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "mimo-v2.5-pro": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "qwen3.7-max": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "kimi-k2.7-code": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "glm-5.2": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "qwen3.8-max": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "deepseek-v4-flash-0731": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "seed-2.1-turbo": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "seed-2.1-pro": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "deepseek-v4-pro-0813": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "glm-5.3": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "qwen3.7-flash": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "qwen3.8-27b": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "kimi-k3": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "longcat-2.0": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "glm-5.3-flash": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "qwen3.8-flash": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "deepseek-flash": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "glm-5.3-flashx": {
+          "vision": true,
+          "field": "supports_vision"
+        },
+        "mimo-v2.6-pro": {
+          "vision": false,
+          "field": "supports_vision"
+        },
+        "mimo-v2.6-flash": {
+          "vision": false,
+          "field": "supports_vision"
+        }
+      },
+      "status": 200,
+      "modelCount": 23
+    },
+    "openrouter": {
+      "url": "https://openrouter.ai/api/v1/models",
+      "keyPresent": true,
+      "models": {
+        "openai/gpt-6-luna-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-luna-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-luna": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-luna:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-sol-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-sol-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-sol": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-sol:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-5.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-5.5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "xiaomi/mimo-v2.6-pro-ultraspeed": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "xiaomi/mimo-v2.6-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "xiaomi/mimo-v2.6-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.7": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "prism-ml/ternary-bonsai-2-27b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.3-flashx": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "unbiased/pareto": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~deepseek/deepseek-pro-latest": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "~deepseek/deepseek-flash-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inference-net/schematron-v2-turbo": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "inference-net/schematron-v2-small": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "~openai/gpt-astra-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~openai/gpt-sol-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~openai/gpt-terra-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~openai/gpt-luna-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "sakana/fugu-ultra-v2": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "sakana/fugu-max": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash-vl": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash-vl:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4.1-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4.1-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inception/mercury-2.5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nex-agi/nex-n2.5-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nex-agi/nex-n2.5-mini:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nex-agi/nex-n2.5-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nex-agi/nex-n2.5-pro:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-astra": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-astra:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-astra-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-6-astra-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash-sante:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.8-max-0902": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-spark-1.3-contributor": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-spark-1.3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.8-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.8-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-fable-5.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-fable-5.1:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ibm-granite/granite-4.2-8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy4-preview": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash-fin": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash-fin:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "~z-ai/glm-flash-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.8-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.3-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.3-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-spark-1.2-contributor": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4-flash-vision-exp": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy-mt2-1.8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy-mt2-30b-a3b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "~z-ai/glm-latest": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy-mt2-7b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.3:batch": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.8-27b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.8-27b:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "dots-studio/dots-3-note-preview:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.7-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.7-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-2-1-turbo": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.8-2.4t-a95b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-2.0-code": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4-pro-0813": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "liquid/lfm-2.5-2.6b:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3.5-lightning": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3.5-lightning:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "sakana/sakana-namazu": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "upstage/solar-pro4": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-glimmer-30b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-spark-1.2": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~deepseek/deepseek-v4-flash-latest": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4-flash-0731": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "thinkingmachines/inkling-small": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "thinkingmachines/inkling-small:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.7-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inclusionai/ling-3.0-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "poolside/laguna-s-2.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "poolside/laguna-s-2.1:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.6-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.6-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.5-flash-lite": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.5-flash-lite:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meituan/longcat-2.0": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "thinkingmachines/inkling": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "thinkingmachines/inkling:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/auto-beta": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k3:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta/muse-spark-1.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "kwaipilot/kat-coder-pro-v2.5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-luna-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-luna-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-luna": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-luna:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-terra-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-terra-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-terra": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-terra:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-sol-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-sol-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-sol": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.6-sol:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~x-ai/grok-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "aion-labs/aion-3.0-mini": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "aion-labs/aion-3.0": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "poolside/laguna-xs-2.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "poolside/laguna-xs-2.1:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-lite-image": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "sakana/fugu-ultra": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-image": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3-pro-image": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "cohere/north-mini-code:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.2:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/fusion": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2.7-code": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~anthropic/claude-fable-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-fable-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-fable-5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3.5-content-safety": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3.5-content-safety:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-ultra-550b-a55b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-ultra-550b-a55b:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.7-plus": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "stepfun/step-3.7-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.8": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.8:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.7-max": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-build-0.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.5-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.5-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "perceptron/perceptron-mk1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-lite": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-lite:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-chat-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.3:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-medium-3-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-medium-3-5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~anthropic/claude-haiku-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~openai/gpt-mini-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~google/gemini-pro-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~moonshotai/kimi-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~google/gemini-flash-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~anthropic/claude-sonnet-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-plus-20260420": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.6-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.6-35b-a3b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.6-max-preview": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.6-27b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.5-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.5-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4-pro": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v4-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hy3-preview": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "xiaomi/mimo-v2.5-pro": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "xiaomi/mimo-v2.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-image-2": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "~anthropic/claude-opus-latest": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/pareto-code": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.7": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.7:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-4-26b-a4b-it": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-4-26b-a4b-it:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-4-31b-it": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-4-31b-it:free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.6-plus": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5v-turbo": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "arcee-ai/trinity-large-thinking": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.20-multi-agent": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "x-ai/grok-4.20": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/lyria-3-pro-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/lyria-3-clip-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "rekaai/reka-edge": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m2.7": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-nano": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-nano:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-mini:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-small-2603": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-small-2603:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5-turbo": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-super-120b-a12b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-super-120b-a12b:free": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-2.0-lite": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-9b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.4:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "inception/mercury-2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-lite-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-2.0-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-flash-image-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-35b-a3b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-27b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-122b-a10b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-flash-02-23": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-pro-preview-customtools": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.3-codex": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "aion-labs/aion-2.0": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-pro-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3.1-pro-preview:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-4.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-4.6:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-plus-02-15": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3.5-397b-a17b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m2.5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-max-thinking": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.6:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-coder-next": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/free": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "stepfun/step-3.5-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "upstage/solar-pro-3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m2-her": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "writer/palmyra-x5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-audio": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-audio-mini": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.7-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2-codex": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-1.6-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance-seed/seed-1.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m2.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.7": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3-flash-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3-flash-preview:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "nvidia/nemotron-3-nano-30b-a3b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2-chat": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.2:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/devstral-2512": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "relace/relace-search": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.6v": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/bodybuilder": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.1-codex-max": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "amazon/nova-2-lite-v1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/ministral-14b-2512": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/ministral-8b-2512": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/ministral-8b-2512:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/ministral-3b-2512": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-large-2512:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v3.2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-3-pro-image-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.1:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.1-codex": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5.1-codex-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2-thinking": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "amazon/nova-premier-v1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "perplexity/sonar-pro-search": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/voxtral-small-24b-2507": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-oss-safeguard-20b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-32b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ibm-granite/granite-4.0-h-micro": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-image-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-haiku-4.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-haiku-4.5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-8b-thinking": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-8b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-image": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-flash-image": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-30b-a3b-thinking": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-30b-a3b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.6": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-4.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-4.5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v3.2-exp": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "thedrummer/cydonia-24b-v4.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "relace/relace-apply-3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-235b-a22b-thinking": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-vl-235b-a22b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-max": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-coder-plus": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-v3.1-terminus": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-coder-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-next-80b-a3b-thinking": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-next-80b-a3b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen-plus-2025-07-28": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2-0905": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-30b-a3b-thinking-2507": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nousresearch/hermes-4-405b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-chat-v3.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-medium-3.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-medium-3.1:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.5v": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-mini:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-nano": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-5-nano:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-oss-120b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-oss-20b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-oss-20b:batch": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-opus-4.1:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/codestral-2508": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/codestral-2508:batch": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-coder-30b-a3b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-30b-a3b-instruct-2507": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "z-ai/glm-4.5-air": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-235b-a22b-thinking-2507": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-coder": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "bytedance/ui-tars-1.5-7b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-flash-lite": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-flash-lite:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-235b-a22b-2507": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "moonshotai/kimi-k2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "tencent/hunyuan-a13b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "morph/morph-v3-large": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "morph/morph-v3-fast": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "baidu/ernie-4.5-vl-424b-a47b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-small-3.2-24b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-m1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-flash:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-pro:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemini-2.5-pro-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-r1-0528": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-sonnet-4": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-medium-3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-guard-4-12b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-30b-a3b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-14b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-32b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen3-235b-a22b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o4-mini-high": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o4-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o4-mini:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1-mini:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1-nano": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4.1-nano:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-4-maverick": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-4-scout": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-chat-v3-0324": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o1-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-small-3.1-24b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-3-4b-it": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-3-12b-it": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "cohere/command-a": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "rekaai/reka-flash-3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-3-27b-it": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "thedrummer/skyfall-36b-v2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "perplexity/sonar-reasoning-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "perplexity/sonar-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "perplexity/sonar-deep-research": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-saba": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3-mini-high": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "aion-labs/aion-rp-llama-3.1-8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen2.5-vl-72b-instruct": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen-plus": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3-mini": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o3-mini:batch": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-small-24b-instruct-2501": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "perplexity/sonar": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-r1-distill-llama-70b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-r1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "minimax/minimax-01": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "microsoft/phi-4": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek/deepseek-chat": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "sao10k/l3.3-euryale-70b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/o1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "cohere/command-r7b-12-2024": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-3.3-70b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "amazon/nova-lite-v1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "amazon/nova-micro-v1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "amazon/nova-pro-v1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-2024-11-20": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-large-2407": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen-2.5-coder-32b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "thedrummer/unslopnemo-12b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "anthracite-org/magnum-v4-72b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen-2.5-7b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-3.2-1b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-3.2-3b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen/qwen-2.5-72b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "cohere/command-r-08-2024": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "cohere/command-r-plus-08-2024": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "sao10k/l3.1-euryale-70b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nousresearch/hermes-3-llama-3.1-70b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "nousresearch/hermes-3-llama-3.1-405b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "sao10k/l3-lunaris-8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-2024-08-06": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-3.1-70b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "meta-llama/llama-3.1-8b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-nemo": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-mini": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-mini-2024-07-18": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-mini:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "google/gemma-2-27b-it": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o-2024-05-13": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4o:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mixtral-8x22b-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "microsoft/wizardlm-2-8x22b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4-turbo": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4-turbo:batch": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "anthropic/claude-3-haiku": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "mistralai/mistral-large": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-3.5-turbo-0613": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openrouter/auto": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-3.5-turbo-instruct": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-3.5-turbo-16k": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "mancer/weaver": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "undi95/remm-slerp-l2-13b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "gryphe/mythomax-l2-13b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-3.5-turbo": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-3.5-turbo:batch": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "openai/gpt-4": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        }
+      },
+      "status": 200,
+      "modelCount": 452
+    },
+    "yidong": {
+      "url": "https://zhenze-huhehaote.cmecloud.cn/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 68
+    },
+    "hy3-free": {
+      "url": "http://127.0.0.1:8787/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 2
+    },
+    "baidu-qianfan": {
+      "url": "https://qianfan.baidubce.com/v2/models",
+      "keyPresent": true,
+      "models": {
+        "ernie-5.0": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-5.0-thinking-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.2-fast": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-4.5-turbo-vl": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-4.5-turbo-vl-32k": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3-embedding-0.6b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.5-27b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v3.2": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "bge-large-en": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3-embedding-8b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.3-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "bge-large-zh": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "paddleocr-vl-0.9b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "internvl3-38b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-x1.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-x1.1-preview": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-5.1": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-pro-0813": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-pro": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3-embedding-4b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "kimi-k2.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-ocr": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen-image-edit": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.5-397b-a17b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qianfan-ocr": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-4.5-turbo-20260402": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-4.5-turbo-32k": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "ernie-4.5-turbo-128k": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen-image": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4.1-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-flash-0731": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "pp-structurev3": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.5-122b-a10b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "embedding": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v3.2-think": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.5-35b-a3b": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        }
+      },
+      "status": 200,
+      "modelCount": 41
+    },
+    "zhipu-ai": {
+      "url": "https://open.bigmodel.cn/api/paas/v4/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 11
+    },
+    "groq": {
+      "url": "https://api.groq.com/openai/v1/models",
+      "keyPresent": true,
+      "models": {
+        "meta-llama/llama-prompt-guard-2-22m": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "openai/gpt-oss-20b": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "canopylabs/orpheus-v1-english": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "canopylabs/orpheus-arabic-saudi": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "whisper-large-v3-turbo": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "allam-2-7b": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "whisper-large-v3": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "openai/gpt-oss-120b": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "openai/gpt-oss-safeguard-20b": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "meta-llama/llama-prompt-guard-2-86m": {
+          "vision": false,
+          "field": "modalities.input"
+        },
+        "qwen/qwen3.8-27b": {
+          "vision": true,
+          "field": "modalities.input"
+        }
+      },
+      "status": 200,
+      "modelCount": 11
+    },
+    "justdowork": {
+      "url": "https://api.justwoker.icu/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 1
+    },
+    "qiniu": {
+      "url": "https://api.qnaigc.com/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 81
+    },
+    "amd": {
+      "url": "https://developer.amd.com.cn/radeon/api/v1/models",
+      "keyPresent": true,
+      "models": {
+        "DeepSeek-V4.1-Flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "DeepSeek-V4-Flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "GLM-5.3-Flash": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "MinerU2.5-Pro": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "MiniCPM5-2B": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "Qwen3.8-27B": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "Qwen3.8-Flash-Next": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        }
+      },
+      "status": 200,
+      "modelCount": 7
+    },
+    "modelscope": {
+      "url": "https://api-inference.modelscope.cn/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 35
+    },
+    "tokenrouter": {
+      "url": "https://api.tokenrouter.com/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 144
+    },
+    "codecraft": {
+      "url": "https://codecraftapi.com/v1/models",
+      "keyPresent": true,
+      "models": {
+        "muse-spark-1.1": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gemma-2-2b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "gpt-5.6-sol": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-opus-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-fable-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-mythos-preview": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "kimi-k3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.3": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-pro-0813": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.8-max": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gpt-5.6-terra": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-opus-4.8": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gemini-3.7-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-sonnet-5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gpt-5.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "grok-4.5": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-flash-0731": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "grok-4.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "seed-2.1-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "glm-5.2": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.8-27b": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        },
+        "gpt-5.6-luna": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "qwen3.7-max": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-opus-4.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gpt-5.5-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "claude-opus-4.7": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gemini-3.6-flash": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "kimi-k2.6": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "seed-2.1-turbo": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "gemini-3.1-pro": {
+          "vision": true,
+          "field": "architecture.input_modalities"
+        },
+        "deepseek-v4-pro-max": {
+          "vision": false,
+          "field": "architecture.input_modalities"
+        }
+      },
+      "status": 200,
+      "modelCount": 31
+    },
+    "apinex": {
+      "url": "https://api.apinex.bond/v1/models",
+      "keyPresent": true,
+      "models": {},
+      "status": 200,
+      "modelCount": 30
+    }
+  }
+}
