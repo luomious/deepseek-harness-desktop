@@ -117,11 +117,20 @@ return JSON.stringify({ ok: true, value: result.value });   // 信封不变
 | 门禁 `verify-patches.ps1` | **+1 条 ⇒ 80 static + 3 chunk + 1 integrity + 47 syntax = 81 checks，ALL PASS** |
 | 备份 | `_backups/profile-tool-search-image-passthrough-2026-09-23T17-03-58-039Z/bridge-*.bak` |
 
-## 五、重启后的验收判据（本次未做，需重启）
+## 五、重启后验收结果（实测，2026-09-24 09:40 重启后全部通过）
 
-1. 重跑盲测：随机新图 → agent `read_image` 应 **3/3**（本次是 0/3）；
-2. `contextTimeline.images` 应 **> 0**（本次 673/673 全 0）；
-3. 会话日志里 `read_image` 的 `tool/result` 之后应出现一条**带图像块的 user 消息**（来源 `plugin: dsh-tool-search`）。
+重启后（进程启动 09:40:20，补丁于 01:03 打入）逐项复测，**四条判据全过**：
+
+| # | 判据 | 结果 |
+|---|---|---|
+| 1 | 新随机盲测图（真值写不打印的单独文件、**先落盘答案再对**）经 agent `read_image` | **3/3 全对** —— 真值「左下橙方 / 右上黑圆 / 右下紫方」vs 我的盲读完全一致（修复前同一测法 **0/3**） |
+| 2 | `contextTimeline.images` | **0 → 1**（修复前：本会话 673 次请求全 0） |
+| 3 | 会话日志里带图像块的 user 消息 | **在**：`[agent/inbox/spliced seq=401106]` `source={"kind":"plugin","plugin":"dsh-tool-search"}` `blocks=["image"]`，`attachment=sha256:b14f6686… 400×300 image/png`（即刚读的那张盲测图） |
+| 4 | 顺带：orphan-sweep 补丁 | **生效** —— 我 01:05 故意留的 0 字节探针 `storages/.deadbeef-….tmp` 重启后**已被自动清掉**（文件系统事实：`Test-Path` = False） |
+
+**一处如实说明**：判据 4 预期的 `[storage-json] reclaimed N …` 日志行**没出现在日志文件里** —— 因为该补丁用的是裸 `console.log`，而 DSH 日志文件只收录走 logger 的输出（对比：projcache 的 `evicted …` 是 `[W]` 级 logger 输出，所以能进日志）。**证据以文件系统事实为准**（探针消失），日志行缺失不改变结论，但下次改这类补丁应改用 logger。
+
+**验收用脚本（可重跑）**：`_tmp/vision-postfix-verify-20260924.mjs`（判据 2+3）、`_tmp/vision-log-imageblocks-20260924.mjs`（判据 3 的日志扫描）、`_tmp/make-vision-blind-20260924.mjs`（生成盲测图）。
 
 ## 六、风险与回滚
 
