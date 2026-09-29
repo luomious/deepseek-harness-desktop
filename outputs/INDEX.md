@@ -97,3 +97,5 @@
 | 2026-09-29 | cleanup-investigation | DSH 文件构成调查与清理方案（官方规范对照 + 孤儿清单 + 三档清理） | outputs/2026-09-29-cleanup-investigation/README.md |
 
 | 2026-09-29 | cleanup-executed | 清理执行记录：_backups -2.1GB / _tmp 清空 / ~/.dsh 37 孤儿归档 | outputs/2026-09-29-cleanup-investigation/README.md |
+
+| 2026-09-29 | reorg | 仓库分类整理方案：3 散落插件归位 + 7 处引用 + 四阶段执行计划 | outputs/2026-09-29-reorg/README.md |
