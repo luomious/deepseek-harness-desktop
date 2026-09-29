@@ -22,7 +22,7 @@ import { atomicWriteFileSync } from './lib/atomic-write.mjs'
 import { fileURLToPath } from 'node:url'
 import { resolveCurrentBuild } from './resolve-dist.mjs'
 import { assertLibUnpacked } from './check-dist-integrity.mjs'
-import { assertTargetShape, selfCheck } from './patch-shape-gate.mjs'
+import { assertTargetShape, assertNoStaleCanon, isStaleCanonForTarget, selfCheck } from './patch-shape-gate.mjs'
 
 // P1-B6: 权威源 = 仓库 canon（git 管理）。仅当显式 --update-canon 时，才从
 // 全局 npm / web profile 的原始安装读取并刷新 canon（一次性移植输入）。
@@ -182,16 +182,13 @@ function applyRemoteEntry(content) {
   return content
 }
 
-// zstd 会话解压异步化补丁（Option A）：热读路径 readRaw/readZstdPrefix 的同步 decoder
-// 改为逐帧异步 decompressZstdFrame（模块已有 API；帧边界/校验和/abort 语义不变；
-// 同步 decoder 类保留定义但 createZstdFrameDecoder 已无调用点）。
+// zstd 会话解压异步化补丁（Option A）：0.1.7 已改为原生异步，原 perf5 补丁退役（见
+// patch-registry.mjs perf5 标记）。整文件覆盖已不安全，跳过。
 const ZSTD_MODULE = {
-  name: 'dsh-session-persistence-jsonl index.js (zstd async decode)',
+  name: 'dsh-session-persistence-jsonl index.js (zstd async decode, retired on 0.1.7)',
+  retired: true,
   canon: join(CANON_DIR, 'dsh-session-persistence-jsonl-index.js'),
-  targets: [
-    join(DEV_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
-    join(PKG_ROOT, 'dsh-session-persistence-jsonl', 'lib', 'index.js'),
-  ],
+  targets: [],
   markers: ['PATCH(zstd-async)', 'PATCH(zstd-stream-readraw', 'PATCH(zstd-stream-readprefix'],
 }
 
@@ -201,6 +198,11 @@ const report = []
 for (const w of WORKSPACES) {
   try {
     const source = UPDATE_CANON ? w.src : w.canon
+    // 血统门禁（2026-09-29）：0.1.1 血统 canon 在 0.1.7 目标上 → 退役跳过，不再整文件覆盖
+    if (w.targets.some((t) => isStaleCanonForTarget(source, t))) {
+      report.push(`SKIP ${w.name}（0.1.1 血统 canon，0.1.7 自包含目标，已退役）`)
+      continue
+    }
     let content = ensureMarkers(readFileSync(source, 'utf8'), w.markers, w.name)
     if (w.keepDropTarget) content = ensureDropTarget(content)
     if (w.remoteEntry) content = applyRemoteEntry(content)
@@ -240,6 +242,11 @@ for (const w of WORKSPACES) {
 
 for (const p of [SETTINGS_MODELS, FRONTEND_STATIC_NOCACHE, DIRECTORY_PICKER, ZSTD_MODULE]) {
   try {
+    // 血统门禁（2026-09-29）：0.1.1 血统 canon 在 0.1.7 目标上 → 退役跳过
+    if (p.targets.some((t) => isStaleCanonForTarget(p.canon, t))) {
+      report.push(`SKIP ${p.name}（0.1.1 血统 canon，0.1.7 自包含目标，已退役）`)
+      continue
+    }
     const content = ensureMarkers(readFileSync(p.canon, 'utf8'), p.markers, p.name)
     for (const t of p.targets) { assertTargetShape(t, { allowDrift: ALLOW_DRIFT }); writeIfDifferent(t, content) }
     report.push(`OK   ${p.name}`)

@@ -308,9 +308,16 @@ $retired = @{
   'port: conversation bundle chatOnly' = $true
   'port: directory-picker native picker' = $true
   'sandbox-local runner node (patch #15)' = $true
+  # 2026-09-29: 0.1.1-bloodline canons, retired. 0.1.7 client bundles are self-contained
+  # (no dsh-client-runtime/client import). port-user-patches.mjs skips these via
+  # isStaleCanonForTarget; gate kept as INFO so a future re-implementation on the 0.1.7
+  # API can re-activate the row.
+  # sweep-transform (2026-09-17): 0.1.7 no longer has the row-sweep animation at all
+  # (0 hits in pristine conversation/tool client.js), so the premise is gone.
+  'sweep: conversation rows (transform)' = $true
+  'sweep: tool/bash rows (transform)' = $true
   # 2026-09-27 U6-0a: the file-backed settings document was removed (0.1.7); the old
-  # document-tolerance guard (src marker + "invalid settings document at" chunk marker)
-  # no longer exists in the migration. Resilience semantics are inherited by
+  # document-tolerance guard no longer exists. Resilience semantics moved to
   # desktop-shell-settings.ts (refuses to edit an unparsable patch; fail-open reads).
   'settings resilience source (profile.ts)' = $true
 }

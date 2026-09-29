@@ -7735,3 +7735,39 @@ ew URL().pathname åœ¨ Windows ESM ä¸‹å¸¦å‰å¯¼ /D:ï¼Œç»ä¸å¯ç”¨äºæ‹¼æœ¬åœ°è·¯
 ### ¹æ·¶»¯ĞŞ¸´£¨·ÀÖ¹ÏÂ´ÎÖØ½¨ÖØÑİ£©
 - `scripts/package-vendor.ps1`£º²¹¶¡ÖØ·ÅÁ´´Ó**Ó²±àÂë 9 Ìõ**¸ÄÎª**±éÀúÈ«²¿ `apply-*.mjs`**£¬
   ·ÖÈı²ã£¨canon ¡ú ÄÚºË»Ö¸´+¿ÇÊÊÅä ¡ú ´ÅÅÌ·¢ÏÖµÄÆäÓà£©£¬ĞÂÔö applier ²»ÔÙ±»¾²Ä¬Ìø¹ı¡£
+
+---
+
+## 2026-09-29 ¡¤ ¸ùÖÎ¡¸web boot: 10 entries did not activate¡¹£¨0.1.1 canon ÎÛÈ¾ 0.1.7£©
+
+### ÄãµÄÖ±¾õÊÇ¶ÔµÄ£ºÈ·ÊµÊÇ¡¸¾É°æ±¾¸ÉÈÅÁËÏÖÔÚµÄ°æ±¾¡¹
+
+**¸ùÒò**£º`patches/bundles/` Àï 5 ¸ö canon ÊÇ **0.1.1 ÑªÍ³**£¨º¬ `require("@deepseek-ai/dsh-client-runtime/client")`£©£¬
+¶ø `port-user-patches.mjs` / `apply-sweep-transform-fixes.mjs` »á**ÕûÎÄ¼ş¸²¸Ç**µ½¹¹½¨Àï¡£
+0.1.6 Æğ client °üÒÑ×Ô°üº¬£¨²»ÔÙ require ¸ÃÄ£¿é£©? ¸²¸Çºó 5 ¸ö°üÔÚäÖÈ¾½ø³Ì `import failed`£¬
+Á¬´ø 6 ¸öµÈ `uiConversation` µÄ°ü pending ? **10 entries did not activate**¡£
+
+±»ÎÛÈ¾µÄ 5 ¸ö°ü£ºconversation / workspace / settings-models / tool / directory-picker-browse¡£
+
+### Èı²ãĞŞ¸´
+
+| ²ã | ĞŞ¸´ |
+|---|---|
+| **ÃÅ½û** | `patch-shape-gate.mjs` ĞÂÔö `isStaleCanonForTarget()`£ºcanon º¬ 0.1.1 import ¶øÄ¿±êÊÇ 0.1.7 ×Ô°üº¬ ¡ú **¾Ü¾ø/Ìø¹ı** |
+| **ÍËÒÛ** | `port-user-patches.mjs` 5 Ìõ canon ¸ÄÎª SKIP£»`zstd` ÌõÄ¿ÍËÒÛ£¨0.1.7 Ô­ÉúÒì²½£©£»sweep 2 ÏîÍËĞİ£¨0.1.7 ÒÑÎŞ¸Ã¶¯»­£¬0 ´¦ row-sweep£© |
+| **»¹Ô­** | 5 ¸ö°ü´Ó¹¹½¨×ÔÉíµÄ pristine Êä³ö£¨`app.asar.tmp.unpacked`£©»¹Ô­£¬Óë pristine **Öğ×Ö½ÚÒ»ÖÂ** |
+
+### ¸ôÀë¾É°æ±¾£¨°´ÄãÒªÇó£©
+
+- ¾É¹¹½¨ `win-unpacked-build202609272329`£¨40,150 ÎÄ¼ş / 1,623 MB£©¡ú `±¸·İ/2026-09-29-isolated-old-build/`
+- `dist/` ÏÖÔÚÖ»ÓĞµ±Ç°¹¹½¨ + junction Èë¿Ú£¬ÎŞ²¢ĞĞ°æ±¾¿É»ìÏı
+
+### ÑéÖ¤
+
+| ¼ì²é | ½á¹û |
+|---|---|
+| 5 ¸ö°üÑªÍ³ | È«²¿ `0.1.1import=False`£¨clean£©? |
+| pristine vs live | ÖğÏî **SAME**£¨´óĞ¡ + ÑªÍ³Ò»ÖÂ£© |
+| È«¹¹½¨É¨Ãè client-runtime ÒıÓÃ | Ö»Ê£¸Ã°ü×ÔÉí 2 ¸öÎÄ¼ş + 2 ¸öµÚÈı·½ bundle |
+| `verify-patches` | **ALL PASS (99)** |
+| profile ²ĞÁô | ÎŞ client-runtime ĞĞ/ÉùÃ÷/bundle |

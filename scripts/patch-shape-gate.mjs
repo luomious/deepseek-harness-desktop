@@ -181,6 +181,41 @@ export function assertTargetShape(file, { allowDrift = false } = {}) {
   )
 }
 
+/**
+ * 血统门禁（2026-09-29）：canon 是 0.1.1 血统（含 `dsh-client-runtime/client`）而目标
+ * 是 0.1.7 自包含包（不含）时，**拒绝整文件覆盖**。
+ *
+ * 实测根因：0.1.6 起 client 包自包含（不再 require dsh-client-runtime/client），
+ * 而旧 canon 是整文件覆盖的 0.1.1 血统。把它写进 0.1.7 构建 ⇒
+ * `import failed: require("@deepseek-ai/dsh-client-runtime/client") missed the module table`
+ * ⇒ conversation/settings-models/tool/workspace/directory-picker-browse 五个包全挂。
+ *
+ * 调用方：port-user-patches.mjs 与 apply-sweep-transform-fixes.mjs 在写盘前调用。
+ */
+export function assertNoStaleCanon(canonPath, targetPath) {
+  let canon
+  try { canon = readFileSync(canonPath, 'utf8') } catch (e) { throw new Error(`${canonPath}: canon 不可读：${e.message}`) }
+  let target = null
+  try { target = readFileSync(targetPath, 'utf8') } catch { /* 目标缺失时不拦（全新写入） */ }
+  const stale = canon.includes('dsh-client-runtime/client')
+  const selfContained = target !== null && !target.includes('dsh-client-runtime/client')
+  if (stale && selfContained) {
+    throw new Error(
+      `${canonPath}: 0.1.1 血统 canon（含 dsh-client-runtime/client import）不得覆盖`
+      + ` 0.1.7 自包含目标（${targetPath}）→ 该 canon 已退役，请移除对应补丁条目。`,
+    )
+  }
+}
+
+/** 判定版（不抛）：canon 是 0.1.1 血统而目标是 0.1.7 自包含时返回 true（应跳过）。 */
+export function isStaleCanonForTarget(canonPath, targetPath) {
+  let canon
+  try { canon = readFileSync(canonPath, 'utf8') } catch { return false }
+  let target = null
+  try { target = readFileSync(targetPath, 'utf8') } catch { return false }
+  return canon.includes('dsh-client-runtime/client') && !target.includes('dsh-client-runtime/client')
+}
+
 /** 自检：对每个登记项做 canon / 原版 / 当前目标三方对照，只读、不写盘。 */
 export function selfCheck() {
   const lines = []
