@@ -625,9 +625,79 @@ function patchFile(file, label, marker, mutate) {
   });
 }
 
-// ── 14/15. RETIRED 2026-09-29: the exit-path / requestRestart probes live in
-// scripts/apply-exit-probe.mjs (v3). Two overlapping probe mechanisms is not
-// normalized, so these blocks were removed; apply-exit-probe.mjs is canonical.
+// ── 14. shell lib/index.js: `connection` probed, not required ──────────
+// 现象：「切换模型就自动退出」+ `dsh-plugin-desktop: the Cordis shell plugin did not
+// register a window`。根因：壳的 inject 含 `connection`，而 `connection` 又 inject
+// `credentials`（profile 不一定提供）⇒ connection 停在 pending ⇒ 壳永不注入 ⇒
+// mountScheduled 报 "did not register a window" ⇒ 窗口没了。
+// 修法：与 `desktopRuntime` 同样的「probe 而非 require」，缺失时回退裸 URL。
+{
+  const file = join(unpacked, 'lib', 'index.js');
+  if (!existsSync(file)) fail(`shell connection probe: missing ${file}`);
+  const MARKER = 'dsh-desktop patch (2026-09-29): `connection` is probed, not required';
+  const ANCHOR = [
+    'const inject = [',
+    '\t"webServer",',
+    '\t"webRuntime",',
+    '\t"appExit",',
+    '\t"settings",',
+    '\t"connection"',
+    '];',
+  ].join('\n');
+  const REPLACED = [
+    'const inject = [',
+    '\t"webServer",',
+    '\t"webRuntime",',
+    '\t"appExit",',
+    '\t"settings"',
+    '];',
+    '/* dsh-desktop patch (2026-09-29): `connection` is probed, not required.',
+    '* It injects `credentials`, which a profile need not provide; while `connection`',
+    '* was pending the shell was never injected and mountScheduled failed with',
+    '* "the Cordis shell plugin did not register a window", killing an otherwise',
+    '* openable window. */',
+  ].join('\n');
+  patchFile(file, 'shell connection probe', MARKER, (content) => {
+    // Source-rebuild case: the shell source already drops `connection` from inject.
+    if (/const inject = \[\n\t"webServer",\n\t"webRuntime",\n\t"appExit",\n\t"settings"\n\];/.test(content)) return content;
+    const count = content.split(ANCHOR).length - 1;
+    if (count !== 1) {
+      throw new Error(`shell connection probe: expected 1 anchor, found ${count}`);
+    }
+    return content.replace(ANCHOR, REPLACED);
+  });
+}
+
+// ── 15. shell lib/index.js: renderer URL falls back when connection absent ──
+{
+  const file = join(unpacked, 'lib', 'index.js');
+  if (!existsSync(file)) fail(`shell url fallback: missing ${file}`);
+  const MARKER = 'dsh-desktop patch (2026-09-29): probe `connection`; fall back to the plain';
+  const ANCHOR = 'url: ctx.connection.authenticatedUrl(desktopRendererUrl(ctx.webServer.port, config.mode, runtime.platform)),';
+  const REPLACED = [
+    'url: (() => {',
+    '\t\t\t/* dsh-desktop patch (2026-09-29): probe `connection`; fall back to the plain',
+    '\t\t\t* renderer URL so a pending/unavailable connection service cannot stop the',
+    '\t\t\t* window from registering. */',
+    '\t\t\tconst base = desktopRendererUrl(ctx.webServer.port, config.mode, runtime.platform);',
+    '\t\t\tconst connection = typeof ctx.get === "function" ? ctx.get("connection") : void 0;',
+    '\t\t\ttry {',
+    '\t\t\t\treturn (connection && typeof connection.authenticatedUrl === "function") ? connection.authenticatedUrl(base) : base;',
+    '\t\t\t} catch {',
+    '\t\t\t\treturn base;',
+    '\t\t\t}',
+    '\t\t})(),',
+  ].join('\n');
+  patchFile(file, 'shell url fallback', MARKER, (content) => {
+    // Source-rebuild case: the source already probes `connection` for the URL.
+    if (content.includes('ctx.get("connection").authenticatedUrl') || (content.includes('ctx.get("connection")') && !content.includes(ANCHOR))) return content;
+    const count = content.split(ANCHOR).length - 1;
+    if (count !== 1) {
+      throw new Error(`shell url fallback: expected 1 anchor, found ${count}`);
+    }
+    return content.replace(ANCHOR, REPLACED);
+  });
+}
 
 // ── 16. dsh-app-boot: skip the no-op profile reload ───────────────────
 // dsh-config-editor.edit() 在每次设置写入（切换模型 / 创建提供商）之前，先拿

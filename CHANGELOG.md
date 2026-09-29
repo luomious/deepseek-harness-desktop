@@ -7771,3 +7771,35 @@ ew URL().pathname åœ¨ Windows ESM ä¸‹å¸¦å‰å¯¼ /D:ï¼Œç»ä¸å¯ç”¨äºæ‹¼æœ¬åœ°è·¯
 | È«¹¹½¨É¨Ãè client-runtime ÒıÓÃ | Ö»Ê£¸Ã°ü×ÔÉí 2 ¸öÎÄ¼ş + 2 ¸öµÚÈı·½ bundle |
 | `verify-patches` | **ALL PASS (99)** |
 | profile ²ĞÁô | ÎŞ client-runtime ĞĞ/ÉùÃ÷/bundle |
+
+---
+
+## 2026-09-29 ¡¤ ¸ùÖÎ¡¸ÇĞ»»Ä£ĞÍ×Ô¶¯ÍË³ö / did not register a window¡¹
+
+### ÏÖÏó
+- ÇĞ»»Ä£ĞÍ£¨´¥·¢ profile ÈÈÖØÔØ£©? `dsh-plugin-desktop: the Cordis shell plugin did not register a window` ? ÍË³ö¡£
+
+### ¸ùÒò£¨ÒÀÀµÁ´£©
+```
+¿Ç inject º¬ `connection`£¨±ØĞè£©
+  ¡ú dsh-client-connection inject ["credentials"]
+  ¡ú `credentials` ²»ÔÚ profile µÄ deps / bundles Àï
+  ¡ú connection Í£ÔÚ fiber state 1 (pending)
+  ¡ú ¿ÇÓÀ²»×¢Èë ? mountScheduled ±¨ "did not register a window" ? ´°¿ÚÏûÊ§
+```
+
+### ĞŞ¸´£º`connection` ¸ÄÎª¡¸Ì½²â¶ø·Ç±ØĞè¡¹
+ÓëÏîÄ¿¼ÈÓĞµÄ `desktopRuntime`£¨"probed, not required"£©Í¬·¶Ê½£º
+
+| ¸Ä¶¯ | Î»ÖÃ |
+|---|---|
+| `inject` È¥µô `'connection'` | `src/index.ts` L68 |
+| URL ¸ÄÎªÌ½²â£º`ctx.get('connection')?.authenticatedUrl(base) ?? base`£¬È±·şÎñÊ±»ØÍËÂã URL | `src/index.ts` L273+ |
+
+- **Ô´ÂëÒÑ¸Ä**£¨typecheck Ö÷/client Ë« exit=0£©
+- **dist Í¬²½ÒÑ´ò**£¨`lib/index.js`£©£¬²¢¹Ì»¯Îª `apply-shell-0.1.7-gaps.mjs` #14/#15
+- `verify-patches` +2 ÏîÊØÃÅ
+
+### ÑéÖ¤
+- `verify-patches` **ALL PASS (101 checks)**
+- Ô´Âë typecheck£ºÖ÷ tsconfig / client tsconfig ¾ù **exit=0**

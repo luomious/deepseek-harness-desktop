@@ -238,6 +238,11 @@ $checks = @(
   @{ n = 'shell-0.1.7: settings.register scope.get';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-settings\lib\index.js'; p = 'return a real scope with get()/set()' },
   @{ n = 'shell-0.1.7: reload fiber-await non-fatal';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'reload fiber-await rejects are non-fatal' },
   @{ n = 'shell-0.1.7: fail-loud keeps alive';            f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'fail-loud keeps process alive' },
+  # 2026-09-29: `connection` is probed, not required -- a pending connection service
+  # (it injects `credentials`) must not stop the shell registering its window.
+  # On FAIL: node scripts/apply-shell-0.1.7-gaps.mjs
+  @{ n = 'shell-0.1.7: connection probed not required';   f = Join-Path $unpacked 'lib\index.js'; p = 'dsh-desktop patch (2026-09-29): `connection` is probed, not required' },
+  @{ n = 'shell-0.1.7: renderer url fallback';            f = Join-Path $unpacked 'lib\index.js'; p = 'dsh-desktop patch (2026-09-29): probe `connection`; fall back to the plain' },
   # 2026-09-29 "auto exit" fix (model switch / provider creation): the settings UI
   # calls reconcileProfilePatches() with the CURRENT patch list before writing, and
   # re-applying an identical set tore the window down. Skip when nothing changed.
