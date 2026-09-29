@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # DeepSeek Harness Desktop - .gitignore
 # ============================================================
 
@@ -55,8 +55,7 @@ tools/
 # Local analysis/temp directories
 .dsh-analysis/
 
-# External repo clone (separate repo, clone per respective README) —
-# keep the super-injector tarball tracked (profile file: dep requires it for fresh clones)
+# External repo clone (separate repo, clone per respective README) 鈥?# keep the super-injector tarball tracked (profile file: dep requires it for fresh clones)
 plugins/dsh-routing-suite/*
 !plugins/dsh-routing-suite/dsh-external-dsh-super-injector-*.tgz
 
@@ -69,7 +68,7 @@ agent-presets/
 
 # Lifecycle/guard plugins runtime data
 dsh-stuck-loop-guard/data/
-# 周期自生成监测报告（内容随时间变化，不入库）
+# 鍛ㄦ湡鑷敓鎴愮洃娴嬫姤鍛婏紙鍐呭闅忔椂闂村彉鍖栵紝涓嶅叆搴擄級
 dsh-stuck-loop-guard/REPORT.md
 dsh-context-lifecycle/data/
 
@@ -89,6 +88,8 @@ vendor/
 .electron-cache/
 .electron-builder-cache/
 _backups/
+备份/
+# 2026-09-29: 冷备份目录（sessions/profile/AppData，~1.7GB，不入库）
 .ref-hairyf/
 
 # Local experiments / secrets / debug logs
@@ -122,3 +123,4 @@ diagrams/
 # Test-render artifacts (regenerated per test run; not fixtures)
 tests/preview/
 plugins/dsh-diagram-renderer/tests/preview/
+

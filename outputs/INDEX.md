@@ -93,3 +93,5 @@
 | 2026-09-29 | feature-audit | DSH åŠŸèƒ½å…¨é¢ä½“æ£€ï¼šP0 å·²æ‰“é€š / P1 çº¦5é¡¹ / P2 çº¦6é¡¹ | outputs/2026-09-29-feature-audit/README.md |
 
 | 2026-09-29 | clean-rebuild-plan | ³¹µ×ÖØÀ´·½°¸£º±¸·İ¡úÔ´ÂëÖØ½¨¿Ç¡ú¸É¾» profile¡úÇ¨ÒÆ¡úÑéÊÕ£¨º¬»Ø¹öµã£© | outputs/2026-09-29-clean-rebuild-plan/README.md |
+
+| 2026-09-29 | cleanup-investigation | DSH ÎÄ¼ş¹¹³Éµ÷²éÓëÇåÀí·½°¸£¨¹Ù·½¹æ·¶¶ÔÕÕ + ¹Â¶ùÇåµ¥ + ÈıµµÇåÀí£© | outputs/2026-09-29-cleanup-investigation/README.md |
