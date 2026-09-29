@@ -95,3 +95,5 @@
 | 2026-09-29 | clean-rebuild-plan | 彻底重来方案：备份→源码重建壳→干净 profile→迁移→验收（含回滚点） | outputs/2026-09-29-clean-rebuild-plan/README.md |
 
 | 2026-09-29 | cleanup-investigation | DSH 文件构成调查与清理方案（官方规范对照 + 孤儿清单 + 三档清理） | outputs/2026-09-29-cleanup-investigation/README.md |
+
+| 2026-09-29 | cleanup-executed | 清理执行记录：_backups -2.1GB / _tmp 清空 / ~/.dsh 37 孤儿归档 | outputs/2026-09-29-cleanup-investigation/README.md |

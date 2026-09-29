@@ -94,3 +94,5 @@
   - 补丁基线哈希：`node scripts/verify-bundle-manifest.mjs`（对比 `patches/bundles/MANIFEST.md` 与实际文件）。
 - **日常维护**：三层内置架构（启动自愈 / session-hygiene 实时卫生 / self-maintenance 每小时自检），
   无需计划任务与管理员操作；详见 `docs/AGENT-RULES-DETAIL.md` **§4 三层维护架构**（2026-09-17 前在 `AGENTS.md`，为满足 ≤150 行预算已搬入该文件）。`scripts/dsh-maintenance.ps1` 仅离线兜底。
+
+- [DIRECTORY-CONVENTIONS.md](./DIRECTORY-CONVENTIONS.md) �� Ŀ¼�淶������ṹ/����/��������/����ӣ�

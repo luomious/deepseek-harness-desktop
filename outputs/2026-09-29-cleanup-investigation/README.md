@@ -162,3 +162,46 @@ powershell -File _tmp\inv-repo.ps1
 # _backups 鏄庣粏
 Get-ChildItem _backups -Directory | ForEach-Object { ... }
 ```
+
+---
+
+## 七、实际执行记录（2026-09-29 执行）
+
+### 已完成动作
+
+| # | 动作 | 结果 |
+|---|---|---|
+| 1 | `~/.dsh` 37 个补丁孤儿（.bak/.new-/log） | **移入** `备份/2026-09-29-cleanup/removed-from-dsh-home/`（含 SHA256 manifest） |
+| 2 | `_tmp/` 全部内容（579 MB / 44k files） | 清空（一次性探针） |
+| 3 | `_backups/dist-archive/20260927195941` | 删除（880 MB，被更新的归档取代） |
+| 4 | `_backups/pre-0.1.7-migration-*`（545 MB） | 移入 `备份/.../repo-archived/` |
+| 5 | `_backups/kernel-upgrade-*`（446 MB） | 移入 `备份/.../repo-archived/` |
+| 6 | `_backups/archived-sessions-*`（96 MB，会话数据） | 移入 `备份/.../repo-archived/`（**保数据**） |
+| 7 | `_backups` 126 个「3 天前」小目录 | 压缩为 `_backups-older-than-3d.zip`（15.4 MB） |
+| 8 | 乱码目录 `澶囦唤`（PS 5.1 编码坑） | 合并进 `备份/` 后删除 |
+| 9 | 根级临时脚本 `_tmp-cleanup-*.ps1` | 归档到 `备份/.../scripts-used/` |
+| 10 | `.gitignore` | 新增 `备份/` 规则 |
+
+### 成效
+
+| 对象 | 清理前 | 清理后 | 变化 |
+|---|---|---|---|
+| 仓库 `_backups/` | 6,018 MB / 125,575 files / 236 dirs | 3,909 MB / 102,760 files / 109 dirs | ?2.1 GB，目录数减半 |
+| 仓库 `_tmp/` | 579 MB / 44,029 files | 0 | ?579 MB |
+| `~/.dsh` 孤儿文件 | 37 个 | 0 | 观感整洁 |
+| 仓库根散落文件 | 3 个 | 0 | 整洁 |
+| 乱码目录 | 1 个 | 0 | 规范化 |
+
+### 安全验证（清理后立即执行）
+
+| 检查 | 结果 |
+|---|---|
+| `verify-patches.ps1` | **ALL PASS (99 checks)** |
+| `patch-manifest --verify` | **ALL PASS**（46 entries, digest 一致）|
+| `resolve-dist` | dist 路径正常 |
+| `~/.dsh` 关键配置 | `settings.yaml.imported` 14,209 B ? / `.credentials.yaml` 1,838 B ? |
+
+### 新增规范文档
+
+`docs/DIRECTORY-CONVENTIONS.md` —— 三层结构、「什么放哪里」、命名规范、保留策略、
+编码坑规避、记录规范、快速自检。
