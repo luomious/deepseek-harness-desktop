@@ -1,0 +1,29 @@
+?js-yaml 解析：providers = 17
+声明�?image 的模型数（解析后�? 22
+内联形式 input: [text, image] 行数 = 1
+列表形式 input: 行数 = 3
+
+明细�?  amd/DeepSeek-V4.1-Flash
+  amd/Qwen3.8-Flash-Next
+  baidu-qianfan/ernie-4.5-turbo-vl
+  codecraft/claude-fable-5
+  codecraft/claude-mythos-preview
+  codecraft/claude-opus-5
+  codecraft/gpt-5.6-sol
+  codecraft/kimi-k3
+  codecraft/qwen3.8-max
+  groq/qwen/qwen3.8-27b
+  openrouter/nex-agi/nex-n2.5-pro:free
+  openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+  openrouter/openrouter/free
+  tokenrhythm01/deepseek-flash
+  tokenrhythm01/glm-5.3-flash
+  tokenrhythm01/kimi-k2.6
+  tokenrhythm01/kimi-k2.7-code
+  tokenrhythm01/qwen3.7-flash
+  tokenrhythm01/qwen3.8-flash
+  tokenrhythm01/qwen3.8-max
+  tokenrhythm01/seed-2.1-pro
+  tokenrhythm01/seed-2.1-turbo
+
+deepseek-flash 是否在内�?true

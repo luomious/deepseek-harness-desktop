@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-external/dsh-failover-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Read-only diagnostic probe: logs every agent/request and agent/request-error payload verbatim so we can tell whether the error hook fires in production. Never calls next() in a vetoing way; never returns {kind:'retry'}.",
+  "license": "MIT"
+}

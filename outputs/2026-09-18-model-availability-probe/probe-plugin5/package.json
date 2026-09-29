@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-external/dsh-inspection-guard-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Diagnostic probe v5: inspects the agent/request payload shape (what the agent object exposes), supports a one-shot force-fail sentinel, and prototypes the modelscope moderation guard at the agent/request seam.",
+  "license": "MIT"
+}

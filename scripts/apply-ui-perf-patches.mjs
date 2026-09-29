@@ -56,8 +56,17 @@ if (!existsSync(bsFile)) {
   fail('better-sidebar client.js not found at ' + bsFile)
 } else {
   let src = readFileSync(bsFile, 'utf8')
+  // 2026-09-28 (dsh-better-sidebar 0.15.2 -> 0.22.1): upstream removed the right-panel
+  // concept entirely -- `panelOpen` has 0 hits in this file, the right column belongs to
+  // DSH's native Sidebar, and the remaining effect already arms on `bottomOpen`
+  // (lib/client.js:17889 `}, [measureCenter, bottomOpen]);`). The three collapse-gate edits
+  // below can no longer express their intent AND the third one's anchor is gone, so a run
+  // used to write the first two and THEN fail, leaving a half-patched file. Treat the gate
+  // as satisfied when the redesign is detected: the collapse-gate checks are retired in
+  // verify-patches.ps1 for the same reason. The nav edit below is unaffected and still applies.
+  const bsUpstreamRedesign = !src.includes('panelOpen')
   // Fix FEATURES (hand-applied state has these without the marker comment).
-  const bsHasGate = src.includes('if (!(state && (state.panelOpen || state.bottomOpen))) return;')
+  const bsHasGate = bsUpstreamRedesign || src.includes('if (!(state && (state.panelOpen || state.bottomOpen))) return;')
   const bsHasNav = src.includes('document.querySelector("[role=\\"dialog\\"]") === null') || src.includes('document.querySelector("[role=&quot;dialog&quot;]") === null')
   if (bsHasGate && bsHasNav) {
     console.log('ok    better-sidebar already patched (fix features present)')

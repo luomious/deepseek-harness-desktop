@@ -1,0 +1,24 @@
+[
+  {
+    "provider": "apinex",
+    "model": "free/gpt-5.6-luna",
+    "url": "https://api.apinex.bond/v1/chat/completions",
+    "ok": false,
+    "status": 404,
+    "latencyMs": 6541,
+    "attempts": 1,
+    "kind": "NOTFOUND_404",
+    "error": "{\"error\":{\"message\":\"Model 'free/gpt-5.6-luna' not found\",\"type\":\"not_found_error\",\"param\":null,\"code\":null}}"
+  },
+  {
+    "provider": "apinex",
+    "model": "free/mimo-v2.5",
+    "url": "https://api.apinex.bond/v1/chat/completions",
+    "ok": false,
+    "status": 404,
+    "latencyMs": 353,
+    "attempts": 1,
+    "kind": "NOTFOUND_404",
+    "error": "{\"error\":{\"message\":\"Model 'free/mimo-v2.5' not found\",\"type\":\"not_found_error\",\"param\":null,\"code\":null}}"
+  }
+]

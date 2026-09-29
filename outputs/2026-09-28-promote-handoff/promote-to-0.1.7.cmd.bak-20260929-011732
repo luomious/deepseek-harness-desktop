@@ -1,0 +1,117 @@
+@echo off
+REM ---------------------------------------------------------------------------
+REM  Switch DSH Desktop to kernel 0.1.7-rc.2  --  RUN ONLY WITH THE APP CLOSED.
+REM
+REM  Five steps, in this order. Each step is gated: a failure stops the run.
+REM
+REM    0) refuse to run while DSH Desktop is up (a live re-point leaves the app
+REM       as "old exe + new resources")
+REM    1) re-apply the profile's 0.1.7 adaptations
+REM       (reapply-profile-0.1.7.mjs) -- the shell's healthy-profile checkpoint
+REM       restored the 2026-09-27 snapshot at 2026-09-29 00:47:48 and reverted the
+REM       4 dependency bumps, the settings-scope-shim dependency + patch row and
+REM       the release-age waivers
+REM    2) repoint the ~/.dsh/profiles/node_modules junction farm at dist\win-unpacked
+REM       (measured: 530 of 549 entries still point at the pinned 0.1.1 build
+REM        build202608272104, so profile plugins would resolve @deepseek-ai/* as
+REM        0.1.1 and the 0.1.7 dependency line cannot link)
+REM    3) promote dist\win-unpacked -> win-unpacked-build202609272329 (0.1.7-rc.2)
+REM       (static smoke test; on failure the junction rolls back automatically)
+REM    4) queue the desktop profile for the next startup
+REM       (select-desktop-profile.mjs) -- the shell currently has
+REM       active = lastKnownGood = recover-web, so WITHOUT this a restart boots
+REM       recover-web even after a successful promote
+REM
+REM  Exit codes:
+REM    0 = all steps OK        -> start DSH Desktop
+REM    1 = a step failed       -> see the message; the app is unchanged or rolled back
+REM    2 = ABORTED             -> DSH Desktop is still running; close ALL of it first
+REM ---------------------------------------------------------------------------
+setlocal
+set REPO=D:\Deepseek-Harness
+set NODE=node
+set BUILD=win-unpacked-build202609272329
+
+echo.
+echo === step 0/5: preflight - is DSH Desktop closed? ===
+tasklist /FI "IMAGENAME eq DSH Desktop.exe" /NH 2>nul | find /I "DSH Desktop.exe" >nul
+if not errorlevel 1 (
+  echo ABORT: DSH Desktop is still running. Close ALL windows ^(and the tray icon^),
+  echo        then run this script again.
+  pause
+  exit /b 2
+)
+
+echo.
+echo === step 0.5/5: gate - can the profile link against 0.1.7? ===
+%NODE% "%REPO%\scripts\verify-profile-exports.mjs" --profile desktop
+if errorlevel 1 (
+  echo.
+  echo GATE FAILED: a LOADED profile package imports a symbol the 0.1.7 kernel does
+  echo not export. Promoting now would break the desktop startup.
+  echo Press Ctrl+C to abort, or any key to continue anyway.
+  pause
+)
+
+echo.
+echo === step 1/5: re-apply the profile's 0.1.7 adaptations ===
+%NODE% "%REPO%\scripts\reapply-profile-0.1.7.mjs" --apply
+if errorlevel 1 (
+  echo.
+  echo STEP 1 FAILED -- not repointing, not promoting; the app is unchanged.
+  pause
+  exit /b 1
+)
+
+echo.
+echo === step 2/5: repoint the profile junction farm at dist\win-unpacked ===
+%NODE% "%REPO%\scripts\repoint-profile-node-modules.mjs" --apply
+if errorlevel 1 (
+  echo.
+  echo STEP 2 FAILED -- not promoting; the app is unchanged.
+  echo Rollback: restore each farm entry from the catalog-before.json printed above.
+  pause
+  exit /b 1
+)
+
+echo.
+echo === step 3/5: promote dist\win-unpacked -^> %BUILD% ===
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO%\scripts\promote-build.ps1" -From %BUILD%
+set RC3=%ERRORLEVEL%
+if not "%RC3%"=="0" (
+  echo.
+  echo STEP 3 FAILED ^(exit %RC3%^):
+  echo   exit 1 = smoke test failed, the junction rolled back to the previous build
+  echo   exit 2 = the app was running; close it and re-run
+  echo The desktop profile was NOT queued, so the next restart still boots the
+  echo currently working profile.
+  pause
+  exit /b 1
+)
+
+echo.
+echo === step 4/5: queue the desktop profile for the next startup ===
+%NODE% "%REPO%\scripts\select-desktop-profile.mjs" --profile desktop --apply --force
+if errorlevel 1 (
+  echo.
+  echo STEP 4 FAILED -- the kernel is promoted, but the next restart will still
+  echo boot recover-web. Re-run just this step:
+  echo   node "%REPO%\scripts\select-desktop-profile.mjs" --profile desktop --apply --force
+  pause
+  exit /b 1
+)
+
+echo.
+echo ---------------- result ----------------
+echo OK: farm + kernel junction are on 0.1.7-rc.2 and the desktop profile is queued.
+echo.
+echo NOW START DSH Desktop, then verify:
+echo   - GET http://127.0.0.1:43120/health                  (expect 200)
+echo   - GET http://127.0.0.1:43120/task-scheduler/status   (expect 200)
+echo   - settings.yaml still lists 18 providers
+echo If the desktop profile fails to load, the shell falls back to recover-web on
+echo its own; re-run this script to retry, and read
+echo   %APPDATA%\DSH Desktop\logs\dsh-<today>.error.log
+echo ----------------------------------------
+pause
+endlocal

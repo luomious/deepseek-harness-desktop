@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "patchSet": "dsh-desktop-dist-patches",
+  "patchDigest": "b7e80393af48923949d54cb7d2ec00d3b241f512134d7a6c0c03a3f10ee1b231",
+  "entryCount": 46,
+  "counts": {
+    "applier": 32,
+    "bundle": 11,
+    "reference": 3
+  },
+  "note": "P0-6 补丁集身份登记。任何条目增删或内容变化 → patchDigest 变化 → verify 报红，必须显式重新 --write（防静默漂移，非防空改）。",
+  "entries": [
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-shortcuts-client.js",
+      "sha256": "84592e2917a18b810246a46df4df65894c305a93ba664fdb361f0abdb6f69381"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-ui-conversation-client.js",
+      "sha256": "89534da76b9f1e636b2cbc5bf2c6fb703142809928bc29620e716066c37575eb"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-ui-directory-picker-browse-client.js",
+      "sha256": "8f0c2944cb87d0efba4c90f625d2078708a3d7af27a1a23090299d805a3a94c3"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-ui-settings-models-client.js",
+      "sha256": "0e36badd4ce2e363d344401f68f080f16039cc27da3061c9e34f532f3e209865"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-ui-tool-client.js",
+      "sha256": "9f7726b74b159d6ebfd458937cd1deb435c2fd2d2fb264ed4e3ebb90a998228f"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-client-ui-workspace-client.js",
+      "sha256": "0497d48dbcd7ba2eca93af9de9615e7b716165dfcc2818da9be7237fe5720ee4"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-host-frontend-static-index.js",
+      "sha256": "aadb529f136093c5511fbba6599f6a1e8ca07060a69ef7ed90bf68ba3a955206"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-session-persistence-jsonl-index.js",
+      "sha256": "7ba881f57738d48589effe478eb5176d74cd37cd368aed04d025adf7c66a253b"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/dsh-settings-scope-shim-client.js",
+      "sha256": "02fffed5b8bef5e7fa45755cd0580836cef37c926c151d3ac8a59e4043906572"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/modlens-dsh-index.js",
+      "sha256": "558a9a5dc14ea66093383c04c18de859158dfac838743fac4ed8deefd628b251"
+    },
+    {
+      "kind": "bundle",
+      "path": "patches/bundles/safe-delete-shim.cjs",
+      "sha256": "278dfb2438d137647005a11e6748679f4c9fcbee0a8851cb72fd99678fa34368"
+    },
+    {
+      "kind": "reference",
+      "path": "patches/reference/dsh-service.js",
+      "sha256": "68ce1e71478c1df9fd0071724f70623c6dd0ba993eb69e400d0f098ef897a829"
+    },
+    {
+      "kind": "reference",
+      "path": "patches/reference/patch-manifest.js",
+      "sha256": "014e1260c339237b7f555d16fb5fbae59341d51fe4e9d13f2ce80ca2739b08f4"
+    },
+    {
+      "kind": "reference",
+      "path": "patches/reference/plugin-manager.js",
+      "sha256": "a8b8de8d5d575c52055a9f6599cf7fe531b06d121b9eb8832d038eeda84fb02b"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-community-market-media-no-lag.mjs",
+      "sha256": "e9fb0b820f4eb07dd13c423339ebe59548380ebf0f8824d64f93135bdb0326d7"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-community-market-no-lag.mjs",
+      "sha256": "a5e7d2b31ccff4b0e0d320da76da5ae625357bb0a95f18877d64412dd9dd63b8"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-community-market-settings-section.mjs",
+      "sha256": "dc0da62fb04b9f6308188ff9e3f787ef0da77a19b0201cf8cde5f147c8de684f"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-context-undefined-tool-fix.mjs",
+      "sha256": "c9b9251c008b6cd35823c02a02ba629953c6d66b85741669f90f6d547e4d80d6"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-cordis-task-catch-fix.mjs",
+      "sha256": "94e69f73e76ce444db6a1fc7e808610ddb1add91781fe107fd8b9c74d68a995a"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-disable-auto-update.mjs",
+      "sha256": "16a4dfebbd4f06cb144ac8fd2adc535ef6c0dea05857b93681522ec82a1c9f28"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-exit-cleanup.mjs",
+      "sha256": "47064d7bd92cd434f93f444bdf9c584f9ed45194053404f67ef9d7569b6316eb"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-exit-probe.mjs",
+      "sha256": "8c5599db4b8006b566b4b0e41fd765a26808d059b87dfa7800914dae417683ae"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-gpu-opaque-patches.mjs",
+      "sha256": "c33fc39ec0fa6fae035990a2f64e6e0352ff691260f4c1e5b1d8021fa5efa31c"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-json-storage-orphan-sweep.mjs",
+      "sha256": "e4734eb85c66dd7b9cf3b6e4e9d98a5c3b71331d771c365d7d65e8fe041a891a"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-json-storage-retry.mjs",
+      "sha256": "ffc53afb7a933963ba5550cd3131015fd4a243af2b9028c38538ef57bab7bfa7"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-kernel-implicit-deps.mjs",
+      "sha256": "f23620bab997dad58de040031d78effb2bb63e8f9a955313f53fd54cae1b1b5a"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-log-write-guard.mjs",
+      "sha256": "0993008f0bc9d07bb25f0468a464294e504c840f213856fafbc88e32a1c621da"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-picker-utf16-patch.mjs",
+      "sha256": "1731e835ce2809315b74a1fac045cc53b0b4b8e2c7551e3e576ded85790ebb5c"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-profile-guard.mjs",
+      "sha256": "2a3ec075db4f95f22fe4babcd0278732881b6ea1343789e64aa6110fd9ab4c07"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-projcache-guard.mjs",
+      "sha256": "7c8e22e7a88da611f344e752729ee296deaf8441a2ff4db7fc4f1c95c3db838f"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-safe-delete-shim.mjs",
+      "sha256": "32e0e8693034b7b03c81d9fe1931f15b6137d0492b7a38b60330a6c38af9ad8c"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-scroll-anchor-fixes.mjs",
+      "sha256": "0c5777418b81b64c8906cfc9d300e5de520d5257a0beb03e58f82943473ab2e2"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-session-decode-streaming.mjs",
+      "sha256": "497ba3fc37db81f7bb973cac8a7263dc2ffbdfb5d1758103cf672ff8a1b6dae8"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-settings-resilience.mjs",
+      "sha256": "8df0686d5ea423d748e44f70cf9706e0e90f99d45e1cd2f17086af1c796d070c"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-shell-0.1.7-gaps.mjs",
+      "sha256": "dc4d8def49548f9c7220f7cb97e4430c91f3df356395a452c1085b835a842668"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-sm-renderer-probe.mjs",
+      "sha256": "e12cdd7e16d2f5d70644fd04d881420b890c2b3c7da71b7ddbcc31d57b3f3423"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-spill-hardening.mjs",
+      "sha256": "d0936d407d69392ccaa5a08b0b4e630e0001086034868f261664d30f85bb3a76"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-stale-lock-patch.mjs",
+      "sha256": "a79bac8eaacc5366276097f86b6f87ac424df28c77c067fbd53d0c10a5eab0f7"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-startup-resilience-patches.mjs",
+      "sha256": "344bc5e9f2766d93abb5c78dc6fcc5cc795b046c7f8d5ab021b9897bdf9b1c08"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-sweep-transform-fixes.mjs",
+      "sha256": "1ed8e1c108c46e2a19df4f476641497f620e718513725497a3b3e65c378808c8"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-task-scheduler-retention.mjs",
+      "sha256": "5253a787dab897ae4e35dd53c56203eb80ed63f6f764053c7127fb037fecd168"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-tool-search-image-passthrough.mjs",
+      "sha256": "859a14885e71d2780fc356bcc2f629c3394ae8fceda593141dc71a6ef38bc5bc"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-typing-lag-fixes.mjs",
+      "sha256": "6658486d4032ebfa864057781bb47f24a31f7189a177f0b07e7cca7941fb2b95"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-ui-perf-patches.mjs",
+      "sha256": "936499fa63c2352a2ef77a4a1328a4b24ce35eb716b36b10a31ffc4cb7cb0abc"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-window-all-closed-guard.mjs",
+      "sha256": "22cc3ad600980ecc1256f9319095f21ce03a10acaddab3f301767117b9b9b1f9"
+    },
+    {
+      "kind": "applier",
+      "path": "scripts/apply-winhide-patches.mjs",
+      "sha256": "ac2bf80b9ccc00b5dfbe8934a5d4c6cf7cf1ba3bc0088de0a31d0bb58831cd4c"
+    }
+  ],
+  "generatedAt": "2026-09-29T12:29:15.632Z"
+}

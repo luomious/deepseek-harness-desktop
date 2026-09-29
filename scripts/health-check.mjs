@@ -49,9 +49,20 @@ const HISTORY = join(HEALTH_DIR, 'startup-history.jsonl')
 const MAX_HISTORY = 200
 const CONSECUTIVE_FAIL_LIMIT = 3
 
+/**
+ * 2026-09-29：把显式的 `--profile <name>` 透传给 startup-verify。
+ * 不传时由 startup-verify 自己定目标（默认 desktop，且不再继承宿主会话的 DSH_PROFILE，
+ * 否则在别的 profile 会话里跑门禁会静默换目标、变成无关的红）。
+ */
+function profileArgs() {
+  const i = process.argv.indexOf('--profile')
+  const name = i >= 0 ? process.argv[i + 1] : undefined
+  return name ? ['--profile', name] : []
+}
+
 function runStartupVerify() {
   try {
-    const res = spawnSync(process.execPath, [STARTUP_VERIFY, '--json'], {
+    const res = spawnSync(process.execPath, [STARTUP_VERIFY, '--json', ...profileArgs()], {
       encoding: 'utf8',
       timeout: 120_000,
       windowsHide: true,

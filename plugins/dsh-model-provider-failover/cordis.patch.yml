@@ -9,6 +9,13 @@
 #      ⇒ 上游无渠道（属内核重试码表内的 SERVER，**不接管恢复**，交给 dsh-llm-retry；
 #      冷却 + 内核重试循环会在后续尝试里把请求切到备用 provider）。
 #
+#   3) modlens-modelscope / modelscope（2026-09-24 新增，需 claimInspection: true）：
+#      上游（阿里魔搭）**输入内容安全审核**会以 400 data_inspection_failed 拒收整段上下文
+#      （实测：同一模型发 152,038 tokens 无害长文本 → 200 OK，故不是长度限制，是内容判定；
+#       失败那步 inputTokens=0/outputTokens=0 ⇒ 生成前就被拒）。该失败 code 是通用的
+#      INVALID_REQUEST ⇒ 内核不重试、本插件原也不接管 ⇒ 整轮硬失败。
+#      现定向识别该报文：一次即冷却 + 接管一次恢复，把该轮切到备用 provider。
+#
 # fallbackModel 强烈建议填：跨 provider 时 model id 通常不存在，必须显式映射，
 # 否则切换后会拿一个不存在的模型再失败一次（这是本插件升级前的真实缺陷）。
 - insert:
@@ -21,14 +28,19 @@
         claimRecovery: true      # 是否接管"内核不重试的计费/配额类失败"
         maxRecoveriesPerKey: 1   # 同一 turn:step:provider 最多接管几次
         maxFailoversPerTurn: 3   # 单轮最多切换几次 provider（防 A→B→A 抖动）
+        claimInspection: true    # 定向：上游内容审核拒收（data_inspection_failed）也接管一次恢复
         fallback:
           modlens-yidong: modlens-tokenrhythm01
           modlens-apinex: modlens-tokenrhythm01
           modlens-tokenrouter: modlens-tokenrhythm01
+          modlens-modelscope: modlens-tokenrhythm01
+          modelscope: modlens-tokenrhythm01
         fallbackModel:
           modlens-yidong: deepseek-v4-flash-0731
           modlens-apinex: deepseek-v4-flash-0731
           modlens-tokenrouter: deepseek-v4-flash-0731
+          modlens-modelscope: deepseek-v4-flash-0731
+          modelscope: deepseek-v4-flash-0731
         # 运行时（免重启）调整示例：
         #   dev_provider_failover_status
         #   dev_provider_failover_configure {setFallback:"p-a",fallbackTo:"p-b"}

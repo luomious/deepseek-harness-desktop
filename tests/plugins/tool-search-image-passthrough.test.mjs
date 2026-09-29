@@ -23,7 +23,13 @@ import { pathToFileURL } from 'node:url'
 import { homedir } from 'node:os'
 
 const MARKER = 'dsh patch tool-search-image-passthrough v1'
-const PROFILE = process.env.DSH_PROFILE ?? 'desktop'
+// 2026-09-29: this test targets the DEV desktop build's profile, which is what
+// scripts/apply-tool-search-image-passthrough.mjs patches (`--profile=` defaults to
+// `desktop`). It must NOT read the ambient DSH_PROFILE: when the suite runs inside a
+// host session (QuWork, profile `web`) that variable points at a different install,
+// and the test then asserted against an unpatched bridge and failed for the wrong
+// reason. Override explicitly with DSH_TOOL_SEARCH_PROFILE instead.
+const PROFILE = process.env.DSH_TOOL_SEARCH_PROFILE ?? 'desktop'
 const BRIDGE = join(homedir(), '.dsh', 'profiles', PROFILE, 'node_modules', 'dsh-tool-search', 'lib', 'bridge.js')
 
 const IMAGE_BLOCK = {

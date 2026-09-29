@@ -24,6 +24,7 @@
 - `EXTERNAL-REPO-ADAPTATION-ASSESSMENT-2026-09-09.md` —— **外部仓库适配评估（2026-09-09）**：10 仓库候选 → 已有能力对照 → 不加/改进现有/有条件新增判定；§10 含推荐项风险收益五维评估。**注意：§"72 个 skill 未装"已过时（CAP-1 已完成，实测已装 61 个）。**
 - `OPS-QUOTA-FAILOVER-VISION-2026-09-15.md` —— **运维手册（2026-09-15）**：配额 / 故障转移 / 视觉桥三场景的"看哪里、一条命令怎么查、怎么回滚"+ 速查表 + 8 条通用坑（多帧 zstd、`data.usage`、BOM、file policy、原子写、共享配置并发、本地 API 的 CSRF 守卫、modlens 不可热重载）+ 变更溯源。
 - `AGENT-RULES-DETAIL.md` —— **项目规则详解（2026-09-17）**：根 `AGENTS.md` 策展区的**逐字展开版**（§1 协作指南 / §2 五段流程+plan 模板 / §3 架构与关键路径 / §4 三层维护架构 / §5 构建部署 / §6 常见坑位 / §7 安全守则，含各自的原因、证据与完整命令）。`AGENTS.md` 为满足**≤150 行**预算只保留「动作要点 + 小节编号」⇒ **要细节就看这里**；`AGENTS.md` 的 `brief:auto:*` 自动区体积由 `plugins/dsh-project-brief` 的 `CAP` 上限控制。
+- `UPSTREAM-SYNC-RUNBOOK.md` —— **上游同步手册（2026-09-28，2026-09-29 补充）**：官方发版时「一条命令 `node scripts/upstream-sync.mjs` + 五阶段」的固定流程、三条通用修法（升版优先 / 禁用 / 改代码）、升级执行顺序、**回滚纪律**（勿用 `promote-build.ps1` 回退；会话格式迁移无 downgrade）、以及覆盖不到的三类形状漂移与其补齐机制（Config schema / 钩子 payload / 客户端服务提供↔消费）。**2026-09-29 追加**：壳的 profile checkpoint 自动还原、`pending` 选择粘滞、`pnpm install --frozen-lockfile` 兜底失败这三条已实测机制见 `outputs/2026-09-29-record-0.1.7-switch/README.md`。
 
 ### 2026-09-06 之后（此前索引未收录，2026-09-10 补录）
 

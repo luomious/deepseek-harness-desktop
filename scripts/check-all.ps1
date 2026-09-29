@@ -65,19 +65,22 @@ $totalFail += $syntaxFail
 # 使"跑门禁"本身触发与实际启动无关的误告警（实测已累积 2/3）。--no-record 保留
 # 退出码语义（门禁完全不受影响），采样交给每日计划任务
 # （install-health-task.ps1 -> health-task-run.ps1，09:05）。脚本缺失时回退直接跑 startup-verify。
+# 2026-09-29：显式钉死 `--profile desktop` 并透传给 startup-verify。本仓产品 profile 就是
+# desktop；不钉死时若门禁在别的 profile 会话里被执行（宿主会导出 DSH_PROFILE），预检会静默
+# 换目标 profile 并给出与项目无关的红（实测 web profile 3/10 FAIL）。
 Write-Host ''
 Write-Host '=== Step 1.5: health-check.mjs (preflight; no SLO record) ===' -ForegroundColor Cyan
 $healthCheck = Join-Path $PSScriptRoot 'health-check.mjs'
 $startupVerify = Join-Path $PSScriptRoot 'startup-verify.mjs'
 if (Test-Path $healthCheck) {
-  & node $healthCheck --no-record
+  & node $healthCheck --no-record --profile desktop
   $verifyCode = $LASTEXITCODE
   if ($verifyCode -ne 0) {
     Write-Host ('  FAIL  health-check exited with code ' + $verifyCode) -ForegroundColor Red
     $totalFail += $verifyCode
   }
 } elseif (Test-Path $startupVerify) {
-  & node $startupVerify
+  & node $startupVerify --profile desktop
   $verifyCode = $LASTEXITCODE
   if ($verifyCode -ne 0) {
     Write-Host ('  FAIL  startup-verify exited with code ' + $verifyCode) -ForegroundColor Red
@@ -170,6 +173,158 @@ if (Test-Path $bundleAudit) {
   }
 } else {
   Write-Host '  SKIP  verify-bundle-manifest.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.17: patch-manifest.mjs (applier-set identity + aggregate patchDigest, 2026-09-26) ----
+# GAP THIS CLOSES: Step 1.10 hashes patches/bundles/* against MANIFEST.md, but NOTHING
+# digests the 28 scripts/apply-*.mjs patch APPLIERS. An applier can be deleted or edited
+# while every marker check in Step 2 still passes (the marker may be satisfied by another
+# path), so the patch SET loses its identity silently. This step registers the applier set
+# plus a single aggregate patchDigest over all entries (appliers + bundles + reference).
+# Deliberately NOT re-deciding bundle content: Step 1.10 stays the authority for that.
+# On FAIL: confirm the change is intended, then: node scripts/patch-manifest.mjs --write
+Write-Host ''
+Write-Host '=== Step 1.17: patch-manifest.mjs (applier set identity + patchDigest) ===' -ForegroundColor Cyan
+$patchManifest = Join-Path $PSScriptRoot 'patch-manifest.mjs'
+if (Test-Path $patchManifest) {
+  & node $patchManifest --verify
+  $pmCode = $LASTEXITCODE
+  if ($pmCode -ne 0) {
+    Write-Host ('  FAIL  patch set identity/digest drift (' + $pmCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  node scripts/patch-manifest.mjs --write   (after confirming the change is intended)' -ForegroundColor Yellow
+    $totalFail += $pmCode
+  }
+} else {
+  Write-Host '  SKIP  patch-manifest.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.18: verify-dist-exports.mjs (packaged-runtime named-export gate, 2026-09-27) ----
+# GAP THIS CLOSES: the 2026-09-27 startup crash. A bundled dependency imported a name its
+# target no longer exported (dsh-settings-file@0.1.5-rc.3 -> dsh-settings@0.1.7 removed
+# SettingsProvider). Nothing caught it before the user saw an Electron dialog:
+#   - tsc only sees our own sources (skipLibCheck on);
+#   - Step 1.11 gates specifier DISCIPLINE and treats @deepseek-ai/* as host-provided;
+#   - check-dist-integrity.mjs only checks that lib/main.js's RELATIVE imports exist;
+#   - verify-runtime-closure.mjs only checks the dependency graph is closed.
+# This step links the packaged lib modules with V8's real module linker (no body is ever
+# evaluated), so a removed/missing named export fails the gate at build time with the very
+# same SyntaxError the runtime would throw at startup.
+# Target = the newest build under dist (scripts/resolve-dist.mjs), i.e. the build that will
+# be promoted next. On FAIL: fix the import, pin a compatible version, or delete the stale
+# artifact - do NOT promote that build.
+Write-Host ''
+Write-Host '=== Step 1.18: verify-dist-exports.mjs (packaged-runtime export gate) ===' -ForegroundColor Cyan
+$distExports = Join-Path $PSScriptRoot 'verify-dist-exports.mjs'
+if (Test-Path $distExports) {
+  & node $distExports
+  $deCode = $LASTEXITCODE
+  if ($deCode -ne 0) {
+    Write-Host ('  FAIL  dist export gate (' + $deCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  the newest build under dist would crash at startup on a missing named export' -ForegroundColor Yellow
+    $totalFail += $deCode
+  }
+} else {
+  Write-Host '  SKIP  verify-dist-exports.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.19: verify-profile-exports.mjs (profile plugin named-export gate, 2026-09-28) ----
+# Step 1.18 gates the PACKAGED RUNTIME's own files. Nothing inspected the PROFILE's
+# plugin tree -- 43 linked @dsh-external plugins plus ~20 third-party packages -- even
+# though `@deepseek-ai/*` is treated as "host-provided" by every other checker.
+# The 2026-09-28 upgrade died exactly there: dsh-context / dsh-better-sidebar /
+# dsh-bash-terminal imported a removed `settingsNamespace`, dsh-tool-search a removed
+# `CallId`. This step checks every named import against the target kernel's surface and
+# separates LOADED packages (can break the next launch) from LATENT ones (declared but
+# never assembled, so they cannot).
+Write-Host ''
+Write-Host '=== Step 1.19: verify-profile-exports.mjs (profile plugin export gate) ===' -ForegroundColor Cyan
+$peGate = Join-Path $PSScriptRoot 'verify-profile-exports.mjs'
+if (Test-Path $peGate) {
+  $peOut = & node $peGate
+  $peCode = $LASTEXITCODE
+  $peOut | Where-Object { $_ -match 'result\s+:|\[FAIL\]|\[LATENT\]|\[SKIP\]' } | ForEach-Object { Write-Host ('  ' + $_.TrimEnd()) }
+  if ($peCode -ne 0) {
+    Write-Host ('  FAIL  a LOADED profile package imports a named export the target kernel lacks (exit ' + $peCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  bump the package to a release whose code matches the target kernel, or disable it' -ForegroundColor Yellow
+    $totalFail += $peCode
+  } else {
+    Write-Host '  OK    no missing named exports in any loaded profile package' -ForegroundColor Green
+  }
+} else {
+  Write-Host '  SKIP  verify-profile-exports.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.20: verify-client-services.mjs (client service provider-gap gate, 2026-09-28) ----
+# A service that nobody PROVIDES is neither a missing export nor a missing file: the
+# fiber simply never activates (0.1.7 booted with "17 client entries pending" because
+# `settingsScope` lost its provider while 3 consumers still injected it). This step diffs
+# consumed-but-unprovided service names against the previous kernel, so a release that
+# drops a provider is caught before the restart.
+Write-Host ''
+Write-Host '=== Step 1.20: verify-client-services.mjs (client service gap gate) ===' -ForegroundColor Cyan
+$csGate = Join-Path $PSScriptRoot 'verify-client-services.mjs'
+if (Test-Path $csGate) {
+  $csOut = & node $csGate
+  $csCode = $LASTEXITCODE
+  $csOut | Where-Object { $_ -match 'result\s+:|\[FAIL\]|\[COVERED\]|\+ ' } | ForEach-Object { Write-Host ('  ' + $_.TrimEnd()) }
+  if ($csCode -ne 0) {
+    Write-Host ('  FAIL  the target kernel consumes a service no provider (kernel or profile) supplies (exit ' + $csCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  add a provider (profile shim) or pin the older kernel for that surface' -ForegroundColor Yellow
+    $totalFail += $csCode
+  } else {
+    Write-Host '  OK    every consumed client service has a provider' -ForegroundColor Green
+  }
+} else {
+  Write-Host '  SKIP  verify-client-services.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.21: verify-inventory.mjs (CAPABILITY-MATRIX <-> disk <-> runtime, 2026-09-28) ----
+# Step 1.14 (advisory) validates `plugins/INVENTORY.md`'s own numbers. This step validates
+# the SECOND registry, `plugins/CAPABILITY-MATRIX.md` (per-plugin upstream-native + keep/
+# merge/retire decision), against disk AND against what the active profile actually
+# assembles -- and prints the retirement queue. Check [E] asserts both registries list the
+# same plugins/, so they cannot drift apart now that there are two.
+Write-Host ''
+Write-Host '=== Step 1.21: verify-inventory.mjs (capability matrix + retirement queue) ===' -ForegroundColor Cyan
+$ivGate = Join-Path $PSScriptRoot 'verify-inventory.mjs'
+if (Test-Path $ivGate) {
+  $ivOut = & node $ivGate
+  $ivCode = $LASTEXITCODE
+  $ivOut | Where-Object { $_ -match '^\s*\[[A-E]\]|RESULT:|^\s+- dsh-|^\s+- @' } | ForEach-Object { Write-Host ('  ' + $_.TrimEnd()) }
+  if ($ivCode -ne 0) {
+    Write-Host ('  FAIL  CAPABILITY-MATRIX drifted from disk/runtime (exit ' + $ivCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  add the missing row, or retire the plugin that is still assembled' -ForegroundColor Yellow
+    $totalFail += $ivCode
+  } else {
+    Write-Host '  OK    capability matrix, disk and runtime agree' -ForegroundColor Green
+  }
+} else {
+  Write-Host '  SKIP  verify-inventory.mjs not found' -ForegroundColor Yellow
+}
+
+# ---- Step 1.22: verify-api-catalog.mjs --check-hooks (event-contract gate, 2026-09-28) ----
+# Fifth drift class: a harness EVENT contract changing underneath a listener. The kernel
+# ships the contract machine-readably (@deepseek-ai/dsh-tool-cordis/lib/types/api-catalog.js:
+# SERVICE_API with method signatures, EVENT_API with full listener signatures) -- but the
+# catalog only appeared in 0.1.7, so the 0.1.1 -> 0.1.7 delta cannot be diffed. What CAN be
+# checked today: every harness-shaped event name OUR plugins subscribe to must still exist in
+# the target kernel. A name that exists nowhere is a listener that would silently never fire.
+Write-Host ''
+Write-Host '=== Step 1.22: verify-api-catalog.mjs --check-hooks (event contract gate) ===' -ForegroundColor Cyan
+$acGate = Join-Path $PSScriptRoot 'verify-api-catalog.mjs'
+if (Test-Path $acGate) {
+  $acOut = & node $acGate --check-hooks
+  $acCode = $LASTEXITCODE
+  $acOut | Where-Object { $_ -match 'events my plugins|RESULT:|^\s+[!~] ' } | ForEach-Object { Write-Host ('  ' + $_.TrimEnd()) }
+  if ($acCode -ne 0) {
+    Write-Host ('  FAIL  a subscribed event name exists nowhere in the target kernel (exit ' + $acCode + ')') -ForegroundColor Red
+    Write-Host '  HINT  the event was renamed or removed upstream; port the listener to the new name' -ForegroundColor Yellow
+    $totalFail += $acCode
+  } else {
+    Write-Host '  OK    every subscribed harness event exists in the target kernel' -ForegroundColor Green
+  }
+} else {
+  Write-Host '  SKIP  verify-api-catalog.mjs not found' -ForegroundColor Yellow
 }
 
 # ---- Step 1.11: verify-plugin-imports.mjs (plugin import-resolution gate) ----
@@ -321,6 +476,27 @@ if (Test-Path $shapeGate) {
 } else {
   Write-Host '  SKIP  patch-shape-gate.mjs not found' -ForegroundColor Yellow
 }
+
+# ---- Step 1.23: exit-ledger.mjs (process exit ledger · silent-exit regression watch, 2026-09-29) ----
+# Read-only: classifies every run in exit-probe.log (+ the guard lines in the app log) as
+# RUNNING / INTENTIONAL_QUIT / RELOAD_RELAUNCH / SILENT_WINDOW_LOSS / HELPER_EXIT / PLAIN_EXIT.
+# SILENT_WINDOW_LOSS is the exact death this project fixed on 2026-09-29 (window lost with no
+# quit request and no relaunch). This step never contributes to the failure count (it reads
+# user-runtime logs, which may legitimately be absent), but it shouts when the regression returns.
+Write-Host ''
+Write-Host '=== Step 1.23: exit-ledger.mjs (process exit ledger) ===' -ForegroundColor Cyan
+$exitLedger = Join-Path $PSScriptRoot 'exit-ledger.mjs'
+if (Test-Path $exitLedger) {
+  $ledgerOut = (& node $exitLedger --last 5 2>&1 | Out-String)
+  Write-Host $ledgerOut.TrimEnd()
+  if ($ledgerOut -match 'SILENT_WINDOW_LOSS') {
+    Write-Host '  WARN  silent window loss detected - the window-all-closed guard may be missing' -ForegroundColor Yellow
+    Write-Host '  HINT  node scripts/exit-ledger.mjs   /   powershell -File scripts/verify-patches.ps1' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host '  SKIP  exit-ledger.mjs not found' -ForegroundColor Yellow
+}
+Write-Host ''
 
 # ---- Step 2: verify-patches.ps1 ----
 Write-Host ''

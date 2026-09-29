@@ -34,6 +34,13 @@ export const PATCHES = [
   {
     id: 'perf5-session-decode-streaming',
     description: 'PERF-5+PERF-6 会话持久化 zstd 解码：readRaw 流式（12MB/4万帧 2976ms→876ms，3.4x）+ readZstdPrefix 同步 generator（打开对话热路径）+ 逐帧异步回退',
+    // 2026-09-28: RETIRED -- 0.1.7 implements streaming decode natively, so the markers are
+    // legitimately absent on the promoted build. verify-patches.ps1 already retired the same
+    // two probes (`INFO RETIRED(0.1.7-native) session decode streaming (PERF-5/PERF-6)`);
+    // this flag stops patch-apply's scanner from calling that absence `out-of-sync` and
+    // failing check-all Step 2.6. Entry kept (not deleted) so the bundle and its history
+    // survive; drop the flag if a future kernel regresses and the patch is needed again.
+    retired: { since: '0.1.7-rc.2', reason: '0.1.7-native streaming decode' },
     bundle: join(REPO_ROOT, 'patches', 'bundles', 'dsh-session-persistence-jsonl-index.js'),
     anchors: ['async readRaw(id, signal)'],
     markers: ['PATCH(zstd-async)', 'dsh-patch: zstd-stream-readraw v1', 'PATCH(zstd-stream-readprefix'],

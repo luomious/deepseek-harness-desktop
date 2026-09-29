@@ -4,13 +4,13 @@ import assert from 'node:assert'
 import {
   normalizeConfig, isInCooldown, recordProviderFailure, decideFailover,
   KERNEL_RETRYABLE_CODES, isBillingFailure, isAvailabilityFailure, shouldCooldown,
-  forceCooldown, claimBudget, applyFailoverConfig,
+  forceCooldown, claimBudget, applyFailoverConfig, isInspectionFailure,
 } from '../lib/index.js'
 
 // ── normalizeConfig ──────────────────────────────────────────────────
 assert.deepEqual(normalizeConfig({}), {
   enabled: true, cooldownMs: 60000, maxFailures: 3, fallback: {}, fallbackModel: {},
-  claimRecovery: true, maxRecoveriesPerKey: 1, maxFailoversPerTurn: 3,
+  claimRecovery: true, claimInspection: false, maxRecoveriesPerKey: 1, maxFailoversPerTurn: 3,
 })
 // fallback 过滤：自映射丢弃、异常值丢弃
 const cfg = normalizeConfig({ cooldownMs: 1000, maxFailures: 2, fallback: { a: 'b', same: 'same', '': 'x', y: '' } })
@@ -135,5 +135,23 @@ assert.equal(shouldCooldown('INVALID_REQUEST', { code: 'INVALID_REQUEST' }), fal
   // 冷却 provider 自己映射到自己 → null
   assert.equal(decideFailover({ self: { cooldownUntil: now + 1000 } }, 'self', { self: 'self' }, now + 1), null)
 }
+
+// ── isInspectionFailure（2026-09-24 modelscope 事故原文）─────────────
+// 判据必须是“审核拒收”这个具体信号，而不是通用 code INVALID_REQUEST ——
+// 否则“请求真的写错了”也会被静默换厂商。
+const REAL_INSPECTION = '400: {"code":"data_inspection_failed","message":"<400> InternalError.Algo.DataInspectionFailed: Input text data may contain inappropriate content.","param":null,"type":"data_inspection_failed"}'
+assert.equal(isInspectionFailure({ code: 'INVALID_REQUEST', message: REAL_INSPECTION }), true, 'real 2026-09-24 sample must match')
+assert.equal(isInspectionFailure({ code: 'DATA_INSPECTION_FAILED' }), true, 'code hint')
+assert.equal(isInspectionFailure({ code: 'INVALID_REQUEST', message: 'bad tool schema' }), false, 'generic invalid request must NOT match')
+assert.equal(isInspectionFailure({ code: 'INVALID_REQUEST' }), false)
+assert.equal(isInspectionFailure({ message: REAL_402_A }), false, 'billing must not be seen as inspection')
+assert.equal(isInspectionFailure(undefined), false)
+
+// 故障注入式回归：默认关 ⇒ 审核类失败不冷却、不接管（原行为不变）
+assert.equal(normalizeConfig({}).claimInspection, false, 'default must stay OFF (zero regression)')
+assert.equal(normalizeConfig({ claimInspection: true }).claimInspection, true)
+assert.equal(normalizeConfig({ claimInspection: 'yes' }).claimInspection, false, 'only boolean true enables it')
+assert.equal(shouldCooldown('INVALID_REQUEST', { code: 'INVALID_REQUEST', message: REAL_INSPECTION }), false, 'shouldCooldown semantics unchanged')
+assert.equal(isBillingFailure({ code: 'INVALID_REQUEST', message: REAL_INSPECTION }), false, 'inspection is not billing')
 
 console.log('ALL TESTS PASSED')

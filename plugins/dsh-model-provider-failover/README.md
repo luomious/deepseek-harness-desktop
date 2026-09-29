@@ -1,6 +1,6 @@
 # @dsh-external/dsh-model-provider-failover
 
-> Provider-level request failover: observes agent/request-error (read-only) to cool-down a failing provider, then routes subsequent agent/request to a configured fallback provider. **Quota-aware since 2026-09-15**: billing/quota failures (402 `billing_error`, `allowance is too low`, `insufficient balance`, 中文「额度不足」) cool the provider down immediately and claim one in-turn recovery, because the kernel never retries them.
+> Provider-level request failover: observes agent/request-error (read-only) to cool-down a failing provider, then routes subsequent agent/request to a configured fallback provider. **Quota-aware since 2026-09-15**: billing/quota failures (402 `billing_error`, `allowance is too low`, `insufficient balance`, 中文「额度不足」) cool the provider down immediately and claim one in-turn recovery, because the kernel never retries them. **Inspection-aware since 2026-09-24（默认关）**: upstream content-inspection rejections (`400 data_inspection_failed`) can be handled the same way when `claimInspection: true`; the code is the generic `INVALID_REQUEST`, so the matcher anchors on the **message**, not the code.
 > 用途 / 状态 / 装配的**唯一来源**是台账 `plugins/INVENTORY.md`；本文件只做快速导航，不重复维护细节。
 
 | 项 | 值 |
@@ -21,6 +21,7 @@
 | `fallback` | `{}` | 主 provider → 备用 provider（**空＝no-op**） |
 | `fallbackModel` | `{}` | 主 provider → 备用 provider 上**真实存在**的 model id（强烈建议填） |
 | `claimRecovery` | `true` | 是否对「内核不重试的计费类失败」接管一次恢复 |
+| `claimInspection` | `false` | 是否对「上游内容审核拒收」（`data_inspection_failed`）接管一次恢复（**默认关**＝零行为回归） |
 | `maxRecoveriesPerKey` | `1` | 同一 `turn:step:provider` 最多接管几次 |
 | `maxFailoversPerTurn` | `3` | 单轮最多切换几次 provider（防抖动） |
 
@@ -33,4 +34,7 @@
   4. 切换发生在 `agent/request`（`next` 返回 `LlmCallConfig{provider,model,reasoningEffort,temperature,maxTokens,stop}`），返回新对象且**丢弃 `reasoningEffort`**（异构模型常不支持高端 effort，否则 `prepareCall` 抛 `UNSUPPORTED_REASONING_EFFORT`）。
   5. 一切路径 **fail-open**：任何异常吞掉并原样放行。
 - **可用性类失败无需接管**：内核重试循环每次重入 `agent/request`，冷却生效后会自动切到备用 provider ⇒ 与内核重试天然协作。
+- **内容审核拒收类（`claimInspection`）为什么要锚定报文**：2026-09-24 modelscope 实测该失败的 `failure.code` 是通用的 `INVALID_REQUEST`，而它包含「请求真的写错了」等大量正常情形 ⇒ **整体纳入兜底会把真实故障静默换厂商掉**。所以 `isInspectionFailure()` 只认报文里的 `data_inspection_failed` / `DataInspectionFailed` / `inappropriate content`（或 code `DATA_INSPECTION_FAILED`），且必须 `claimInspection: true` 才启用。
+  - 实测判据（非长度问题）：同一模型发 **152,038 tokens 无害长文本 → 200 OK**，而失败的请求只有 ~143K ⇒ 是**内容判定**；失败那步 `inputTokens=0/outputTokens=0` ⇒ 生成前就被拒。
+  - 开关默认 **`false`**（零行为回归）；`shouldCooldown()` 的语义**故意不改**，审核类由监听器单独门控。
 - 测试：`node plugins/dsh-model-provider-failover/test/failover.test.mjs` 与 `.../test/integration.test.mjs`（后者含故障注入）。

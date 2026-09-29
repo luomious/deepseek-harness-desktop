@@ -41,9 +41,20 @@ Check 'default-browser windowsHide' (HasText (Join-Path $u 'node_modules\default
 Check 'materializer windowsHide' (HasText (Join-Path $u 'lib\main.js') 'windowsHide: true,') ''
 
 # ---- 3. core bundle patches ----
-Check 'ui-workspace ADD_CHAT' (HasText (Join-Path $u 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js') 'const ADD_CHAT') ''
-Check 'ui-workspace ADD_REMOTE' (HasText (Join-Path $u 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js') 'const ADD_REMOTE') ''
-Check 'ui-conversation chatOnly' (HasText (Join-Path $u 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js') 'const chatOnly') ''
+# 2026-09-27 upgrade-0.1.7: ADD_CHAT/ADD_REMOTE were removed upstream (rewritten
+# as the ADD_WORKSPACE channel in the 0.1.7 workspace bundle). Aligned with the
+# verify-patches.ps1 $retired set: ADD_WORKSPACE is asserted instead, ADD_REMOTE
+# is retired INFO (no 0.1.7 replacement), chatOnly is unchanged.
+$wsClient = Join-Path $u 'node_modules\@deepseek-ai\dsh-client-ui-workspace\lib\client.js'
+Check 'ui-workspace ADD_WORKSPACE (0.1.7)' (HasText $wsClient 'const ADD_WORKSPACE') ''
+if (HasText $wsClient 'const ADD_REMOTE') { Write-Host 'PASS  ui-workspace ADD_REMOTE (legacy)' -ForegroundColor Green }
+else { Write-Host 'INFO  ui-workspace ADD_REMOTE retired (removed upstream 0.1.7)' -ForegroundColor Yellow }
+# 2026-09-29: the 0.1.7 conversation bundle no longer carries `const chatOnly` (the
+# port was retired upstream); verify-patches.ps1 already reports the same probe as
+# INFO RETIRED. Asserting its presence kept the gate red for an expected absence.
+$convClient = Join-Path $u 'node_modules\@deepseek-ai\dsh-client-ui-conversation\lib\client.js'
+if (HasText $convClient 'const chatOnly') { Write-Host 'PASS  ui-conversation chatOnly' -ForegroundColor Green }
+else { Write-Host 'INFO  ui-conversation chatOnly retired (0.1.7 conversation bundle no longer carries it)' -ForegroundColor Yellow }
 
 # ---- 4. plugin patches (workspace) ----
 Check 'vision-engine windowsHide' (HasText (Join-Path $root 'plugins\dsh-vision-engine\lib\index.js') 'windowsHide: true') ''

@@ -23,7 +23,8 @@
  *   V5 junction 健康           —— vendor/dist/win-unpacked 是 junction 且 realpath 存在
  *   V6 关键运行文件存在        —— 构建产物 main.js / launcher.js / app.asar 在位
  *   V7 单实例 lock 状态        —— Electron Singleton* 文件存在性（陈旧提示项）
- *   V8 补丁锚点标记存在        —— 核心补丁标记（modlens lowered0 / workspace ADD_CHAT）在位
+ *   V8 补丁锚点标记存在        —— 核心补丁标记（modlens lowered0 / workspace：0.1.7 原生
+ *                                 `ADD_WORKSPACE` 或 legacy `ADD_CHAT`，两者任一即算在位）
  *   V9 插件 bundle 语法        —— link: 插件的 .js/.mjs/.cjs 全量 node --check（防并行会话半写文件/顶层 return 导致启动失败，2026-08-29 事故）
  *   V10 bundle 声明完整性      —— bundles 每个包声明 dsh.bundle.patch 且 patch 文件在位（防 "declares no dsh.bundle" 启动失败，2026-08-30 事故）
  */
@@ -38,7 +39,21 @@ import { acquireLock, releaseLock } from './lib/task-lock.mjs'
 // 2026-09-06 审计修复：REPO 兜底原硬编码 'D:\\Deepseek-Harness'，改为从脚本位置推导。
 const REPO = process.env.DSH_REPO || path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROFILES_ROOT = process.env.DSH_PROFILES_ROOT || path.join(os.homedir(), '.dsh', 'profiles')
-const PROFILE = process.env.DSH_PROFILE || 'desktop'
+/**
+ * 目标 profile 的选择口径（2026-09-29 修）：
+ *
+ * 不再继承 `DSH_PROFILE`。它是**宿主会话**的变量——例如在 QuWork 的 web profile 会话里
+ * 跑门禁时 `DSH_PROFILE=web`，预检会静默换到 web profile 上（实测 3/10 FAIL），把
+ * `check-all` 变成与项目无关的红；同一类环境泄漏也误伤过
+ * `tests/plugins/tool-search-image-passthrough.test.mjs`。本仓的产品 profile 是 desktop。
+ *
+ * 显式覆盖：`--profile <name>` 或 `DSH_STARTUP_PROFILE`。
+ */
+const PROFILE = (() => {
+  const i = process.argv.indexOf('--profile')
+  const fromArg = i >= 0 ? process.argv[i + 1] : undefined
+  return fromArg || process.env.DSH_STARTUP_PROFILE || 'desktop'
+})()
 const runtime = path.join(PROFILES_ROOT, PROFILE)
 const template = path.join(REPO, 'profile', PROFILE)
 const VENDOR_DIST = path.join(REPO, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop', 'dist')
@@ -204,15 +219,38 @@ try {
 }
 
 // ---------- V8: 补丁锚点标记 ----------
+// 2026-09-28: this check used to require the LEGACY `const ADD_CHAT` marker only.
+// Upstream 0.1.7 removed ADD_CHAT/ADD_REMOTE and rewrote that area as the
+// `ADD_WORKSPACE` channel (documented at smoke-test.ps1:44-51 and the
+// verify-patches.ps1 $retired set, both already aligned on 2026-09-27) -- so on a
+// 0.1.7 build the legacy marker is intentionally absent and V8 could never pass.
+// V8 now accepts EITHER channel and reports which one it found (never silently).
 try {
   const mlPath = path.join(runtime, 'node_modules', '@liustack', 'modlens', 'dsh', 'index.js')
   const ml = fs.existsSync(mlPath) ? fs.readFileSync(mlPath, 'utf8') : ''
-  const wsDev = path.join(REPO, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop', 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js')
-  const wsPkg = path.join(runtime, 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js')
   const modlensOk = ml.includes('lowered0')
-  const wsOk = [wsDev, wsPkg].some((p) => fs.existsSync(p) && /ADD_CHAT/.test(fs.readFileSync(p, 'utf8')))
+
+  const wsCandidates = [
+    path.join(REPO, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop', 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js'),
+    path.join(runtime, 'node_modules', '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js'),
+  ]
+  // the build that will be promoted next (single source of truth: resolve-dist.mjs)
+  try {
+    const { resolveCurrentBuild } = await import('./resolve-dist.mjs')
+    wsCandidates.push(path.join(resolveCurrentBuild().nodeModules, '@deepseek-ai', 'dsh-client-ui-workspace', 'lib', 'client.js'))
+  } catch { /* no build resolvable: the other paths still decide */ }
+
+  let legacy = false, native = false
+  for (const p of wsCandidates) {
+    if (!fs.existsSync(p)) continue
+    const src = fs.readFileSync(p, 'utf8')
+    if (src.includes('const ADD_CHAT')) legacy = true
+    if (src.includes('const ADD_WORKSPACE')) native = true
+  }
+  const wsOk = legacy || native
+  const wsLabel = native ? 'ADD_WORKSPACE(0.1.7-native)' : legacy ? 'ADD_CHAT(legacy)' : 'MISSING'
   check('V8', 'patch anchors present', modlensOk && wsOk,
-    `modlens=${modlensOk ? 'lowered0' : 'MISSING'} workspace=${wsOk ? 'ADD_CHAT' : 'MISSING'}`)
+    `modlens=${modlensOk ? 'lowered0' : 'MISSING'} workspace=${wsLabel} (checked ${wsCandidates.length} candidate files)`)
 } catch (e) {
   check('V8', 'patch anchors present', false, `error: ${e.message}`)
 }
@@ -302,8 +340,9 @@ try {
 
 // ---------- V10: bundle dsh.bundle.patch 声明完整性 ----------
 // profile 加载器（dsh-plugin-desktop src/profile.ts）对 bundles 列表里的每个包
-// 强校验 package.json 必须声明非空 dsh.bundle.patch 且文件在位，否则启动直接抛
+// 强校验 package.json 必须声明 dsh.bundle 且 patch 文件在位，否则启动直接抛
 // "declares no dsh.bundle in its package.json"（2026-08-30 tool-visibility 事故形态）。
+// 0.1.7 起 dsh.bundle.patch 可为 string 或 string[]（如 dsh-web-app presets 列表）。
 // 注册表包与 link: 插件一视同仁：先查 profile node_modules，再向上探测内核包。
 function resolveBundleDir(req, nm, b) {
   const local = path.join(nm, b.replace('/', path.sep))
@@ -314,6 +353,12 @@ function resolveBundleDir(req, nm, b) {
     for (let i = 0; i < 10 && !fs.existsSync(path.join(dir, 'package.json')); i++) dir = path.dirname(dir)
     return fs.existsSync(path.join(dir, 'package.json')) ? dir : null
   } catch { return null }
+}
+/** Normalize dsh.bundle.patch to a list of package-relative paths. */
+function bundlePatchFiles(declared) {
+  const list = typeof declared === 'string' ? [declared] : declared
+  if (!Array.isArray(list) || list.length === 0 || !list.every((f) => typeof f === 'string' && f.length > 0)) return null
+  return list
 }
 try {
   const pkg = readJson(path.join(runtime, 'package.json'))
@@ -326,11 +371,14 @@ try {
     if (!dir) { bad.push(`${b}: package dir unresolvable`); continue }
     const manifest = readJson(path.join(dir, 'package.json'))
     const declared = manifest?.dsh?.bundle?.patch
-    if (typeof declared !== 'string' || declared.length === 0) {
+    const files = bundlePatchFiles(declared)
+    if (!files) {
       bad.push(`${b}: no dsh.bundle.patch in package.json`)
       continue
     }
-    if (!fs.existsSync(path.join(dir, declared))) bad.push(`${b}: patch file missing (${declared})`)
+    for (const rel of files) {
+      if (!fs.existsSync(path.join(dir, rel))) bad.push(`${b}: patch file missing (${rel})`)
+    }
   }
   check('V10', 'bundle dsh.bundle.patch declared', bad.length === 0,
     bad.length ? `bad: ${bad.join(' | ')}` : `bundles=${bundles.length} all declared + patch present`)

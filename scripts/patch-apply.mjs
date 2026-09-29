@@ -93,10 +93,17 @@ function resolveTarget(t) {
   return join(ROOTS[t.root](), t.path)
 }
 
-// ---------- 三态判定：applied / missing / out-of-sync / error ----------
+// ---------- 三态判定：applied / missing / out-of-sync / retired / error ----------
+// 2026-09-28: `retired` mirrors verify-patches.ps1's $retired set. A patch whose upstream
+// behaviour became native (here: PERF-5/PERF-6 session decode streaming, which 0.1.7
+// implements itself) keeps its registry entry -- so the bundle and its history survive --
+// but its absent markers are EXPECTED, not drift. Without this the two tools disagreed:
+// verify-patches reported `INFO RETIRED(0.1.7-native)` while this scanner called the same
+// markers `out-of-sync` and failed check-all Step 2.6.
 function targetState(patch, t) {
   let file
   try { file = resolveTarget(t) } catch (e) { return { t, file: null, state: 'error', reason: String(e.message || e) } }
+  if (patch.retired) return { t, file, state: exists(file) ? 'applied' : 'applied' }
   if (!exists(file)) return { t, file, state: 'target-missing' }
   let text
   try { text = readText(file) } catch (e) { return { t, file, state: 'error', reason: String(e.message || e) } }
@@ -106,6 +113,7 @@ function targetState(patch, t) {
 }
 
 function patchState(patch) {
+  if (patch.retired) return { patch, targets: patch.targets.map((t) => ({ t, state: 'retired' })), verdict: 'retired' }
   const targets = patch.targets.map((t) => targetState(patch, t))
   const states = new Set(targets.map((x) => x.state))
   let verdict = 'applied'
@@ -118,11 +126,13 @@ function patchState(patch) {
 // ---------- 子命令 ----------
 function scanCmd({ code = 1 } = {}) {
   const rows = PATCHES.map(patchState)
-  const drifted = rows.filter((r) => r.verdict !== 'applied')
-  console.log(`[patch-apply] scan: ${PATCHES.length} 个登记补丁, ${drifted.length} 个漂移`)
+  const drifted = rows.filter((r) => r.verdict !== 'applied' && r.verdict !== 'retired')
+  const retired = rows.filter((r) => r.verdict === 'retired')
+  console.log(`[patch-apply] scan: ${PATCHES.length} 个登记补丁, ${drifted.length} 个漂移, ${retired.length} 个已退役`)
   for (const r of rows) {
-    const tag = { applied: 'OK  ', missing: 'DRIFT', 'out-of-sync': 'OOS ', error: 'ERR ' }[r.verdict]
-    console.log(`  ${tag} ${r.patch.id} (${r.targets.map((x) => `${x.t.root}:${x.state}`).join(', ')})`)
+    const tag = { applied: 'OK  ', missing: 'DRIFT', 'out-of-sync': 'OOS ', error: 'ERR ', retired: 'INFO' }[r.verdict]
+    const suffix = r.verdict === 'retired' ? `  RETIRED(${r.patch.retired.since}: ${r.patch.retired.reason})` : ` (${r.targets.map((x) => `${x.t.root}:${x.state}`).join(', ')})`
+    console.log(`  ${tag} ${r.patch.id}${suffix}`)
   }
   if (drifted.length) {
     console.log('  修复: node scripts/patch-apply.mjs apply   (幂等, 备份先行)')

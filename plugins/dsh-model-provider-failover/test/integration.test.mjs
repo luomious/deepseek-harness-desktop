@@ -253,4 +253,68 @@ const apinexCtx = () => makeCtxWithFallback({
   assert.ok(cfgTool.execute({}).includes('no-op'))
 }
 
+// ── 16. 内容审核拒收 + claimInspection=true → 接管恢复并切到备用 provider ────
+// 真实报文（2026-09-24 modelscope / deepseek-ai/DeepSeek-V4.1-Flash，会话 session-fb08b2d6）：
+// `failure.code` 是通用的 INVALID_REQUEST，只有报文能区分「审核拒收」与「请求真的写错了」。
+const REAL_INSPECTION = '400: {"code":"data_inspection_failed","message":"<400> InternalError.Algo.DataInspectionFailed: Input text data may contain inappropriate content.","param":null,"type":"data_inspection_failed"}'
+{
+  const ctx = makeCtxWithFallback({
+    claimInspection: true,
+    fallback: { 'modlens-modelscope': 'modlens-tokenrhythm01' },
+    fallbackModel: { 'modlens-modelscope': 'deepseek-v4-flash-0731' },
+  })
+  const r = await driveError(ctx.listeners, {
+    agent: { id: 's1' }, turn: 8, step: 8, provider: 'modlens-modelscope',
+    failure: { code: 'INVALID_REQUEST', message: REAL_INSPECTION },
+  })
+  assert.deepEqual(r.action, { kind: 'retry' }, 'inspection rejection must be claimed when claimInspection=true')
+  assert.equal(r.nextCalled, false, 'claiming recovery means NOT calling next() (kernel contract)')
+  // 接管后：下一次 agent/request 落到备用 provider + 映射后的 model，且丢掉 reasoningEffort
+  const out = await driveRequest(ctx.listeners, {
+    provider: 'modlens-modelscope', model: 'deepseek-ai/DeepSeek-V4.1-Flash', reasoningEffort: 'high',
+  })
+  assert.equal(out.provider, 'modlens-tokenrhythm01', 'must switch to the configured fallback provider')
+  assert.equal(out.model, 'deepseek-v4-flash-0731', 'must apply fallbackModel mapping')
+  assert.equal('reasoningEffort' in out, false, 'must drop reasoningEffort on switch')
+}
+
+// ── 17. 故障注入：claimInspection=false（默认）→ 同一报文**不**接管 ──────────
+// 这条才是「它有效」而非「它没坏」的判据：拿掉开关门控（改成无条件纳入）本条会失败。
+{
+  const ctx = makeCtxWithFallback({
+    fallback: { 'modlens-modelscope': 'modlens-tokenrhythm01' },
+    fallbackModel: { 'modlens-modelscope': 'deepseek-v4-flash-0731' },
+  })
+  assert.equal(normalizeConfig({}).claimInspection, false, 'default must stay OFF')
+  const r = await driveError(ctx.listeners, {
+    agent: { id: 's1' }, turn: 8, step: 8, provider: 'modlens-modelscope',
+    failure: { code: 'INVALID_REQUEST', message: REAL_INSPECTION },
+  })
+  assert.equal(r.nextCalled, true, 'default OFF ⇒ must fall through unchanged (zero regression)')
+  assert.notDeepEqual(r.action, { kind: 'retry' })
+  // 且**没有**被冷却：默认关时该 provider 仍按原路由（原行为）
+  const out = await driveRequest(ctx.listeners, {
+    provider: 'modlens-modelscope', model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+  })
+  assert.equal(out.provider, 'modlens-modelscope', 'no cooldown when claimInspection is off')
+}
+
+// ── 18. 定向性：普通 INVALID_REQUEST 即使开了开关也不接管 ────────────────────
+// 防的是「把请求真写错也静默换厂商」这个反向风险。
+{
+  const ctx = makeCtxWithFallback({
+    claimInspection: true,
+    fallback: { 'modlens-modelscope': 'modlens-tokenrhythm01' },
+  })
+  const r = await driveError(ctx.listeners, {
+    agent: { id: 's1' }, turn: 1, step: 1, provider: 'modlens-modelscope',
+    failure: { code: 'INVALID_REQUEST', message: '400 invalid request: bad tool schema' },
+  })
+  assert.equal(r.nextCalled, true, 'generic INVALID_REQUEST must NOT be masked by a provider switch')
+  const out = await driveRequest(ctx.listeners, {
+    provider: 'modlens-modelscope', model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+  })
+  assert.equal(out.provider, 'modlens-modelscope', 'no cooldown for generic invalid requests')
+}
+
 console.log('ALL INTEGRATION TESTS PASSED')

@@ -1,0 +1,75 @@
+[
+  {
+    "provider": "sennsenova",
+    "model": "kimi-k3",
+    "url": "https://token.sensenova.cn/v1/chat/completions",
+    "ok": false,
+    "status": 429,
+    "latencyMs": 172,
+    "attempts": 1,
+    "kind": "RATE_429",
+    "error": "{\"error\":{\"message\":\"token plan entitlement exhausted\",\"type\":\"quota_exceeded_error\",\"code\":\"8\"}}"
+  },
+  {
+    "provider": "sennsenova",
+    "model": "deepseek-v4-flash",
+    "url": "https://token.sensenova.cn/v1/chat/completions",
+    "ok": false,
+    "status": 429,
+    "latencyMs": 76,
+    "attempts": 1,
+    "kind": "RATE_429",
+    "error": "{\"error\":{\"message\":\"token plan entitlement exhausted\",\"type\":\"quota_exceeded_error\",\"code\":\"8\"}}"
+  },
+  {
+    "provider": "tokenrhythm01",
+    "model": "deepseek-flash",
+    "url": "https://tokenrhythm.studio/v1/chat/completions",
+    "ok": true,
+    "status": 200,
+    "latencyMs": 2822,
+    "attempts": 1,
+    "variant": "max_tokens",
+    "replied": true,
+    "snippet": "OK",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 11,
+      "total_tokens": 13
+    }
+  },
+  {
+    "provider": "tokenrhythm01",
+    "model": "deepseek-v4-flash-0731",
+    "url": "https://tokenrhythm.studio/v1/chat/completions",
+    "ok": true,
+    "status": 200,
+    "latencyMs": 1439,
+    "attempts": 1,
+    "variant": "max_tokens",
+    "replied": true,
+    "snippet": "OK",
+    "usage": {
+      "completion_tokens": 2,
+      "prompt_tokens": 11,
+      "total_tokens": 13
+    }
+  },
+  {
+    "provider": "modelscope",
+    "model": "deepseek-ai/DeepSeek-V4-Pro-0813",
+    "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+    "ok": true,
+    "status": 200,
+    "latencyMs": 1554,
+    "attempts": 1,
+    "variant": "max_tokens",
+    "replied": true,
+    "snippet": "OK",
+    "usage": {
+      "prompt_tokens": 90,
+      "completion_tokens": 12,
+      "total_tokens": 102
+    }
+  }
+]

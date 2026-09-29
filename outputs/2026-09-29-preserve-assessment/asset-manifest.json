@@ -1,0 +1,596 @@
+{
+  "generatedAt": "2026-09-29T11:52:29.467Z",
+  "baseline": {
+    "node": "v24.21.0",
+    "shell": "2.0.2",
+    "electron": "43.4.0",
+    "kernelRuntime": "0.1.7-rc.2",
+    "kernelInDist": "0.1.7-rc.2",
+    "distBuildDirs": [
+      "win-unpacked",
+      "win-unpacked-build202608272104",
+      "win-unpacked-build202609272329"
+    ]
+  },
+  "plugins": {
+    "count": 41,
+    "totalBytes": 11481890,
+    "items": [
+      {
+        "name": "dsh-code-security-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 6,
+        "bytes": 19086,
+        "digest": "16b93ae676fcbaa3c0ef4e68f6ae279e5e54c60d704958c6f6fd00ec3031eeb7"
+      },
+      {
+        "name": "dsh-command-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 6,
+        "bytes": 21789,
+        "digest": "022c084f030f3b1d6f081dc4d659e88b337688a85a4137d63edf95545cbfb2cd"
+      },
+      {
+        "name": "dsh-crashpad-hygiene",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 43268,
+        "digest": "4bee59d5be270407b2acd334e4c33e014c9230734c54680d92bde8f1943ef915"
+      },
+      {
+        "name": "dsh-developer-role-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 27890,
+        "digest": "7251b4e598bcbf5dd94602edcdbd1653599dedf404e30a5944e344807c06638b"
+      },
+      {
+        "name": "dsh-diagram-renderer",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 19,
+        "bytes": 2985080,
+        "digest": "9e1a91e47bd8153274120cbd8cc2fe2c9ceeab8bae17f6011c84e71969edb081"
+      },
+      {
+        "name": "dsh-diff-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 26521,
+        "digest": "d442311ed5a242069d2d6a067b7539efb0efd8fad9a6e3283e08aa232cc719de"
+      },
+      {
+        "name": "dsh-file-explorer",
+        "version": "0.2.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 9,
+        "bytes": 72668,
+        "digest": "c1d387829dd47ef4b629ddc984c9204a1ee7029d184f49689ce2e6af3a4bb2bb"
+      },
+      {
+        "name": "dsh-force-reasoning-effort",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": false,
+        "files": 5,
+        "bytes": 30108,
+        "digest": "00e0e66103698768b38c9e057b9d742334261815afa0b71a33d876413925f39d"
+      },
+      {
+        "name": "dsh-frontend-reload",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 4698,
+        "digest": "5562c801fce5d7273c68ea69cf02a4ffd334453d6e45efe3ebe3c385d694146a"
+      },
+      {
+        "name": "dsh-health-dashboard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 6169,
+        "digest": "fdfc6a1227a10ed23f87acef95e524fac8ac30bb16565fb037990230e494ac07"
+      },
+      {
+        "name": "dsh-host-services",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 34470,
+        "digest": "23ddeb8d364f97914d8235519d1d561a07a9c0360a638348589f8e8f9308d506"
+      },
+      {
+        "name": "dsh-hy3-gateway",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 6929,
+        "digest": "83d359f0d49eff9cb8e72192ce58b9a9aa578aeca27c38726a3b89ae66466e46"
+      },
+      {
+        "name": "dsh-instance-janitor",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 30020,
+        "digest": "fffcee94f88a8dec80aec22bd86a8c2470d76b477f3cbe2d646ed7689906b1db"
+      },
+      {
+        "name": "dsh-memory-files",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 15631,
+        "digest": "f323802eabccc312d80011b8cb4d7a54c781f170f772302464d270453e3f0ab9"
+      },
+      {
+        "name": "dsh-memory-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 39384,
+        "digest": "8d76084dd5c4a1302672e8413c4fe3b7ff7e10558ae6d08070da64979bb8504c"
+      },
+      {
+        "name": "dsh-model-inspection-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 27974,
+        "digest": "563f9997332161bb6753ec4bbc0f61ef5eb2ae6b567873853dac0d57b6b23745"
+      },
+      {
+        "name": "dsh-model-picker-group",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 7,
+        "bytes": 47919,
+        "digest": "7654a35fe58f3cb66c25e8479efab5d7e980d8c2ceb0fb329c0932365e3ed228"
+      },
+      {
+        "name": "dsh-model-provider-failover",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 6,
+        "bytes": 61851,
+        "digest": "0974522a6c481bebd3270a1e675743579401c78a9fb6559850b33aaf8ca5e895"
+      },
+      {
+        "name": "dsh-model-tier-router",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 40430,
+        "digest": "5471a5a3fafe3d6a4a5f810f9d9761cb2af2ffed28ae1a4f7c45678d71a4a732"
+      },
+      {
+        "name": "dsh-model-whitelist",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 40662,
+        "digest": "58dda6f1d1e8494cd2c4ac31a1467de545ec2d353633e610c8257b69c3749f1c"
+      },
+      {
+        "name": "dsh-modlens-autoread",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 7,
+        "bytes": 48139,
+        "digest": "05f81d56114e7440d752271433b00954a517d55a738df69040f0c75d2eb500b3"
+      },
+      {
+        "name": "dsh-modlens-guard",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 11188,
+        "digest": "5e0dd4befbc1991b32b2c5c6d4595d3df2a8abc2b9be4fdfa9709ca4a15fa52d"
+      },
+      {
+        "name": "dsh-project-brief",
+        "version": "0.0.1",
+        "hasClient": false,
+        "hasPatch": false,
+        "files": 14,
+        "bytes": 54020,
+        "digest": "a8f6072db8ca04c011d61d281727aa3fdbcc6c445ffe60504e5282c20b80cb36"
+      },
+      {
+        "name": "dsh-prompt-enhance",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 5189,
+        "digest": "32a96f00402824c3153aa0f6cb67e6e5ecc87ba7a1851d2c09b2ccbb4c9f5c19"
+      },
+      {
+        "name": "dsh-remote-workspace",
+        "version": "0.0.1",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 18,
+        "bytes": 256747,
+        "digest": "2dd42435afacc9dc67f1af44aa0ffd0f36966dbbb61a1d795ae8889c387b5b80"
+      },
+      {
+        "name": "dsh-routing-suite",
+        "version": null,
+        "hasClient": false,
+        "hasPatch": false,
+        "files": 84,
+        "bytes": 2794290,
+        "digest": "af8e21a2e6e2dc53e0b0d81e71382f8aa2ded15eeb741993204ab6f395f1aa94"
+      },
+      {
+        "name": "dsh-self-maintenance",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 22296,
+        "digest": "d2e033e0f28f14e281a10dfbd1744a13077611401f48ed856dcdb64b706b37fd"
+      },
+      {
+        "name": "dsh-session-history",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 36906,
+        "digest": "1aa0090cba67759ee820f6f92858510faf7fa90b3d611b942b2c0bcc802460a4"
+      },
+      {
+        "name": "dsh-session-hygiene",
+        "version": "1.0.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 6,
+        "bytes": 4267962,
+        "digest": "8a5faf94da799331ac830a2cd56ab91d99f5305f767fc0f1a537435971afa49e"
+      },
+      {
+        "name": "dsh-session-watchdog",
+        "version": "0.0.1",
+        "hasClient": false,
+        "hasPatch": false,
+        "files": 10,
+        "bytes": 30070,
+        "digest": "8f3765892d5783843ecfe24ac306ebfef183bea1405900045f05c7de8d30eefe"
+      },
+      {
+        "name": "dsh-settings-scope-shim",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 18157,
+        "digest": "f1c3db0513a1e125b1dee2cf0d34f8e4aafde192ea41711495905f64256e4b74"
+      },
+      {
+        "name": "dsh-skills-manager",
+        "version": "0.2.1",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 14,
+        "bytes": 124055,
+        "digest": "7bc72575eda6577047475ff4dbe1bd1471824c2f3d17a091eb81e556a8f8503b"
+      },
+      {
+        "name": "dsh-system-notify",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 7229,
+        "digest": "6124cd763409d898067778fffdb6b8c1805cfebade1b0a902d33790cf01fe556"
+      },
+      {
+        "name": "dsh-task-scheduler",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": false,
+        "files": 6,
+        "bytes": 54440,
+        "digest": "7dd38cb869b97ac820063b115112815a9b8843b843bfddb87eeae037be9e8e5b"
+      },
+      {
+        "name": "dsh-temp-tracker",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 8613,
+        "digest": "e2c551819771d3f5b6163b8d397a1ccacc45841ef1337a69dc45c47776adf670"
+      },
+      {
+        "name": "dsh-tool-audit",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 8418,
+        "digest": "8385b5cbb7fd284b6c0322218332d8e579790e88ba95e16e6c2cb194b8959b39"
+      },
+      {
+        "name": "dsh-tool-renderers",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 12629,
+        "digest": "dea069e7bc648acf891681cd450c1f35619fd90e4665167b30af762093df6ebb"
+      },
+      {
+        "name": "dsh-ui-performance",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 10715,
+        "digest": "f6196e4eed6333ae536e301bd36581b3e3096c5ebcfa1e5227c0f2e51e9737a7"
+      },
+      {
+        "name": "dsh-vision-engine",
+        "version": "0.1.0",
+        "hasClient": true,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 109243,
+        "digest": "69a53644edb70f28b92c8fb080049dc44d2e0f10220ba7d4bf2af0a4fa17572c"
+      },
+      {
+        "name": "dsh-web-fetch-local",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 4,
+        "bytes": 8031,
+        "digest": "566ba8ac9da94599feec27a8577744d59a1cac77a562665f5dbe92de2d41c660"
+      },
+      {
+        "name": "dsh-web-search-bing",
+        "version": "0.1.0",
+        "hasClient": false,
+        "hasPatch": true,
+        "files": 5,
+        "bytes": 11006,
+        "digest": "7de1f4d89648de3c8d5313da392297484c0062253de0145990cf1de9845cf43a"
+      }
+    ]
+  },
+  "profile": {
+    "runtime": {
+      "label": "runtime(~/.dsh/profiles/desktop)",
+      "exists": true,
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@dsh-external/dsh-host-services",
+        "@dsh-external/dsh-web-search-bing",
+        "@dsh-external/dsh-web-fetch-local",
+        "@dsh-external/dsh-session-history",
+        "@dsh-external/dsh-session-hygiene",
+        "@dsh-external/dsh-self-maintenance",
+        "@dsh-external/dsh-stuck-loop-guard",
+        "@dsh-external/dsh-context-lifecycle",
+        "@liustack/modlens",
+        "@liustack/modsearch",
+        "@dsh-external/dsh-model-inspection-guard",
+        "@dsh-external/dsh-model-picker-group",
+        "@dsh-external/dsh-model-tier-router",
+        "@dsh-external/dsh-model-whitelist",
+        "@dsh-external/dsh-modlens-guard",
+        "dsh-mcp-lens",
+        "dsh-tool-search",
+        "dsh-find-plugin",
+        "@dsh-external/dsh-modlens-autoread",
+        "@dsh-external/dsh-vision-engine",
+        "dsh-better-sidebar",
+        "dsh-skills-manager",
+        "dsh-bash-terminal",
+        "@vectorize-io/hindsight-coding-agents",
+        "@dsh-external/dsh-super-injector",
+        "dshmarket",
+        "@dsh-external/dsh-instance-janitor",
+        "@dsh-external/dsh-hy3-gateway",
+        "@dsh-external/dsh-ui-performance",
+        "dsh-context",
+        "@huanlin/dsh-plugin-better-sidebar-plugin-office",
+        "@dsh-external/dsh-command-guard",
+        "@dsh-external/dsh-code-security-guard",
+        "@dsh-external/dsh-tool-audit",
+        "@dsh-external/dsh-temp-tracker",
+        "@dsh-external/dsh-health-dashboard",
+        "@dsh-external/dsh-prompt-enhance",
+        "@dsh-external/dsh-tool-renderers",
+        "@openviking/dsh-memory-plugin",
+        "@dsh-external/dsh-diagram-renderer",
+        "@dsh-external/dsh-crashpad-hygiene",
+        "@dsh-external/dsh-memory-files",
+        "@dsh-external/dsh-diff-guard",
+        "@dsh-external/dsh-memory-guard",
+        "@dsh-external/dsh-developer-role-guard",
+        "@dsh-external/dsh-model-provider-failover",
+        "@dsh-external/dsh-vision-rotator",
+        "@liustack/pptwise",
+        "dsh-office-tools"
+      ],
+      "dependencies": 58,
+      "patchSha256": "a255e9b594b0bf394fd0595336cda4df4974ccc53a423c76a9b61b34d156e46b",
+      "patchRowIds": [
+        "dsh-super-injector",
+        "modlens",
+        "better-sidebar",
+        "compaction-basic",
+        "command-compact",
+        "dsh-context-lifecycle",
+        "web",
+        "session-title-llm",
+        "session-projection-cache"
+      ],
+      "disabledIds": [],
+      "extraKeys": [
+        "profile"
+      ]
+    },
+    "template": {
+      "label": "template(profile/desktop)",
+      "exists": true,
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@dsh-external/dsh-host-services",
+        "@dsh-external/dsh-web-search-bing",
+        "@dsh-external/dsh-web-fetch-local",
+        "@dsh-external/dsh-session-history",
+        "@dsh-external/dsh-session-hygiene",
+        "@dsh-external/dsh-self-maintenance",
+        "@dsh-external/dsh-stuck-loop-guard",
+        "@dsh-external/dsh-context-lifecycle",
+        "@liustack/modlens",
+        "@liustack/modsearch",
+        "@dsh-external/dsh-model-inspection-guard",
+        "@dsh-external/dsh-model-picker-group",
+        "@dsh-external/dsh-model-tier-router",
+        "@dsh-external/dsh-model-whitelist",
+        "@dsh-external/dsh-modlens-guard",
+        "dsh-mcp-lens",
+        "dsh-tool-search",
+        "dsh-find-plugin",
+        "@dsh-external/dsh-modlens-autoread",
+        "@dsh-external/dsh-vision-engine",
+        "dsh-better-sidebar",
+        "dsh-skills-manager",
+        "dsh-bash-terminal",
+        "@vectorize-io/hindsight-coding-agents",
+        "@dsh-external/dsh-super-injector",
+        "dshmarket",
+        "@dsh-external/dsh-instance-janitor",
+        "@dsh-external/dsh-hy3-gateway",
+        "@dsh-external/dsh-ui-performance",
+        "dsh-context",
+        "@huanlin/dsh-plugin-better-sidebar-plugin-office",
+        "@dsh-external/dsh-command-guard",
+        "@dsh-external/dsh-code-security-guard",
+        "@dsh-external/dsh-tool-audit",
+        "@dsh-external/dsh-temp-tracker",
+        "@dsh-external/dsh-health-dashboard",
+        "@dsh-external/dsh-prompt-enhance",
+        "@dsh-external/dsh-tool-renderers",
+        "@openviking/dsh-memory-plugin",
+        "@dsh-external/dsh-diagram-renderer",
+        "@dsh-external/dsh-crashpad-hygiene",
+        "@dsh-external/dsh-memory-files",
+        "@dsh-external/dsh-diff-guard",
+        "@dsh-external/dsh-memory-guard",
+        "@dsh-external/dsh-developer-role-guard",
+        "@dsh-external/dsh-model-provider-failover",
+        "@dsh-external/dsh-vision-rotator",
+        "@liustack/pptwise",
+        "dsh-office-tools"
+      ],
+      "dependencies": 58,
+      "patchSha256": "8d773365ecc66c2f86130ed4b0c04da845706191f599d6b961da777d6fbaff17",
+      "patchRowIds": [
+        "dsh-super-injector",
+        "modlens",
+        "better-sidebar",
+        "compaction-basic",
+        "command-compact",
+        "dsh-context-lifecycle",
+        "web",
+        "session-title-llm"
+      ],
+      "disabledIds": [],
+      "extraKeys": [
+        "profile"
+      ]
+    }
+  },
+  "patches": {
+    "schemaVersion": 1,
+    "patchSet": "dsh-desktop-dist-patches",
+    "entryCount": 46,
+    "counts": {
+      "applier": 32,
+      "bundle": 11,
+      "reference": 3
+    },
+    "patchDigest": "320e27db1b89b0da194f54bc3b9d5dade9917fb4cb17180ce60386f248d0d3d4",
+    "registryRetired": 1
+  },
+  "docs": {
+    "changelog": {
+      "path": "CHANGELOG.md",
+      "bytes": 868109,
+      "sha256": "de0fc88c53a36d7bd764211859828bc6ade18d4e05e633f8c0f0cf0eec32d460"
+    },
+    "changelogSections": 287,
+    "agentsMd": {
+      "path": "AGENTS.md",
+      "bytes": 6876,
+      "sha256": "dd066efa64b845fdded9b85c69c594bc77db54080481b5957d879e6cb3a0ab8b"
+    },
+    "docsFiles": 57,
+    "outputs": {
+      "dirs": 67,
+      "indexRows": 74
+    }
+  },
+  "skills": {
+    "home": 62,
+    "repoHub": 94,
+    "presets": 3
+  },
+  "dataSizes": {
+    "sessions": {
+      "files": 292,
+      "bytes": 432013550
+    },
+    "memory": {
+      "files": 1,
+      "bytes": 2923
+    },
+    "taskScheduler": {
+      "files": 147,
+      "bytes": 6566429
+    },
+    "health": {
+      "files": 3,
+      "bytes": 6054
+    },
+    "profileRuntime": {
+      "files": 34,
+      "bytes": 723874
+    }
+  }
+}

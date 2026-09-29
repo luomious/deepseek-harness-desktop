@@ -40,9 +40,27 @@ export function bridgePath(profile = 'desktop') {
   return join(homedir(), '.dsh', 'profiles', profile, 'node_modules', 'dsh-tool-search', 'lib', 'bridge.js')
 }
 
-const ANCHOR_IMPORT = "import { CallId } from '@deepseek-ai/dsh-llm';"
-const REPLACEMENT_IMPORT =
-  "import { CallId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm';"
+// 2026-09-28 (dsh-tool-search 0.1.3 -> 0.1.5, alongside the 0.1.7 kernel upgrade):
+//   the upstream bridge now imports the renamed brand:
+//     import { ToolCallId } from '@deepseek-ai/dsh-llm';   (was CallId, renamed in dsh-llm 0.1.2)
+//   and its own header says so. The image-dropping bug itself is UNCHANGED -- 0.1.5's
+//   bridge still returns only `JSON.stringify({ ok: true, value: result.value })` and
+//   never forwards `result.content`, and `grep deferContext|blocks` on it is 0 hits.
+//   The kernel side still supports the fix: dsh-llm 0.1.7 exports contentHasImage /
+//   createUserMessage / ToolCallId, and dsh-tools has `deferContext(context)`
+//   (lib/index.js:3152) with its own run_code path using the identical pattern
+//   (lib/index.js:1384). So the patch is re-ported by accepting EITHER import spelling.
+
+const IMPORT_ANCHORS = [
+  {
+    anchor: "import { ToolCallId } from '@deepseek-ai/dsh-llm';",
+    replacement: "import { ToolCallId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm';",
+  },
+  {
+    anchor: "import { CallId } from '@deepseek-ai/dsh-llm';",
+    replacement: "import { CallId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm';",
+  },
+]
 
 const ANCHOR_RETURN = '                    return JSON.stringify({ ok: true, value: result.value });'
 const REPLACEMENT_RETURN = [
@@ -85,9 +103,17 @@ if (isMain) {
   }
 
   const anchors = [
-    { name: 'dsh-llm import', anchor: ANCHOR_IMPORT, replacement: REPLACEMENT_IMPORT },
     { name: 'tool_call success return', anchor: ANCHOR_RETURN, replacement: REPLACEMENT_RETURN },
   ]
+  // Pick the import anchor that matches this installed version exactly once.
+  const importHit = IMPORT_ANCHORS
+    .map((c) => ({ ...c, occurrences: text.split(c.anchor).length - 1 }))
+    .find((c) => c.occurrences === 1)
+  if (importHit === undefined) {
+    fail('ERR no dsh-llm import anchor matched exactly once; expected one of:\n' +
+      IMPORT_ANCHORS.map((c) => `  - ${JSON.stringify(c.anchor)}`).join('\n'))
+  }
+  anchors.unshift({ name: 'dsh-llm import', anchor: importHit.anchor, replacement: importHit.replacement })
   for (const { name, anchor } of anchors) {
     const occurrences = text.split(anchor).length - 1
     if (occurrences !== 1) fail(`ERR anchor "${name}" occurs ${occurrences} times (expected 1): ${JSON.stringify(anchor)}`)

@@ -2,6 +2,11 @@
 
 > 单一事实源：每个插件的状态、热重载安全性、用途。
 > 与 AGENTS.md structure 区互补（那里只列名字）。
+>
+> **能力与去留评估见 [`CAPABILITY-MATRIX.md`](./CAPABILITY-MATRIX.md)**（2026-09-28 六批深读）：
+> 逐插件给出「上游原生能力」对照（`full`/`partial`/`none`）、保留/合并/退役决定与依据，
+> 并集中记录了本台账的 **14 处纠错**（本文件下方各行若与之冲突，以矩阵为准）。
+> 机器校验：`node scripts/verify-inventory.mjs` —— 断言「台账 ≡ 磁盘 ≡ 运行态」，并输出退役队列。
 
 ## 装配方式（重要 · 判读依据）
 
@@ -26,7 +31,11 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 
 ## 插件清单
 
-### plugins/ 目录（38 个）
+### plugins/ 目录（40 个）
+
+> **2026-09-28 复算**：`(Get-ChildItem plugins -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'package.json') }).Count` = **40**
+> （此前标题写 38，台账内容 39 —— 两次都滞后于磁盘；`dsh-settings-scope-shim` 长期未登记）。`dsh-routing-suite` 无顶层 package.json（子仓容器），**不计入该数**但列于下表。
+> 该数字现已由 `scripts/verify-inventory.mjs` 的 **[A] registry == disk** 断言强制，不再依赖人工复算。
 
 > **计数纪律（2026-09-13 复核）**：本标题数字必须与实测一致 —— 复算：
 > `(Get-ChildItem plugins -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'package.json') }).Count`
@@ -58,8 +67,9 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `dsh-memory-files` | bundle | core | ⚠️ | **G1 文件型长期记忆**：会话构建系统提示词时只读注入 `MEMORY.md`（`<DSH_HOME>/memory/` + `<cwd>/.dsh/memory/` + `<cwd>/.workbuddy/memory/`，默认预算 2000 字符、超预算截断、缺文件静默跳过、零依赖、只读不写）；经 host-services 注册 `/health` 探测项 `memory.files` 自证（2026-09-11 上线，需重启生效） |
 | `dsh-memory-guard` | bundle | experimental | ⚠️ | **进程内存哨兵**（2026-09-14/15 事故防护常驻化）：自适应轮询（活跃 15s / 连续 4 轮平静后 60s）查目标镜像名进程（默认 `python.exe`）的**提交内存(commit)** + 系统水位，命中即回收 —— 规则表「扇出 count>8 且合计提交>4000MB ／ 单体提交>6000MB ／ 系统 commit/limit>0.90 ／ 可用<700MB」；护栏＝`~/.dsh/memory-guard/paused` 放行闸门（合法训练放行，跨重启有效）+ **DSH 直属子进程豁免**（MCP python 不被误杀）+ 路径排除 + 小进程不杀 + dryRun 观察模式 + 杀不掉者按「路径+启动时间」抑制 10min；端点 `GET/POST /memory-guard/status`（含 `?paused=1\|0`）+ `/health` 探测项 `memory.guard`；日志 `~/.dsh/memory-guard/guard.log`。事故：另一 DSH 会话的 YOLO 训练 25 worker 把 16GB 机器推到 50.6GB 提交上限 → DSH 崩溃×2 + `0x50` 蓝屏（复盘 `outputs/2026-09-15-report-yolo-training-incident/`）。验证：单测 **17/17**（v0.2 双向回归） + 导入门禁 0 违规 + **双向真实进程验证 PASS**（A 合法 workers=4 必须不杀：5/5 存活；B 10×450MB 提交扇出必须杀：10/10 全灭残留 0；关键对照 B 的 maxCommit=5422MB 而 maxWS=41MB ⇒ WS 口径会漏判）。**v0.2 判据层需重启桌面应用生效**（`dev_reload_package` 报 `loader.internal 不可用`）。**标注 experimental 的原因**：阈值对「合法大内存 python 任务」的误伤边界尚未经真实使用观察，可安全卸载（`dev_uninject_plugin`），观察期建议先 `dryRun` |
 | `dsh-developer-role-guard` | bundle | experimental | ⚠️ | **非 OpenAI 上游的 `developer` 角色护栏**（2026-09-15 事故防护常驻化）：pi-ai 对**未登记端点**默认 `supportsDeveloperRole=true`（`openai-completions.js:1148` 探测规则「不在已知非标准厂商列表且非 OpenRouter ⇒ true」）⇒ 系统提示词发 `role:"developer"`；ModelScope 流式**直接 400**（`developer is not one of [...]`），非流式只回 200 + `"choices":null` **静默失败**，而 DSH 恒为流式 ⇒ 表现为该提供商整条不可用。放大器：`dsh-force-reasoning-effort` 注入 `reasoning=true` 使该判定成立。本插件包装 pi-ai 适配器（同 force-reasoning-effort 模式），对**非白名单**路由强制 `compat.supportsDeveloperRole=false` ⇒ 系统提示词走通用的 `system`；白名单＝真 OpenAI 系（provider + host 双判据、含子域、`api.openai.com.evil.tld` 不误放行），保住 o 系列对 developer 的依赖。护栏：全程 **fail-open**（异常退回未打补丁快照、绝不抛错/阻断请求）+ 只改一个字段且复制而非原地改 + 幂等 + `ctx.effect` 卸载还原（原本无 compat 者删键）+ `dryRun` 试运行 + 可选 `/health` 探测 `developerRole.guard`。验证：单测 **11/11**（含故障注入：`getModels()` 抛错／`Object.freeze` 描述符／compat 只读／畸形 snapshot 全部 fail-open，且单模型失败不拖累同批）+ fake-ctx 接线（apply→wrap→dispose 后两条路由键全消失＝完全还原，`failed=0`）+ **真 pi-ai × 真 ModelScope 对照**（漂移态 `developer`→400 逐字复现；经守卫 `system`→`done`）。装配 4/4 + `startup-verify` 10/10。事故复盘 `outputs/2026-09-15-report-modelscope-developer-role-fix/`。**需重启生效** |
+| `dsh-model-inspection-guard` | bundle | core | ⚠️ | **上游「内容安全审核拒收」规避（2026-09-24 新增）**：在 `agent/request` 接缝按「provider ∈ 规避列表 + 上下文规模 ≥ 阈值」把请求**在发出之前**改道到备用 provider，使 ModelScope 的 `400 data_inspection_failed`（`failure.code` 为通用 `INVALID_REQUEST`）**根本不发生**。规模取 `agent.session.events.length`（实测可用）；读不到时 fail-safe 按需规避。配置 `avoidProviders` / `fallback` / `fallbackModel` / `minEventsToAvoid`（默认 2000，`0`=一律规避）/ `enabled`；工具 `dev_inspection_guard_status` / `dev_inspection_guard_configure`（可观测 + 运行时调参）；全链路 fail-open、幂等（与 failover 共存安全）。**为什么不用 `agent/request-error`**：实测该钩子**送不到插件监听器**（子代理一次真实非重试失败下探针 error 钩子零调用，而其 `agent/request` 钩子每次都送达）⇒ 只能落在 `agent/request`。测试 `test/guard.test.mjs`（含反向对照：小上下文/非列表 provider 不得改道 + 幂等）。 |
 | `dsh-model-picker-group` | bundle | core | ⚠️ | 模型选择器分组（供应商模型 + modlens 双胞胎排序） |
-| `dsh-model-provider-failover` | bundle | core | ⚠️ | **Provider 级请求故障转移（2026-09-15 配额感知升级 + 装配到位）**：可用性类失败（SERVER/TRANSPORT/RATE_LIMIT/QUOTA/408/STREAM_CLOSED/MALFORMED）按阈值冷却；**计费/配额类失败（`402`/`billing_error`/`allowance is too low`/`insufficient balance`/中文"额度不足"等，code 或 message 双判）一次即冷却并接管一次恢复**（返回 `{kind:'retry'}` 且不调 next），**只对内核重试码表之外的码接管**（`KERNEL_RETRYABLE_CODES` 不相交不变量 ⇒ 不抢 `dsh-llm-retry` 恢复权）；新增 `fallbackModel` 映射（跨 provider 必须换 model id，否则切换后必二次失败）、`maxRecoveriesPerKey`/`maxFailoversPerTurn` 预算防抖、取消优先、全链路 fail-open；`dev_provider_failover_status` / `dev_provider_failover_configure` 两个工具（可观测 + 运行时配置，免重启）。**装配 4/4**（`register-plugin --yes`，`startup-verify` 10/10，bundles 47→48）。验证：单测 + 集成测试，**含 9 个故障注入场景**（回放 2026-09-15 线上真实 402 报文、内核码表码不被抢、预算/取消/无 fallback 均正确放行）。事故与设计证据：`outputs/2026-09-15-doc-dsh-next-steps/`、`_backups/failover-quota-20260915-211732/` |
+| `dsh-model-provider-failover` | bundle | core | ⚠️ | **Provider 级请求故障转移（2026-09-15 配额感知升级 + 装配到位）**：可用性类失败（SERVER/TRANSPORT/RATE_LIMIT/QUOTA/408/STREAM_CLOSED/MALFORMED）按阈值冷却；**计费/配额类失败（`402`/`billing_error`/`allowance is too low`/`insufficient balance`/中文"额度不足"等，code 或 message 双判）一次即冷却并接管一次恢复**（返回 `{kind:'retry'}` 且不调 next），**只对内核重试码表之外的码接管**（`KERNEL_RETRYABLE_CODES` 不相交不变量 ⇒ 不抢 `dsh-llm-retry` 恢复权）；新增 `fallbackModel` 映射（跨 provider 必须换 model id，否则切换后必二次失败）、`maxRecoveriesPerKey`/`maxFailoversPerTurn` 预算防抖、取消优先、全链路 fail-open；`dev_provider_failover_status` / `dev_provider_failover_configure` 两个工具（可观测 + 运行时配置，免重启）。**装配 4/4**（`register-plugin --yes`，`startup-verify` 10/10，bundles 47→48）。验证：单测 + 集成测试，**含 9 个故障注入场景**（回放 2026-09-15 线上真实 402 报文、内核码表码不被抢、预算/取消/无 fallback 均正确放行）。事故与设计证据：`outputs/2026-09-15-doc-dsh-next-steps/`、`_backups/failover-quota-20260915-211732/`。**⚠️ 2026-09-24 实测更正：本插件所有基于 `agent/request-error` 的路径（计费接管 + 新增的审核类接管）在生产中都不会生效** —— 实测该钩子送不到插件监听器（子代理一次真实非重试失败下探针 error 钩子零调用，而同插件 `agent/request` 钩子每次都送达；`dsh-llm-retry` 作为最外层监听器决定重试时不调 `next()`，也会跳过其后所有监听器）。⇒ 其「可用性冷却 + `agent/request` 改道」部分仍是有效的，但「一次即冷却 + 接管恢复」部分自 2026-09-15 起从未真正生效。要止住审核类/计费类硬失败，请用 `dsh-model-inspection-guard`。 |
 | `dsh-model-tier-router` | bundle | core | ⚠️ | 同源模型自动分级路由（简单任务走 low，复杂走 high） |
 | `dsh-model-whitelist` | bundle | core | ⚠️ | 模型白名单（并入 Settings → 模型 单页下段：白名单控制可见模型 + 测试连接；2026-09-02 与「模型」页整合，详见 docs/MODEL-WHITELIST-MERGE-2026-09-02.md） |
 | `dsh-modlens-autoread` | bundle | core | ❌ | 纯文本模型图片自动识别（粘贴/发照片时自动调 modlens 读图） |
@@ -78,6 +88,7 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `dsh-vision-engine` | bundle | core | ✅ | 视觉引擎（modlens 服务间桥接）：多配置管理 + 测试/额度/用量 + 通道健康卡（代理/Ollama/CLI）+ 单写者 provider pin + autoFailover 开关（2026-08-28 增强） |
 | `dsh-web-fetch-local` | bundle | core | ✅ | 本地 HTTP(S) 抓取（SSRF 防护 + 大小限制） |
 | `dsh-web-search-bing` | bundle | core | ✅ | 免 key 必应搜索 |
+| `dsh-settings-scope-shim` | patch-insert | core | ⚠️ | **0.1.7 兼容垫片**（2026-09-28 新增，本行 2026-09-28 补登）：上游 0.1.7 **删除了 `settingsScope` 提供者**（kernel 侧实测 0 个 provider），而消费方仍在 —— `dsh-client-ui-settings-models`、`dsh-client-ui-conversation`、以及**桌面壳自身的 client**（`lib/client.js` 的 inject 列表含 `settingsScope`，另有 `uiConversation` 被**7 个**官方客户端包消费）。垫片 client 侧 provide 这两个内存 scope 使这些 fiber 能激活。**2026-09-28 已收敛**：原先 provide 10 个名字，其中 8 个（layout/shortcuts/jobs/resources/uiSession/uiWorkspace/sidebarRight/sidebarRightTabs）0.1.7 官方各有提供者 —— 而 cordis `reflect.provide` **遇重名抛错**（`cordis/lib/index.js:813`）且垫片 `immediately:true` 可能赢竞态 ⇒ 会让**官方**注册失败（丢 `layout` 即 UI 根槽不挂载＝白屏），故移除。宿主半为空（`:lib/index.js`）。**上游恢复提供者后可退役**。 |
 
 ### 根级守护插件（3 个）
 
@@ -95,11 +106,30 @@ DSH 本地插件有**两条互相独立的装配路径**（实测确认，二者
 | `@huanlin/dsh-plugin-better-sidebar-plugin-office` | external | ⚠️ 建议重启（bundle 类） | better-sidebar 的 Office 预览插件：.docx/.xlsx/.pptx 真实渲染（docx-preview / Univer / xlsx / pptx-renderer）。better-sidebar v0.15.2 起 Office 预览移出主包，须装此插件（v0.1.2，2026-08-28 经 `dsh plugin --profile desktop add` 安装；官方推荐，GitHub `HuanLinOTO/dsh-plugin-better-sidebar-plugin-office`；模板已同步 `profile/desktop/package.json`） |
 | `@openviking/dsh-memory-plugin` | external | ⚠️ 建议重启（bundle 类） | 记忆中台插件（openviking 记忆持久化/检索，dsh 会话绑定）。v0.3.0，2026-09-02 装配登记进运行态 + 模板（deps + bundles 均已同步）；（2026-09-09 实测）运行态 active，但检索 MCP 工具未暴露（mcp_search 无匹配、95 工具注册表无 openviking、无 <openviking-context> 注入）→ 记忆读写未接通；要用需先接 openviking MCP 工具面。 |
 
+## 台账纠错（2026-09-28 · 六批深读实测，逐条 `路径:行号` 见 CAPABILITY-MATRIX §5）
+
+以下各行/说法**已证伪或不准确**，本文件正文暂保留原文以便追溯，**判读请以 `CAPABILITY-MATRIX.md` 为准**：
+
+1. **`:104`**「`dsh-model-provider-failover` 未持久化装配」→ 实测**已在 bundles**（`profile/desktop/package.json:115`）。
+2. **`:89/:106`**「`dsh-vision-rotator` 已停用 / 不在运行态」→ 实测**仍在 `bundles:116`** + deps + junction 在位，无 `disabled` ⇒ 下次 desktop 启动会 apply()。
+3. **缺失行**：`dsh-settings-scope-shim` 已装配（deps:63 + patch insert）却无登记 → 已补入矩阵。
+4. **`:46`** command-guard「共享 risk-rules 模块」→ **反向**：`index.js:31-33` 显式不 import，规则表内联重复。
+5. **`:61/:63`**「`agent/request-error` 送不到插件监听器」→ 应降级为「**未 `prepend` 的内层监听器收不到；`{prepend:true}` 的外层可收到**」（`dsh-model-inspection-guard` 09-26 有真实生产救援为反例）。
+6. **`:51`** health-dashboard 聚合含 session-hygiene → `index.js:43` 默认 `sessionHygiene: null`（不计）。
+7. **`:57`**「host-services 7 项探测」→ 代码确为 7，但插件 `README.md` 写 8、工作区 `AGENTS.md` 写 10 ⇒ **三处口径待统一**。
+8. **`:73`** session-hygiene「Electron 通知 **+ 对话注入**」→ 对话注入是**死代码**（两版内核皆然），只有通知生效。
+9. **`:73`**「内核无归档 API」→ 不准确：`ctx.workspaceRegistry.archiveSession()` 两版都有（语义为记录归档/门禁，不搬 jsonl 文件）。
+10. **标题**「38 个」→ 实测 **40**（已改）。
+11. **`:11`**「patch-insert 类插件自带 `cordis.patch.yml`」→ `dsh-project-brief` 目录内**没有**该文件。
+12. **`:43`** diagram-renderer「v5 自适应」→ 实际 `README.md:5` 已是 **v9 设计系统**。
+13. **`:53`** prompt-enhance「一键将用户输入改写」→ 无 client 半/无按钮，是给 **agent 调用**的工具。
+14. **`dsh-session-history/package.json:12`** 描述写成"会话历史弹窗" → 实现是**用户消息 mini-map 竖条**。
+
 ## 统计
 
-- 总计: 42（plugins/ 39 + 根级 3）| core: 37 | experimental: 4 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
-- 装配方式（plugins/）：bundle 31 | patch-insert 8（根级守护另列）①（2026-09-15 脚本重算口径 `rows=39, byAsm={"patch-insert":8,"bundle":31}`；2026-09-16 移除 `dsh-model-manager` 后 bundle 33→32；2026-09-16 移除 `dsh-orchestrator` 后 bundle 32→31、行 40→39）
+- 总计: 44（plugins/ 41 + 根级 3）| core: 39 | experimental: 4 | deprecated: 1（dsh-vision-rotator）｜ profile 市场安装: 3（dsh-context + dsh-better-sidebar-plugin-office + dsh-memory-plugin）
+- 装配方式（plugins/）：bundle 32 | patch-insert 9（根级守护另列）①（2026-09-28 复算口径：表格 41 行 = bundle 32 + patch-insert 9；标题 40 = 含 package.json 的目录数，表格多出 `dsh-routing-suite` 一行。历史：2026-09-15 `rows=39, patch-insert=8, bundle=31`；2026-09-16 移除 `dsh-model-manager` bundle 33→32；移除 `dsh-orchestrator` bundle 32→31、行 40→39；2026-09-28 补登 `dsh-settings-scope-shim` patch-insert 8→9、行 40→41、bundle 31→32）
 - 必须重启: 2 (modlens 类：dsh-modlens-autoread / dsh-modlens-guard)。其余热重载/建议重启以右侧表格逐行标注为准，不在此汇总（避免与表格口径打架）。
-- 未持久化装配（仓库内默认 no-op，可随时重新注入）：dsh-model-provider-failover（P1-1）
+- 已在持久化装配（2026-09-28 实测更正）：dsh-model-provider-failover —— 台账曾记「未持久化装配」，实测已在 `profile/desktop/package.json` 的 `dsh.profile.bundles`（另见 CAPABILITY-MATRIX §5 纠错 #1）
 
-> ① 根级守护插件（dsh-context-lifecycle / dsh-stuck-loop-guard）经 bundle 数组装配；vision-rotator deprecated，不在运行态。
+> ① 根级守护插件（dsh-context-lifecycle / dsh-stuck-loop-guard）经 bundle 数组装配；vision-rotator deprecated 但**仍在 `bundles` 中**（见纠错 #2）。

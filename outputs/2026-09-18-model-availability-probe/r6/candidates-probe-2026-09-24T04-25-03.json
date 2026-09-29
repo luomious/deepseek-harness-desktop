@@ -1,0 +1,24 @@
+[
+  {
+    "provider": "sennsenova",
+    "model": "kimi-k3",
+    "url": "https://token.sensenova.cn/v1/chat/completions",
+    "ok": false,
+    "status": 429,
+    "latencyMs": 508,
+    "attempts": 1,
+    "kind": "RATE_429",
+    "error": "{\"error\":{\"message\":\"inference exceeds tpm/rpm limit\",\"type\":\"rate_limit_error\",\"code\":\"ModelAccountTpmRateLimitExceeded\"}}"
+  },
+  {
+    "provider": "amd",
+    "model": "DeepSeek-V4.1-Flash",
+    "url": "https://developer.amd.com.cn/radeon/api/v1/chat/completions",
+    "ok": false,
+    "status": 400,
+    "latencyMs": 377,
+    "attempts": 1,
+    "kind": "BADMODEL_400",
+    "error": "{\"error\":{\"message\":\"Requested model DeepSeek-V4.1-Flash not supported\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}"
+  }
+]

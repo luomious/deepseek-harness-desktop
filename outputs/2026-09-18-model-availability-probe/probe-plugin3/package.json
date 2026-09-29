@@ -1,0 +1,13 @@
+{
+  "name": "@dsh-external/dsh-failover-probe3",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Read-only diagnostic probe (v3): logs every agent/request and agent/request-error payload, and supports an agent-scoped one-shot force-fail sentinel so a subagent can be used as the fault target without disturbing the main conversation.",
+  "license": "MIT"
+}

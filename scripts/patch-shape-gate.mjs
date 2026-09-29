@@ -47,7 +47,7 @@ export const GATE = {
     file: 'lib/client.js',
     canon: 'dsh-client-ui-workspace-client.js',
     pristine: '@deepseek-ai/dsh-client-ui-workspace/lib/client.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'let _deepseek_ai_dsh_client_runtime_client = require("@deepseek-ai/dsh-client-runtime/client");',
       '}, "conversation.hero.workspace.remoteFlow": {',
@@ -59,7 +59,7 @@ export const GATE = {
     file: 'lib/client.js',
     canon: 'dsh-client-ui-conversation-client.js',
     pristine: '@deepseek-ai/dsh-client-ui-conversation/lib/client.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'id: "@deepseek-ai/dsh-client-ui-conversation",',
       'exports.ConversationController = ConversationController;',
@@ -69,7 +69,7 @@ export const GATE = {
     file: 'lib/client.js',
     canon: 'dsh-client-ui-settings-models-client.js',
     pristine: '@deepseek-ai/dsh-client-ui-settings-models/lib/client.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'id: "@deepseek-ai/dsh-client-ui-settings-models",',
       'ctx.slots.inject("settings.onboarding", () => ctx.slots.register({',
@@ -80,7 +80,7 @@ export const GATE = {
     file: 'lib/client.js',
     canon: 'dsh-client-ui-directory-picker-browse-client.js',
     pristine: '@deepseek-ai/dsh-client-ui-directory-picker-browse/lib/client.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'id: "@deepseek-ai/dsh-client-ui-directory-picker-browse",',
       'name: "conversation.hero.workspace.directoryFlow",',
@@ -90,7 +90,7 @@ export const GATE = {
     file: 'lib/index.js',
     canon: 'dsh-host-frontend-static-index.js',
     pristine: '@deepseek-ai/dsh-host-frontend-static/lib/index.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'import { dirname, extname, join, normalize, resolve, sep } from "node:path";',
       'export { Config, apply, inject, name, serveStatic };',
@@ -100,7 +100,7 @@ export const GATE = {
     file: 'lib/index.js',
     canon: 'dsh-session-persistence-jsonl-index.js',
     pristine: '@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js',
-    expectVersion: '0.1.1-rc.2',
+    expectVersion: '0.1.7-rc.2',
     anchors: [
       'import { link, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, truncate } from "node:fs/promises";',
       'export { JsonlCompressionSchema, JsonlSessionPersistence, JsonlSessionPersistence as default };',

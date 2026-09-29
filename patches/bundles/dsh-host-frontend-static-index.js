@@ -8,16 +8,17 @@ import z from "@deepseek-ai/schemastery";
 * entry points. A readable index renders at the dist root and configured index
 * path; missing paths return 404, traversal outside the dist root is 403,
 * unknown extensions ship as octet-stream, and non-GET/HEAD is 405. Every
-* index response runs through the webserver's index render (structured
-* injection rows, then raw taps). The dist location is workspace knowledge of
+* index response first passes Connection's browser authentication, then the
+* webserver's index render (structured injection rows, then raw taps).
+* Non-index assets stay public. The dist location is workspace knowledge of
 * the composing application, so `distIndex` is typically supplied through a
 * `!!js` expression, never hardcoded by a deployment.
 * @module @deepseek-ai/dsh-host-frontend-static
 */
 /** Stable Cordis plugin name. */
 const name = "frontend-static";
-/** Service required before the fallback seat can be claimed. */
-const inject = ["webServer"];
+/** Services required before the authenticated fallback seat can be claimed. */
+const inject = ["webServer", "connection"];
 const Config = z.object({ distIndex: z.string().required() });
 const HTML_MIME = "text/html; charset=utf-8";
 const MIME = {
@@ -27,7 +28,8 @@ const MIME = {
 	".svg": "image/svg+xml",
 	".json": "application/json",
 	".map": "application/json",
-	".webmanifest": "application/manifest+json"
+	".webmanifest": "application/manifest+json",
+	".gz": "application/gzip"
 };
 const STATIC_MISS_CODES = new Set([
 	"ENOENT",
@@ -40,10 +42,11 @@ const STATIC_MISS_CODES = new Set([
 * @param res - the node:http response to write.
 * @param distRoot - absolute dist root directory (resolved by the caller).
 * @param distIndex - absolute path of index.html inside distRoot.
+* @param authorizeIndex - authenticates an index response before its bytes are read.
 * @param renderIndex - produces the index.html body (structured injection
 * rendering) for the dist root and configured index path.
 */
-async function serveStatic(pathname, res, distRoot, distIndex, renderIndex) {
+async function serveStatic(pathname, res, distRoot, distIndex, authorizeIndex, renderIndex) {
 	const target = resolve(normalize(join(distRoot, pathname)));
 	if (target !== distRoot && !target.startsWith(distRoot + sep)) {
 		res.writeHead(403);
@@ -54,6 +57,7 @@ async function serveStatic(pathname, res, distRoot, distIndex, renderIndex) {
 	let type;
 	try {
 		if (target === distRoot || target === distIndex) {
+			if (!authorizeIndex()) return;
 			body = await renderIndex();
 			type = HTML_MIME;
 		} else {
@@ -66,16 +70,7 @@ async function serveStatic(pathname, res, distRoot, distIndex, renderIndex) {
 		res.end();
 		return;
 	}
-	let cacheControl = "no-cache"; /* dsh-desktop patch: no-cache for dev stability */
-	/* dsh-desktop patch: hashed Vite build artifacts are immutable — browser
-	   keeps them in cache, so reopening the page skips re-download and
-	   re-compile of the 1MB+ JS bundles. Non-hashed paths (index.html,
-	   favicon, manifest) stay no-cache. Content-hash filenames never
-	   change for the same content, so this is safe across rebuilds. */
-	if (type !== HTML_MIME && /^\/assets\//i.test(pathname) && /-[A-Za-z0-9_-]{8,}\.(?:js|css|svg|png|jpe?g|gif|webp|woff2?|ttf|eot|ico|map)$/i.test(pathname)) {
-		cacheControl = "public, max-age=31536000, immutable";
-	}
-	res.writeHead(200, { "content-type": type, "cache-control": cacheControl });
+	res.writeHead(200, { "content-type": type, "cache-control": "no-cache" }); /* dsh-desktop patch: no-cache for dev stability */
 	res.end(body);
 }
 /**
@@ -86,7 +81,9 @@ async function serveStatic(pathname, res, distRoot, distIndex, renderIndex) {
 function apply(ctx, config) {
 	const distIndex = config.distIndex;
 	const distRoot = dirname(distIndex);
-	const renderIndex = async () => ctx.webServer.renderIndex(await readFile(distIndex, "utf8"));
+	const renderIndex = async () => {
+		return ctx.webServer.renderIndex(await readFile(distIndex, "utf8")).replace(/<head(?:\s[^>]*)?>/i, (open) => `${open}<base href="./">`);
+	};
 	ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
 		if (req.method !== "GET" && req.method !== "HEAD") {
 			res.writeHead(405);
@@ -95,7 +92,7 @@ function apply(ctx, config) {
 		}
 		/* v8 ignore next -- node:http always sets url on server requests */
 		const rawPath = new URL(req.url ?? "/", "http://x").pathname;
-		await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, renderIndex);
+		await serveStatic(decodeURIComponent(rawPath), res, distRoot, distIndex, () => ctx.connection.authorizeIndex(req, res), renderIndex);
 	}), "frontend-static: fallback seat");
 }
 //#endregion

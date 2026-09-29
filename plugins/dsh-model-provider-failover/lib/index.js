@@ -1,6 +1,7 @@
 // @dsh-external/dsh-model-provider-failover — provider 级请求故障转移（host-only）
 //
-// 目标：当某个 provider 在请求层稳定失败（可用性类 429/5xx/TRANSPORT，或**计费/配额类**
+// 目标：当某个 provider 在请求层稳定失败（可用性类 429/5xx/TRANSPORT，**计费/配额类**，
+// 或（2026-09-24 新增、默认关闭）**上游内容审核拒收类** data_inspection_failed）时，将其放进冷却集
 // 402/billing_error/quota）时，将其放进冷却集一段时间，随后 `agent/request` 路由到池内
 // 已配置的备用 provider；对"内核不会重试的计费类失败"额外**接管一次恢复**，把整轮从
 // "硬失败"变成"自动换 provider 继续跑"。
@@ -81,6 +82,29 @@ export const BILLING_MESSAGE_PATTERN = new RegExp([
   '余额不足', '额度不足', '配额(?:已)?(?:用尽|耗尽|超限)', '请(?:充值|续费)',
 ].join('|'), 'i')
 
+/**
+ * 「上游内容安全审核拒收」类的 `failure.code` 提示（网关叫法不一，故 code 与 message 双判）。
+ */
+export const INSPECTION_CODE_HINTS = Object.freeze([
+  'DATA_INSPECTION_FAILED',
+])
+
+/**
+ * 「上游内容安全审核拒收」类的 `failure.message` 特征。
+ * 实测样本（2026-09-24 modelscope / deepseek-ai/DeepSeek-V4.1-Flash，会话 session-fb08b2d6）：
+ *   `400: {"code":"data_inspection_failed","message":"<400> InternalError.Algo.DataInspectionFailed:
+ *     Input text data may contain inappropriate content."}`
+ *
+ * 为什么必须锚定报文而不是只看 code：该失败的 `failure.code` 是通用的 `INVALID_REQUEST`，
+ * 而 `INVALID_REQUEST` 包含“请求真的写错了”等大量正常情形 —— 整体纳入兜底会把真实故障
+ * 静默换厂商掉。所以这里只认“审核拒收”这个具体信号。
+ */
+export const INSPECTION_MESSAGE_PATTERN = new RegExp([
+  'data_inspection_failed',
+  'DataInspectionFailed',
+  'inappropriate content',
+].join('|'), 'i')
+
 // 默认配置：与 cordis.patch.yml 的 config 保持一致（运行时注入 config={} 时靠这里兜底）。
 const DEFAULTS = {
   enabled: true,
@@ -89,6 +113,7 @@ const DEFAULTS = {
   fallback: {},         // 默认 no-op；启用方式见 cordis.patch.yml 示例或 configure 工具
   fallbackModel: {},    // provider -> 备用 provider 上**真实存在**的 model id（可选但强烈建议）
   claimRecovery: true,  // 是否对"内核不重试的计费类失败"接管一次恢复
+  claimInspection: false, // 是否对"上游内容审核拒收"接管一次恢复（**默认关** = 零行为回归）
   maxRecoveriesPerKey: 1, // 同一 turn:step:provider 最多接管几次恢复
   maxFailoversPerTurn: 3, // 单轮最多切换几次 provider（防 A→B→A 抖动）
 }
@@ -112,9 +137,11 @@ export function normalizeConfig(config) {
   const fallback = raw.fallback && typeof raw.fallback === 'object' ? normalizeStringMap(raw.fallback) : normalizeStringMap(DEFAULTS.fallback)
   const fallbackModel = raw.fallbackModel && typeof raw.fallbackModel === 'object' ? normalizeStringMap(raw.fallbackModel) : normalizeStringMap(DEFAULTS.fallbackModel)
   const claimRecovery = raw.claimRecovery !== false
+  // 默认 **false**：不显式打开就完全保持原有行为（内容类错误原样放行）。
+  const claimInspection = raw.claimInspection === true
   const maxRecoveriesPerKey = Number.isInteger(raw.maxRecoveriesPerKey) && raw.maxRecoveriesPerKey > 0 ? raw.maxRecoveriesPerKey : DEFAULTS.maxRecoveriesPerKey
   const maxFailoversPerTurn = Number.isInteger(raw.maxFailoversPerTurn) && raw.maxFailoversPerTurn > 0 ? raw.maxFailoversPerTurn : DEFAULTS.maxFailoversPerTurn
-  return { enabled, cooldownMs, maxFailures, fallback, fallbackModel, claimRecovery, maxRecoveriesPerKey, maxFailoversPerTurn }
+  return { enabled, cooldownMs, maxFailures, fallback, fallbackModel, claimRecovery, claimInspection, maxRecoveriesPerKey, maxFailoversPerTurn }
 }
 
 // ── 纯函数（便于单测）──────────────────────────────────────────────
@@ -139,6 +166,19 @@ export function isBillingFailure(failure) {
 /** 可用性类失败判定（沿用既有码表）。 */
 export function isAvailabilityFailure(code) {
   return typeof code === 'string' && AVAILABILITY_CODES.includes(code)
+}
+
+/**
+ * 内容审核拒收类失败判定（code 或 message 任一命中即算）。
+ * 注意：它**不**并入 shouldCooldown —— 该函数的语义保持“可用性 或 计费”，
+ * 是否启用审核类兜底由 `cfg.claimInspection` 在监听器里单独门控。
+ */
+export function isInspectionFailure(failure) {
+  if (!failure || typeof failure !== 'object') return false
+  const code = typeof failure.code === 'string' ? failure.code.toUpperCase() : ''
+  if (code && INSPECTION_CODE_HINTS.includes(code)) return true
+  const message = typeof failure.message === 'string' ? failure.message : ''
+  return message.length > 0 && INSPECTION_MESSAGE_PATTERN.test(message)
 }
 
 /** 该失败是否应触发冷却：可用性类 或 计费类。 */
@@ -214,6 +254,7 @@ export function apply(ctx, config) {
     recoveries: {},       // key(turn:step:provider) -> 已接管次数
     turnFailovers: {},    // turn -> 已切换 provider 次数
     billingFailures: 0,   // 计费类失败累计（可观测）
+    inspectionFailures: 0, // 内容审核拒收累计（可观测）
     claimedRecoveries: 0, // 实际接管恢复次数（可观测）
   }
 
@@ -232,15 +273,19 @@ export function apply(ctx, config) {
       // （网关可能用 5xx + 计费报文混合返回，只看 message 就会误抢内核的重试权。）
       const kernelOwnsRetry = KERNEL_RETRYABLE_CODES.includes(code)
       const availability = isAvailabilityFailure(code)
-      if (!billing && !availability) { return next() }   // 内容类错误原样放行
+      // 内容审核拒收：**仅当 cfg.claimInspection 显式开启**才纳入兜底；
+      // 默认关闭 ⇒ 维持“内容类错误原样放行”的原行为（零回归）。
+      const inspection = c.claimInspection === true && isInspectionFailure(failure)
+      if (!billing && !availability && !inspection) { return next() }   // 内容类错误原样放行
       const now = Date.now()
       const fb = c.fallback[provider]
 
-      if (billing) {
-        state.billingFailures += 1
-        // 计费/配额类：一次即冷却——同 provider 重试不可能自愈
+      if (billing || inspection) {
+        if (billing) state.billingFailures += 1
+        if (inspection) state.inspectionFailures += 1
+        // 计费/配额类 与 内容审核拒收类：一次即冷却——同 provider 重试同一报文不可能自愈
         forceCooldown(state.failureState, provider, now, c.cooldownMs)
-        log(`BILLING provider=${provider} code=${code} msg=${String(failure.message || '').slice(0, 120)} -> cooldown ${c.cooldownMs}ms`)
+        log(`${inspection ? 'INSPECTION' : 'BILLING'} provider=${provider} code=${code} msg=${String(failure.message || '').slice(0, 120)} -> cooldown ${c.cooldownMs}ms`)
       } else {
         const fired = recordProviderFailure(state.failureState, provider, now, c.maxFailures, c.cooldownMs)
         if (fired) log(`COOLDOWN provider=${provider} code=${code} cooldownMs=${c.cooldownMs} -> ${fb || '(no fallback)'}`)
@@ -254,8 +299,8 @@ export function apply(ctx, config) {
       //   4) turn:step:provider 维度预算未用尽；
       //   5) 单轮切换次数未超上限；
       //   6) signal 未 abort（取消优先于恢复）。
-      if (!billing || kernelOwnsRetry) {
-        if (billing && kernelOwnsRetry) log(`CLAIM-SKIP provider=${provider} code=${code} reason=kernel-retryable`)
+      if ((!billing && !inspection) || kernelOwnsRetry) {
+        if ((billing || inspection) && kernelOwnsRetry) log(`CLAIM-SKIP provider=${provider} code=${code} reason=kernel-retryable`)
         return next()
       }
       const signal = payload.signal
@@ -323,8 +368,8 @@ export function apply(ctx, config) {
         })
         const lines = [
           `enabled=${c.enabled}  cooldownMs=${c.cooldownMs}  maxFailures=${c.maxFailures}`,
-          `claimRecovery=${c.claimRecovery}  maxRecoveriesPerKey=${c.maxRecoveriesPerKey}  maxFailoversPerTurn=${c.maxFailoversPerTurn}`,
-          `counters: billingFailures=${state.billingFailures}  claimedRecoveries=${state.claimedRecoveries}`,
+          `claimRecovery=${c.claimRecovery}  claimInspection=${c.claimInspection}  maxRecoveriesPerKey=${c.maxRecoveriesPerKey}  maxFailoversPerTurn=${c.maxFailoversPerTurn}`,
+          `counters: billingFailures=${state.billingFailures}  inspectionFailures=${state.inspectionFailures}  claimedRecoveries=${state.claimedRecoveries}`,
           `fallback map (${Object.keys(c.fallback).length}):`,
           ...providerLines,
           `state: ${Object.keys(state.failureState).length} provider(s) tracked`,
@@ -356,6 +401,7 @@ export function apply(ctx, config) {
         setFallbackModel: { type: 'string', description: 'primary provider whose fallback model id to set' },
         fallbackModelTo: { type: 'string', description: 'model id that exists on the fallback provider' },
         claimRecovery: { type: 'boolean', description: 'whether to claim one recovery for billing/quota failures' },
+        claimInspection: { type: 'boolean', description: 'whether to claim one recovery for upstream content-inspection rejections (data_inspection_failed)' },
         removeFallback: { type: 'string', description: 'remove fallback mapping for this primary provider' },
         clearCooldown: { type: 'boolean', description: 'clear all cooldown/failure counts and recovery budgets' },
       },
@@ -373,6 +419,7 @@ export function apply(ctx, config) {
           notes.push(`fallbackModel ${args.setFallbackModel}->${args.fallbackModelTo}`)
         }
         if (args.claimRecovery !== undefined) { c.claimRecovery = !!args.claimRecovery; notes.push(`claimRecovery=${c.claimRecovery}`) }
+        if (args.claimInspection !== undefined) { c.claimInspection = !!args.claimInspection; notes.push(`claimInspection=${c.claimInspection}`) }
         if (args.removeFallback) {
           if (c.fallback[String(args.removeFallback)]) {
             delete c.fallback[String(args.removeFallback)]
@@ -392,7 +439,7 @@ export function apply(ctx, config) {
     })
   } catch { /* 工具注册失败不影响路由 */ }
 
-  log(`armed: enabled=${state.cfg.enabled} cooldownMs=${state.cfg.cooldownMs} maxFailures=${state.cfg.maxFailures} claimRecovery=${state.cfg.claimRecovery} fallback=${JSON.stringify(state.cfg.fallback)} fallbackModel=${JSON.stringify(state.cfg.fallbackModel)}`)
+  log(`armed: enabled=${state.cfg.enabled} cooldownMs=${state.cfg.cooldownMs} maxFailures=${state.cfg.maxFailures} claimRecovery=${state.cfg.claimRecovery} claimInspection=${state.cfg.claimInspection} fallback=${JSON.stringify(state.cfg.fallback)} fallbackModel=${JSON.stringify(state.cfg.fallbackModel)}`)
 }
 
 export function toJsonSchema(spec) {

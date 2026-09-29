@@ -1,0 +1,39 @@
+﻿# dsh-model-inspection-guard - upstream content-moderation rescue (host-only bundle plugin)
+#
+# The problem (measured 2026-09-24): ModelScope's gateway moderates the INPUT and rejects
+# long agent sessions with `400 data_inspection_failed`; the failure code is the generic
+# INVALID_REQUEST and the whole turn dies. History proves it is upstream drift, not config:
+# modelscope ran 116 turns with ZERO rejections from 09-06..09-23, then 4/4 rejected on 09-24.
+#
+# Why a pre-request reroute CANNOT work: the kernel's model-selection listener
+# (dsh-agent/lib/index.js:287, dsh-agent/lib/types/model-selection.js:33) re-applies the
+# user's chosen provider/model on the way out, overwriting whatever an inner listener
+# returns. Measured: the previous guard logged GUARD-SWITCH at seq 55857 while the actual
+# request/header at seq 55857 was still modelscope.
+#
+# The seam that works: agent/request-error. dsh-agent-loop/lib/index.js:652-663 honours
+# { kind: "retry" } by re-running the step. INVALID_REQUEST is NOT in dsh-llm-retry's
+# retryableCodes, so that plugin falls through via next() and the event reaches us.
+# Both hooks register with { prepend: true } to sit OUTSIDE model-selection / llm-retry.
+#
+# Behaviour: normal path is untouched (the user's model choice always wins until it fails).
+# On a moderation rejection only, it reroutes once and asks for a retry. The budget is per
+# turn:step, so a persistent rejection degrades to the previous behaviour instead of looping.
+- insert:
+    - id: dsh-model-inspection-guard
+      name: '@dsh-external/dsh-model-inspection-guard'
+      config:
+        enabled: true
+        # retries allowed per turn:step; 0 disables the rescue entirely
+        maxRetriesPerStep: 1
+        logDecisions: true
+        fallback:
+          modelscope: modlens-tokenrhythm01
+          modlens-modelscope: modlens-tokenrhythm01
+        fallbackModel:
+          modelscope: deepseek-v4-flash-0731
+          modlens-modelscope: deepseek-v4-flash-0731
+        # runtime (no restart) tuning:
+        #   dev_inspection_guard_status
+        #   dev_inspection_guard_configure {enabled:false}          # turn the rescue off
+        #   dev_inspection_guard_configure {maxRetriesPerStep:0}    # same, via the budget

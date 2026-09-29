@@ -1,0 +1,47 @@
+@echo off
+REM ---------------------------------------------------------------------------
+REM  Switch DSH Desktop to kernel 0.1.7-rc.2  --  RUN ONLY WITH THE APP CLOSED.
+REM
+REM  Two steps, in this order:
+REM    1) repoint the ~/.dsh/profiles/node_modules junction farm at
+REM       dist\win-unpacked  (so it FOLLOWS the promote instead of staying pinned
+REM       to the old build202608272104 tree -- measured: without this, profile
+REM       plugins still resolve @deepseek-ai/* as 0.1.1-rc.2 and cannot link)
+REM    2) promote dist\win-unpacked -> win-unpacked-build202609272329 (0.1.7-rc.2)
+REM       (static smoke test; on failure the junction rolls back automatically)
+REM
+REM  Exit codes:
+REM    0 = both steps OK        -> start DSH Desktop
+REM    1 = a step failed        -> see the message; the app is unchanged or rolled back
+REM    2 = ABORTED              -> DSH Desktop is still running; close ALL of it first
+REM ---------------------------------------------------------------------------
+setlocal
+set REPO=D:\Deepseek-Harness
+set NODE=node
+
+echo.
+echo === step 1/2: repoint profile junction farm at dist\win-unpacked ===
+%NODE% "%REPO%\scripts\repoint-profile-node-modules.mjs" --apply
+set RC1=%ERRORLEVEL%
+if not "%RC1%"=="0" (
+  echo.
+  echo STEP 1 FAILED ^(exit %RC1%^) -- not promoting; the app is unchanged.
+  echo Rollback: the before-catalog is under %REPO%\_backups\profile-node-modules-repoint-*
+  pause
+  exit /b 1
+)
+
+echo.
+echo === step 2/2: promote dist\win-unpacked -^> win-unpacked-build202609272329 ===
+powershell -NoProfile -ExecutionPolicy Bypass -File "%REPO%\scripts\promote-build.ps1" -From win-unpacked-build202609272329
+set RC2=%ERRORLEVEL%
+
+echo.
+echo ---------------- result ----------------
+if "%RC2%"=="0" echo OK        -- farm + junction both on 0.1.7-rc.2. Start DSH Desktop now.
+if "%RC2%"=="1" echo SMOKE FAILED -- junction rolled back automatically; farm still follows win-unpacked (unchanged kernel)
+if "%RC2%"=="2" echo ABORTED   -- DSH Desktop is still running; close ALL of it first
+echo step1=%RC1%  step2=%RC2%
+echo ----------------------------------------
+pause
+endlocal

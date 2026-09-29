@@ -29,8 +29,14 @@ const VENDOR = path.join(REPO, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin
 const PATCH_REL = path.join('node_modules', '@deepseek-ai', 'dsh-session-persistence-jsonl', 'lib', 'index.js');
 const MARKERS = ['PATCH(zstd-async)', 'dsh-patch: zstd-stream-readraw v1', 'PATCH(zstd-stream-readprefix'];
 
-/** 定位「已应用补丁」的真实工件；返回绝对路径。 */
-function resolveApplied() {
+/** Patch-registry entry for this artifact: the single source of truth for retirement. */
+async function loadRegistryEntry() {
+  const registry = await import(pathToFileURL(path.join(REPO, 'scripts', 'patch-registry.mjs')).href);
+  return (registry.PATCHES ?? []).find((entry) => entry.id === 'perf5-session-decode-streaming');
+}
+
+/** 定位「已应用补丁」的真实工件；返回绝对路径；补丁已退役时返回 null（skip）。 */
+async function resolveApplied() {
   const candidates = [
     path.join(VENDOR, 'dist', 'win-unpacked', 'resources', 'app.asar.unpacked', PATCH_REL),
     path.join(VENDOR, PATCH_REL),
@@ -38,13 +44,24 @@ function resolveApplied() {
   const present = candidates.filter((p) => fs.existsSync(p));
   if (present.length === 0) return null;
   const src = fs.readFileSync(present[0], 'utf8');
-  for (const m of MARKERS) {
-    assert.ok(src.includes(m), `补丁工件缺标记 "${m}"（补丁未应用或被覆盖回退？）: ${present[0]}`);
+  const missing = MARKERS.filter((m) => !src.includes(m));
+  if (missing.length === 0) return present[0];
+  // 2026-09-29: 0.1.7 decodes streaming natively, so scripts/patch-registry.mjs marks this
+  // patch `retired` and verify-patches.ps1 reports the same probes as INFO RETIRED. Absent
+  // markers on a retired patch are the EXPECTED state; asserting them made the whole file
+  // fail at import time instead of skipping the applied-artifact cases.
+  const entry = await loadRegistryEntry();
+  if (entry?.retired !== undefined) {
+    console.log(
+      `[zstd-golden] INFO 补丁已退役（since ${String(entry.retired.since)}: ${String(entry.retired.reason)}）`
+      + '——标记缺失属预期，跳过「已应用工件」用例',
+    );
+    return null;
   }
-  return present[0];
+  assert.ok(false, `补丁工件缺标记 ${missing.join(', ')}（补丁未应用或被覆盖回退？）: ${present[0]}`);
 }
 
-const APPLIED = resolveApplied();
+const APPLIED = await resolveApplied();
 const mod = APPLIED ? await import(pathToFileURL(APPLIED).href) : null;
 const manifest = JSON.parse(fs.readFileSync(path.join(HERE, 'manifest.json'), 'utf8'));
 const plaintext = fs.readFileSync(path.join(HERE, 'session-golden.jsonl'), 'utf8');

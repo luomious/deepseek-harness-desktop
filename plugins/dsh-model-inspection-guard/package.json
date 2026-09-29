@@ -1,0 +1,18 @@
+{
+  "name": "@dsh-external/dsh-model-inspection-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "description": "Avoids upstream content-inspection rejections (e.g. ModelScope 400 data_inspection_failed) by rerouting large-context requests away from the affected provider at the agent/request seam, before the request is sent. Configurable provider list + size threshold; no-op for small contexts and for providers not in the list.",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -8,13 +8,13 @@
 
 | 文件 | 大小 | SHA-256 | 最后修改 | 用途 |
 |------|------|---------|----------|------|
-| `dsh-client-ui-conversation-client.js` | 449,564 B | `89534da76b9f1e636b2cbc5bf2c6fb703142809928bc29620e716066c37575eb` | 2026-09-17 15:04:41 | 会话 UI 客户端修复 |
+| `dsh-client-ui-conversation-client.js` | 449,564 B | `89534da76b9f1e636b2cbc5bf2c6fb703142809928bc29620e716066c37575eb` | 2026-09-17 16:22:40 | 会话 UI 客户端修复 |
 | `dsh-client-ui-directory-picker-browse-client.js` | 55,429 B | `8f0c2944cb87d0efba4c90f625d2078708a3d7af27a1a23090299d805a3a94c3` | 2026-08-24 12:50:39 | 目录选择器浏览客户端修复 |
 | `dsh-session-persistence-jsonl-index.js` | 60,809 B | `7ba881f57738d48589effe478eb5176d74cd37cd368aed04d025adf7c66a253b` | 2026-09-07 14:13:21 | 会话持久化 zstd 解压：readRaw 流式（PERF-5）+ readZstdPrefix 同步 generator（PERF-6，打开对话热路径）+ 逐帧异步回退 |
-| `dsh-client-ui-tool-client.js` | 78,564 B | `9f7726b74b159d6ebfd458937cd1deb435c2fd2d2fb264ed4e3ebb90a998228f` | 2026-09-17 15:04:41 | 工具/命令流式行扫光：`left` 动画改 `transform`（合成器，免每帧布局） |
+| `dsh-client-ui-tool-client.js` | 78,564 B | `9f7726b74b159d6ebfd458937cd1deb435c2fd2d2fb264ed4e3ebb90a998228f` | 2026-09-17 16:22:40 | 工具/命令流式行扫光：`left` 动画改 `transform`（合成器，免每帧布局） |
 | `dsh-client-ui-settings-models-client.js` | 135,397 B | `0e36badd4ce2e363d344401f68f080f16039cc27da3061c9e34f532f3e209865` | 2026-09-02 16:37:49 | 设置模型客户端修复 |
 | `dsh-client-ui-workspace-client.js` | 116,446 B | `0497d48dbcd7ba2eca93af9de9615e7b716165dfcc2818da9be7237fe5720ee4` | 2026-08-25 14:35:48 | 工作区客户端修复 |
-| `dsh-host-frontend-static-index.js` | 4,187 B | `b188830f03528635dc1850ab83cd6a87aab6d394bb2b245f63c1bab1e14bc935` | 2026-08-25 02:43:15 | 前端静态索引修复 |
+| `dsh-host-frontend-static-index.js` | 3,980 B | `aadb529f136093c5511fbba6599f6a1e8ca07060a69ef7ed90bf68ba3a955206` | 2026-09-27 11:00:47 | 前端静态索引修复 |
 | `modlens-dsh-index.js` | 87,470 B | `558a9a5dc14ea66093383c04c18de859158dfac838743fac4ed8deefd628b251` | 2026-08-22 09:06:14 | ModLens DSH 索引修复 |
 | `safe-delete-shim.cjs` | 15,217 B | `278dfb2438d137647005a11e6748679f4c9fcbee0a8851cb72fd99678fa34368` | 2026-09-10 08:58:47 | fs 删除操作重定向到回收站 |
 

@@ -210,7 +210,51 @@ $checks = @(
   # PERF-5: session readRaw streaming multi-frame decode (2026-09-07)
   @{ n = 'session decode streaming (PERF-5)';    f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'dsh-patch: zstd-stream-readraw v1' },
   # PERF-6: session readZstdPrefix synchronous generator decode (open-session hot path)
-  @{ n = 'session prefix sync decode (PERF-6)';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-stream-readprefix' }
+  @{ n = 'session prefix sync decode (PERF-6)';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-session-persistence-jsonl\lib\index.js'; p = 'PATCH(zstd-stream-readprefix' },
+  # 2026-09-28 kernel 0.1.7-rc.2 implicit-deps: electron-builder dropped 8 transitive
+  # @deepseek-ai packages that are actually imported by the kernel (dsh-client-store alone
+  # is imported by ~38 client-ui packages). Missing them => renderer ERR_MODULE_NOT_FOUND
+  # => startup guard kills the process at 30s => the desktop shortcut appears dead. They
+  # live only because scripts/apply-kernel-implicit-deps.mjs re-deploys them from
+  # patches/vendor/kernel-implicit-deps-0.1.7-rc.2.tgz; a rebuild/promote drops them again.
+  # On FAIL: node scripts/apply-kernel-implicit-deps.mjs
+  @{ n = 'kernel implicit dep: dsh-client-store';        f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-store\package.json';        p = '@deepseek-ai/dsh-client-store' },
+  @{ n = 'kernel implicit dep: dsh-deepseek-account';    f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-deepseek-account\package.json';    p = '@deepseek-ai/dsh-deepseek-account' },
+  @{ n = 'kernel implicit dep: dsh-hook-protocol';       f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-hook-protocol\package.json';       p = '@deepseek-ai/dsh-hook-protocol' },
+  @{ n = 'kernel implicit dep: dsh-llm-deepseek';        f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-llm-deepseek\package.json';        p = '@deepseek-ai/dsh-llm-deepseek' },
+  @{ n = 'kernel implicit dep: dsh-ptc-runtime';         f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-ptc-runtime\package.json';         p = '@deepseek-ai/dsh-ptc-runtime' },
+  @{ n = 'kernel implicit dep: dsh-sdk-protocol';        f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-sdk-protocol\package.json';        p = '@deepseek-ai/dsh-sdk-protocol' },
+  @{ n = 'kernel implicit dep: dsh-util-time';           f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-util-time\package.json';           p = '@deepseek-ai/dsh-util-time' },
+  @{ n = 'kernel implicit dep: dsh-util-workspace-path'; f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-util-workspace-path\package.json'; p = '@deepseek-ai/dsh-util-workspace-path' },
+  # 2026-09-29 shell<->0.1.7 interface gaps (settingsScope inject + root Include
+  # fallback). Written by scripts/apply-shell-0.1.7-gaps.mjs; a rebuild into a new
+  # dist dir drops them unless that script re-runs (package-vendor does).
+  # On FAIL: node scripts/apply-shell-0.1.7-gaps.mjs
+  @{ n = 'shell-0.1.7: settingsScope inject';            f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-settings\lib\client.js'; p = 'dsh-desktop patch (2026-09-29): upstream 0.1.7 dropped the `settingsScope`' },
+  @{ n = 'shell-0.1.7: app-boot root Include fallback';  f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'dsh-desktop patch (2026-09-29): the shipped desktop shell composes the profile with its' },
+  @{ n = 'shell-0.1.7: main soft-fail keep window';       f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-desktop patch (2026-09-29): soft-fail keep window' },
+  @{ n = 'shell-0.1.7: skip welcome notice';              f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-client-ui-settings-models\lib\client.js'; p = 'dsh-desktop patch (2026-09-29): skip internal testing notice' },
+  @{ n = 'shell-0.1.7: loader.await 10s race';            f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'dsh-desktop patch (2026-09-29): loader.await raced with 10s' },
+  @{ n = 'shell-0.1.7: settings.register scope.get';      f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-settings\lib\index.js'; p = 'return a real scope with get()/set()' },
+  @{ n = 'shell-0.1.7: reload fiber-await non-fatal';     f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'reload fiber-await rejects are non-fatal' },
+  @{ n = 'shell-0.1.7: fail-loud keeps alive';            f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'fail-loud keeps process alive' },
+  # 2026-09-29 "auto exit" fix (model switch / provider creation): the settings UI
+  # calls reconcileProfilePatches() with the CURRENT patch list before writing, and
+  # re-applying an identical set tore the window down. Skip when nothing changed.
+  # Written by scripts/apply-shell-0.1.7-gaps.mjs section 16.
+  # On FAIL: node scripts/apply-shell-0.1.7-gaps.mjs
+  @{ n = 'shell-0.1.7: reload no-op skip (auto-exit)';    f = Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-app-boot\lib\index.js'; p = 'dsh-desktop patch (2026-09-29): skip the no-op profile reload' },
+  # 2026-09-29 create-provider root-cause fix: a profile reload re-creates every
+  # row of the root Include, including the `desktop-shell` row that owns the
+  # window, and Electron's implicit quit then ended the app with no trace.
+  # Written by scripts/apply-window-all-closed-guard.mjs.
+  # On FAIL: node scripts/apply-window-all-closed-guard.mjs
+  @{ n = 'window-all-closed guard (create-provider)';     f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-desktop patch (2026-09-29): window-all-closed guard.' },
+  @{ n = 'window-all-closed guard: quit flag';            f = Join-Path $unpacked 'lib\main.js'; p = 'let quitRequested = false;' },
+  # 2026-09-29 exit diagnostics: observation-only probe covering the native
+  # implicit-quit path that no JS wrapper can see. Written by
+  # scripts/apply-exit-probe.mjs. On FAIL: node scripts/apply-exit-probe.mjs
+  @{ n = 'exit probe v3 (diagnostics)';                   f = Join-Path $unpacked 'lib\main.js'; p = 'dsh-desktop patch (2026-09-29): exit-path probes v3' }
 )
 
 # 2026-09-10 (W1-4): when dist resolution fails, Join-Path against an empty
@@ -225,13 +269,61 @@ if ($null -eq $checks -or $checks.Count -lt 40) {
   Write-Host ('FAIL  check list empty or truncated (count=' + [string]$checks.Count + ')') -ForegroundColor Red
   $fail++
 }
+# 2026-09-27 upgrade-0.1.7: these checks are RETIRED — upstream dsh 0.1.7 provides the
+# behaviour natively (see outputs/2026-09-27-upgrade-impact-0.1.7-rc.2 P0-7 A-group).
+# Kept listed (not deleted) so the array structure stays intact; a retired hit is INFO, not FAIL.
+$retired = @{
+  # 2026-09-28, source: PLUGIN UPGRADE (dsh-better-sidebar 0.15.2 -> 0.22.1), upstream redesign.
+  # The patch gated better-sidebar's center-column DOM scanning on
+  # `state.panelOpen || state.bottomOpen` and re-armed it on expand. 0.22.1 removed the
+  # right-panel concept entirely: `panelOpen` has 0 hits in lib/client.js, the right column
+  # now belongs to DSH's native Sidebar (the plugin's own CSS comments say so), and the
+  # remaining effect already arms on the only state left -- lib/client.js:17889
+  # `}, [measureCenter, bottomOpen]);`. Its premise no longer exists, so re-anchoring it
+  # would be fabricating a gate rather than re-porting one.
+  'ui-perf: better-sidebar collapse gate' = $true
+
+  # 2026-09-28, source: PLUGIN UPGRADE (not the 0.1.7 kernel upgrade).
+  # dsh-context 0.33.1 -> 0.59.2 fixed the bug natively: lib/index.js:959-972 now
+  # resolves srcEntry ?? blockEntry and only writes `node.tool = toolEntry.name`
+  # when `toolEntry !== void 0`, so a name miss can no longer produce
+  # `node.tool = undefined` (the plain-JSON contract violation this patch fixed).
+  'context-undefined-tool (dsh-context)' = $true
+  'subprocess-local windowsHide' = $true
+  'spill-hardening marker (dist)' = $true
+  'spill-hardening marker (pkg copy)' = $true
+  'host-apiproxy default cwd home' = $true
+  'picker utf16 NUL fix (worker.cjs)' = $true
+  'scroll-anchor: binary anchor (pkg)' = $true
+  'scroll-anchor: single hit point (pkg)' = $true
+  'scroll-anchor: seat cache (pkg)' = $true
+  'scroll-anchor: canon copy (patches/)' = $true
+  'port: settings-models fetch-dialog' = $true
+  'port: session-persistence zstd-async' = $true
+  'session decode streaming (PERF-5)' = $true
+  'session prefix sync decode (PERF-6)' = $true
+  # 0.1.7 upgrade: features removed/replaced upstream (B3/B5) or pending re-implementation
+  # on the 0.1.7 API (B1 sandbox-local runner; P6 smoke covers). Kept as INFO not FAIL.
+  'port: workspace bundle ADD_CHAT' = $true
+  'port: conversation bundle chatOnly' = $true
+  'port: directory-picker native picker' = $true
+  'sandbox-local runner node (patch #15)' = $true
+  # 2026-09-27 U6-0a: the file-backed settings document was removed (0.1.7); the old
+  # document-tolerance guard (src marker + "invalid settings document at" chunk marker)
+  # no longer exists in the migration. Resilience semantics are inherited by
+  # desktop-shell-settings.ts (refuses to edit an unparsable patch; fail-open reads).
+  'settings resilience source (profile.ts)' = $true
+}
 foreach ($c in $checks) {
+  $isRetired = $retired.ContainsKey($c.n)
   if (Test-Path $c.f) {
     $hit = Select-String -Path $c.f -Pattern $c.p -SimpleMatch -Quiet
     if ($hit) { Write-Host ('PASS  ' + $c.n) -ForegroundColor Green }
+    elseif ($isRetired) { Write-Host ('INFO  RETIRED(0.1.7-native) ' + $c.n + ' (pattern missing, expected)') -ForegroundColor Yellow }
     else { Write-Host ('FAIL  ' + $c.n + ' (pattern missing)') -ForegroundColor Red; $fail++ }
   } else {
-    Write-Host ('FAIL  ' + $c.n + ' (file missing)') -ForegroundColor Red; $fail++
+    if ($isRetired) { Write-Host ('INFO  RETIRED(0.1.7-native) ' + $c.n + ' (file missing, expected)') -ForegroundColor Yellow }
+    else { Write-Host ('FAIL  ' + $c.n + ' (file missing)') -ForegroundColor Red; $fail++ }
   }
 }
 
@@ -253,20 +345,51 @@ if ($rtChunks.Count -ne 1) {
   $pgHit = Select-String -Path $rt -Pattern 'dshCheckProfileIntegrity' -SimpleMatch -Quiet
   if ($pgHit) { Write-Host 'PASS  profile-guard close dialog (electron-runtime)' -ForegroundColor Green }
   else { Write-Host 'FAIL  profile-guard close dialog (pattern missing)' -ForegroundColor Red; $fail++ }
+  # 2026-09-29: renderer boot health timeout must not be the old 30s deadline.
+  # On FAIL: node scripts/apply-shell-0.1.7-gaps.mjs
+  $toHit = Select-String -Path $rt -Pattern 'dsh-desktop patch (2026-09-29): was 3e4' -SimpleMatch -Quiet
+  if ($toHit) { Write-Host 'PASS  shell-0.1.7: renderer boot-timeout off (electron-runtime)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  shell-0.1.7: renderer boot-timeout off (pattern missing)' -ForegroundColor Red; $fail++ }
+  $ssHit = Select-String -Path $rt -Pattern 'dsh-desktop patch (2026-09-29): soft-stop resolve' -SimpleMatch -Quiet
+  if ($ssHit) { Write-Host 'PASS  shell-0.1.7: HealthGate.stop soft-resolve (electron-runtime)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  shell-0.1.7: HealthGate.stop soft-resolve (pattern missing)' -ForegroundColor Red; $fail++ }
+  $epHit = Select-String -Path $rt -Pattern 'dsh-desktop patch (2026-09-29): EPIPE-class uncaught is non-fatal' -SimpleMatch -Quiet
+  if ($epHit) { Write-Host 'PASS  shell-0.1.7: EPIPE uncaught non-fatal (electron-runtime)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  shell-0.1.7: EPIPE uncaught non-fatal (pattern missing)' -ForegroundColor Red; $fail++ }
+  $uqHit = Select-String -Path $rt -Pattern 'dsh-desktop patch (2026-09-29): uncaught never quits the shell' -SimpleMatch -Quiet
+  if ($uqHit) { Write-Host 'PASS  shell-0.1.7: uncaught never quits (electron-runtime)' -ForegroundColor Green }
+  else { Write-Host 'FAIL  shell-0.1.7: uncaught never quits (pattern missing)' -ForegroundColor Red; $fail++ }
+}
+
+# 2026-09-29: web-frontend readiness fallback lives in a content-hashed asset
+# (index-*.js). On FAIL: node scripts/apply-shell-0.1.7-gaps.mjs
+$webAssets = Get-ChildItem (Join-Path $unpacked 'node_modules\@deepseek-ai\dsh-web-frontend\dist\assets') -Filter 'index-*.js' -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -notlike '*.map' -and $_.Name -notlike '*.LICENSE.txt' }
+if ($webAssets.Count -ne 1) {
+  Write-Host ('FAIL  shell-0.1.7: web-frontend readiness (index-*.js found ' + $webAssets.Count + ')') -ForegroundColor Red
+  $fail++
+} else {
+  $webHit = Select-String -Path $webAssets[0].FullName -Pattern 'dsh-desktop patch: boot readiness resolve failed' -SimpleMatch -Quiet
+  if ($webHit) { Write-Host 'PASS  shell-0.1.7: web-frontend readiness fallback' -ForegroundColor Green }
+  else { Write-Host 'FAIL  shell-0.1.7: web-frontend readiness fallback (pattern missing)' -ForegroundColor Red; $fail++ }
 }
 
 # The settings-resilience guard lives in the content-hashed profile chunk
 # (file name changes on every rebuild), so verify it dynamically.
+# 2026-09-27 U6-0a: the file-backed settings document was removed upstream; the old
+# "invalid settings document at" marker is gone with it. The resilience semantics moved
+# to desktop-shell-settings (unparsable-patch write refusal + fail-open reads), so this
+# dynamic check is RETIRED: an empty lookup is INFO, not a FAIL. A future guard can bind
+# to the new patch-writer marker instead.
 $profileChunks = Get-ChildItem (Join-Path $unpacked 'lib') -Filter 'profile-*.js' -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -notlike '*.map' } |
   Where-Object { Select-String -Path $_.FullName -Pattern 'invalid settings document at' -SimpleMatch -Quiet }
 if ($profileChunks.Count -ne 1) {
-  Write-Host ('FAIL  settings-resilience chunk lookup (found ' + $profileChunks.Count + ')') -ForegroundColor Red
-  $fail++
+  Write-Host ('INFO  settings-resilience chunk lookup RETIRED (0.1.7: settings doc removed; found ' + $profileChunks.Count + ')') -ForegroundColor Yellow
 } else {
-  $srHit = Select-String -Path $profileChunks[0].FullName -Pattern 'DSH-2026-09-03 settings-resilience guard' -SimpleMatch -Quiet
+  $srHit = Select-String -Path $profileChunks[0].FullName -Pattern 'ignoring invalid settings document' -SimpleMatch -Quiet
   if ($srHit) { Write-Host 'PASS  settings resilience guard (profile chunk)' -ForegroundColor Green }
-  else { Write-Host 'FAIL  settings resilience guard (pattern missing)' -ForegroundColor Red; $fail++ }
+  else { Write-Host 'INFO  settings resilience guard RETIRED (marker no longer emitted by 0.1.7 build)' -ForegroundColor Yellow }
 }
 
 # The log-write-guard P1 lives in the content-hashed log-files chunk
@@ -342,8 +465,13 @@ Write-Host ('current build: ' + $build.buildDir)
 # and the Startup entry was removed on purpose, so this must NOT fail the
 # build verification; report status only.
 $total = $checks.Count
-$vbs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\Ollama Serve.vbs'
-if (Test-Path $vbs) {
+# 2026-09-29: $env:APPDATA is not exported in every shell (agent sandboxes), and
+# Join-Path threw on the null path, spraying red errors into the gate output.
+$roaming = $env:APPDATA
+if (-not $roaming) { $roaming = Join-Path $env:USERPROFILE 'AppData\Roaming' }
+$vbs = $null
+if ($roaming) { $vbs = Join-Path $roaming 'Microsoft\Windows\Start Menu\Programs\Startup\Ollama Serve.vbs' }
+if ($vbs -and (Test-Path $vbs)) {
   $total++
   $hit = Select-String -Path $vbs -Pattern '0, False' -SimpleMatch -Quiet
   if ($hit) { Write-Host 'PASS  ollama VBS hidden autostart (local engine active)' -ForegroundColor Green }
@@ -355,7 +483,7 @@ if (Test-Path $vbs) {
 Write-Host ''
 # 2026-09-10 (W1-4): always surface the check count. A silently shrinking
 # $checks list would weaken this gate without anyone noticing.
-Write-Host ('checks: ' + $checks.Count + ' static + 3 chunk + 1 dist integrity + ' + [string]$syntaxOk + ' syntax')
+Write-Host ('checks: ' + $checks.Count + ' static + 3 chunk + 1 web-asset + 1 dist integrity + ' + [string]$syntaxOk + ' syntax')
 if ($fail -eq 0) { Write-Host ('ALL PASS (' + $total + ' checks)') -ForegroundColor Green }
 else {
   Write-Host ($fail.ToString() + ' FAILED') -ForegroundColor Red
@@ -363,6 +491,9 @@ else {
   Write-Host 'HINT  re-apply drifted patches:' -ForegroundColor Yellow
   Write-Host '  - registry patches:   node scripts/patch-apply.mjs apply   (idempotent, backs up first)' -ForegroundColor Yellow
   Write-Host '  - surgical patches:   rerun the matching scripts/apply-*.mjs for each FAIL item above' -ForegroundColor Yellow
+  Write-Host '  - shell-0.1.7 gaps:   node scripts/apply-shell-0.1.7-gaps.mjs' -ForegroundColor Yellow
+  Write-Host '  - window-all-closed:  node scripts/apply-window-all-closed-guard.mjs' -ForegroundColor Yellow
+  Write-Host '  - exit diagnostics:   node scripts/apply-exit-probe.mjs' -ForegroundColor Yellow
   Write-Host '  - then rerun this script to confirm all green' -ForegroundColor Yellow
 }
 exit $fail

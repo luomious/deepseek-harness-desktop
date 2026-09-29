@@ -1,0 +1,19 @@
+[
+  {
+    "provider": "modelscope",
+    "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+    "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+    "ok": true,
+    "status": 200,
+    "latencyMs": 1306,
+    "attempts": 1,
+    "variant": "max_tokens",
+    "replied": true,
+    "snippet": "OK",
+    "usage": {
+      "prompt_tokens": 37,
+      "completion_tokens": 19,
+      "total_tokens": 56
+    }
+  }
+]

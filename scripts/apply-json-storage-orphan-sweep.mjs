@@ -33,7 +33,12 @@ import { assertLibUnpacked } from './check-dist-integrity.mjs'
 export const ORPHAN_SWEEP_MARKER = 'dsh patch json-storage-orphan-tmp-sweep v1'
 
 // Anchor 1: the module import list has to grant readdir/stat.
-const ANCHOR_IMPORT = 'import { mkdir, open, readFile, rename, rm } from "node:fs/promises";'
+// 0.1.7-upgrade (2026-09-27): upstream dsh-storage-json now imports `readdir` itself
+// (per-record enumeration), so the anchor is the upstream line (already readdir-ful);
+// we still add `stat` for the mtime-based sweep window.
+const ANCHOR_IMPORT70 = 'import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";'
+const REPLACEMENT_IMPORT70 = 'import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";'
+const ANCHOR_IMPORT = 'import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";'
 const REPLACEMENT_IMPORT = 'import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";'
 
 // Anchor 2: the sweep helper is injected immediately before writeAtomic.
