@@ -105,6 +105,17 @@ if (content.includes(MARK) && !FORCE) {
   process.exit(0);
 }
 
+// Source-rebuild case (2026-09-29): the shell SOURCE now ships this guard
+// (`src/main.ts` declares `quitRequested` and calls `installWindowAllClosedGuard`),
+// so a build from that source already contains it. Re-inserting it here declares
+// `quitRequested` twice and main.js stops parsing (SyntaxError: Identifier
+// 'quitRequested' has already been declared). Detect that shape and skip; the
+// verify-patches row for this guard is retired alongside it.
+if (content.includes('installWindowAllClosedGuard(app,') || content.includes('let quitRequested = false;')) {
+  log('skip lib/main.js (guard is provided by the shell source itself; dist patch retired)');
+  process.exit(0);
+}
+
 mkdirSync(BK, { recursive: true });
 copyFileSync(mainFile, join(BK, 'main.js'));
 

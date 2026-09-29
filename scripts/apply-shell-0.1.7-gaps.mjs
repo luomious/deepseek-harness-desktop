@@ -116,6 +116,13 @@ function patchFile(file, label, marker, mutate) {
     fail(`${label}: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
+  // A mutate returning null means "the source already satisfies this" (e.g. the
+  // shell source ships the fix after a rebuild) — not drift.
+  if (next === null) {
+    log(`skip ${label} (satisfied by the source)`);
+    skipped++;
+    return;
+  }
   if (next === content) { fail(`${label}: mutate made no change (anchor mismatch?)`); return; }
   backup(file, label.replace(/[^\w.-]+/g, '_'));
   atomicWriteFileSync(file, next);
@@ -659,7 +666,7 @@ function patchFile(file, label, marker, mutate) {
   ].join('\n');
   patchFile(file, 'shell connection probe', MARKER, (content) => {
     // Source-rebuild case: the shell source already drops `connection` from inject.
-    if (/const inject = \[\n\t"webServer",\n\t"webRuntime",\n\t"appExit",\n\t"settings"\n\];/.test(content)) return content;
+    if (/const inject = \[\n\t"webServer",\n\t"webRuntime",\n\t"appExit",\n\t"settings"\n\];/.test(content)) return null;
     const count = content.split(ANCHOR).length - 1;
     if (count !== 1) {
       throw new Error(`shell connection probe: expected 1 anchor, found ${count}`);
@@ -690,7 +697,7 @@ function patchFile(file, label, marker, mutate) {
   ].join('\n');
   patchFile(file, 'shell url fallback', MARKER, (content) => {
     // Source-rebuild case: the source already probes `connection` for the URL.
-    if (content.includes('ctx.get("connection").authenticatedUrl') || (content.includes('ctx.get("connection")') && !content.includes(ANCHOR))) return content;
+    if (content.includes('ctx.get("connection").authenticatedUrl') || (content.includes('ctx.get("connection")') && !content.includes(ANCHOR))) return null;
     const count = content.split(ANCHOR).length - 1;
     if (count !== 1) {
       throw new Error(`shell url fallback: expected 1 anchor, found ${count}`);

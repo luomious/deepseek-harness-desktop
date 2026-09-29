@@ -325,6 +325,10 @@ $retired = @{
   # document-tolerance guard no longer exists. Resilience semantics moved to
   # desktop-shell-settings.ts (refuses to edit an unparsable patch; fail-open reads).
   'settings resilience source (profile.ts)' = $true
+  # 2026-09-29: the window-all-closed guard now ships in the shell SOURCE
+  # (src/main.ts -> installWindowAllClosedGuard). The dist applier detects that and
+  # skips; keeping the marker row would require re-injecting a duplicate declaration.
+  'window-all-closed guard (create-provider)' = $true
 }
 foreach ($c in $checks) {
   $isRetired = $retired.ContainsKey($c.n)
