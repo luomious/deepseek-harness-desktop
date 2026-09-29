@@ -8,7 +8,7 @@
 - **Web GUI**：`http://127.0.0.1:43120`（仅回环绑定；端口可配，绑定地址不可配）
 - **运行入口**：`dist\win-unpacked\DSH Desktop.exe`（**junction**，快捷方式永指它；真实构建在 `dist\win-unpacked-build<N>`，由 `scripts/promote-build.ps1` 换版重指）
 - **插件生态**：根目录 `plugins/`（link 加载；改后重启应用或热重载生效）
-- **旧壳**（`src/`、`app/`、`build-app.ps1`，端口 3080）已归档 `legacy/`，不再使用
+- **旧壳**（`src/`、`app/`、`build-app.ps1`，端口 3080）已归档至 `备份/2026-09-29-reorg/legacy/`（原根级 `legacy/`，2026-09-29 二次归档），不再使用
 
 ## 功能特性
 

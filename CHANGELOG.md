@@ -7645,3 +7645,25 @@ ew URL().pathname åœ¨ Windows ESM ä¸‹å¸¦å‰å¯¼ /D:ï¼Œç»ä¸å¯ç”¨äºæ‹¼æœ¬åœ°è·¯
 
 ### ÑéÖ¤£¨ÇåÀíºó£©
 - `verify-patches` ALL PASS (99) / `patch-manifest` ALL PASS / dist Õı³£ / ÅäÖÃÍêºÃ
+
+---
+
+## 2026-09-29 ¡¤ ½×¶Î1£º¾ÉÎÄ¼ş¹éµµ
+
+### ¶¯×÷
+- `legacy/`£¨¾É v1 ¿ÇµÄ 4 ½Å±¾ + 16 ²âÊÔ£¬20 ÎÄ¼ş£©¡ú `±¸·İ/2026-09-29-reorg/legacy/`£¬º¬ SHA256 ÖğÎÄ¼şÇåµ¥
+- ¸üĞÂÒıÓÃ£º`README.md`¡¢`docs/migration-audit-2026-08-22.md` Ö¸ÏòĞÂ¹éµµÎ»ÖÃ
+- `docs/DIRECTORY-CONVENTIONS.md`£º²¹ `2026-09-29-reorg/` ½á¹¹ + **±àÂë¿ÓĞÂÌõÄ¿**£¨ÖĞÎÄÂ·¾¶±ØĞëÄÚÁª£¬½Å±¾ÎÄ¼şÖ»ÓÃ ASCII£©
+
+### ºËÊµºó±£Áô£¨²»×ö¹éµµ£©
+| Ïî | Ô­Òò |
+|---|---|
+| `tools/markitdown/` 308 MB | markitdown MCP **ÈÔÆôÓÃ**£¬venv ÔÚÓÃ |
+| `hy3-gateway/` 30.8 MB | ²å¼ş `@dsh-external/dsh-hy3-gateway` **ÔÚ bundles ÖĞÆôÓÃ**£»º¬ `apikey.local.txt` |
+
+### ³ÉĞ§
+- ¸ùÄ¿Â¼£º38 ÌõÄ¿ ¡ú 27 Ä¿Â¼ + 9 ÎÄ¼ş
+- ±¸·İÇø½á¹¹£º`full`(Àä±¸) / `cleanup`(ÇåÀí¹éµµ) / `reorg`(ÕûÀí¹éµµ)
+
+### ÑéÖ¤
+- `verify-patches` ALL PASS (99) / `~/.dsh` ¹Â¶ù 0 / ÎŞ `bei-fen` ²ĞÁô

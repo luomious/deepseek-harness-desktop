@@ -41,6 +41,7 @@
 | `_tmp/` | 一次性探针脚本 | **随时可清空**，不入库 |
 | `.corepack/` `.yarn-cache/` `.electron-cache/` `.electron-builder-cache/` | 工具缓存 | 可删（会重下） |
 | `diagrams/` `.workbuddy/` `agent-presets/` `hy3-gateway/` | 本地实验/运行时 | 已 gitignore，按需 |
+| legacy/（**已于 2026-09-29 归档**） | 旧 v1 壳脚本/测试 | 现位于 `备份/2026-09-29-reorg/legacy/` |
 
 ### 2.3 命名规范
 
@@ -104,6 +105,9 @@
     repo-archived/            从仓库移出的大件
     scripts-used/             本次用到的脚本（审计线索）
     *_manifest.json/.csv      逐文件清单（含 SHA256）
+  <YYYY-MM-DD>-reorg/         目录整理归档
+    legacy/ 等                 从主目录移出的历史目录
+    reorg-manifest.json/.csv   逐文件清单（含 SHA256）
 ```
 
 ### 4.2 规范
@@ -135,7 +139,8 @@
 
 | 坑 | 表现 | 规避 |
 |---|---|---|
-| **PS 5.1 脚本中文** | UTF-8 无 BOM 的中文被误读，语法错或生成乱码目录名（`备份`→`澶囦唤`） | **PS 脚本注释与路径只用 ASCII** |
+| **PS 5.1 脚本中文** | UTF-8 无 BOM 的中文被误读，语法错或生成乱码目录名（`备份`→`澶囦唤`） | **PS 脚本文件（`.ps1`）内只用 ASCII**；中文路径**内联在命令行**传参（工具层按 UTF-8 传递，脚本文件按 ANSI 读取） |
+| **中文路径落到 ASCII** | 脚本里写 `bei-fen` 与实际的 `备份` 并存，产生双份备份目录 | 统一走**内联中文路径**或 `.mjs`（Node 按 UTF-8 读取脚本） |
 | `robocopy` 长路径 | `Remove-Item` 对 >260 字符路径失败 | 用 `robocopy /MIR` 空目录镜像法删除 |
 | `Set-Content -Encoding UTF8` | 生成 UTF-8 **无 BOM**，PS 5.1 读回乱码 | 需要中文时用 `[IO.File]::WriteAllText(..., UTF8Encoding($true))` |
 | 控制台显示乱码 | 日志里中文显示为 `婧愮爜` | 仅显示问题，文件本身正常（用 `Get-Content -Encoding UTF8`） |

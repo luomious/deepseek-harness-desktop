@@ -7,7 +7,7 @@
 
 ## 1. 背景
 
-用户自研的旧桌面壳（`src/`，现归档于 `legacy/src/`，提交 `e4960bc` 原样 R100 迁移）被官方新壳
+用户自研的旧桌面壳（`src/`，现归档于 `备份/2026-09-29-reorg/legacy/`（原 `legacy/src/`），提交 `e4960bc` 原样 R100 迁移）被官方新壳
 `vendor/deepseek-harness-desktop/dsh-plugin-desktop`（基于固定上游 deepseek-harness submodule，yarn patches + profile bundles 机制）取代。
 合并后用户反馈：**新会话「添加工作区」处的 SSH 远程连接功能与「不在项目中工作」功能消失，部分插件不工作**。
 
