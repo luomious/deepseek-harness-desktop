@@ -35,9 +35,14 @@ import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { resolveCurrentBuild } from './resolve-dist.mjs'
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const UNPACKED = join(ROOT, 'vendor', 'deepseek-harness-desktop', 'dsh-plugin-desktop')
-const DIST = join(UNPACKED, 'dist', 'win-unpacked-build202608272104', 'win-unpacked', 'resources', 'app.asar.unpacked')
+// 2026-09-29 审计修复：原硬编码 win-unpacked-build202608272104（0.1.1 构建），
+// 换版后本脚本会一直patch一个已死的构建。改用 resolve-dist 动态解析当前构建
+// （与 startup-verify.mjs 2026-09-06 的同类修复保持一致）。
+const DIST = resolveCurrentBuild().unpackedRoot
 
 const MARKER = '/* dsh-sweep-fix-2026-09-17 compositor-transform */'
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "patchSet": "dsh-desktop-dist-patches",
-  "patchDigest": "b7e80393af48923949d54cb7d2ec00d3b241f512134d7a6c0c03a3f10ee1b231",
+  "patchDigest": "94d33d410cf30ae00326812ea533e322c28ec3e377eb039ce47e44b9fc2f48b2",
   "entryCount": 46,
   "counts": {
     "applier": 32,
@@ -208,7 +208,7 @@
     {
       "kind": "applier",
       "path": "scripts/apply-sweep-transform-fixes.mjs",
-      "sha256": "1ed8e1c108c46e2a19df4f476641497f620e718513725497a3b3e65c378808c8"
+      "sha256": "8db3d1bf53b953c22061dee6734143947039d9b5e8d12067e446797ce1c7831f"
     },
     {
       "kind": "applier",
@@ -241,5 +241,5 @@
       "sha256": "ac2bf80b9ccc00b5dfbe8934a5d4c6cf7cf1ba3bc0088de0a31d0bb58831cd4c"
     }
   ],
-  "generatedAt": "2026-09-29T12:29:15.632Z"
+  "generatedAt": "2026-09-29T14:04:43.519Z"
 }

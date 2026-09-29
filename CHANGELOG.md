@@ -7667,3 +7667,36 @@ ew URL().pathname åœ¨ Windows ESM ä¸‹å¸¦å‰å¯¼ /D:ï¼Œç»ä¸å¯ç”¨äºæ‹¼æœ¬åœ°è·¯
 
 ### ÑéÖ¤
 - `verify-patches` ALL PASS (99) / `~/.dsh` ¹Â¶ù 0 / ÎŞ `bei-fen` ²ĞÁô
+
+---
+
+## 2026-09-29 ¡¤ ÎÄ¼ş¼¶·ÖÀàµ÷²é + ÕûÀíÖ´ĞĞ£¨301,838 ¡ú 132,043 ÎÄ¼ş£©
+
+### µ÷²é·¢ÏÖ
+- ÎÄ¼şÊı **99.3% ¼¯ÖĞÔÚ 5 ¸öÄ¿Â¼**£¨vendor / _backups / ±¸·İ / tools / hy3-gateway£©£¬²»ÊÇÔÓÂÒ¶øÊÇ½á¹¹Ê¹È»
+- `vendor/dist` Í¬Ê±´æÔÚ **3 ¸ö¹¹½¨**£¨junction + µ±Ç° build2329 + ¾É 0.1.1 build2104£©
+- **`scripts/apply-sweep-transform-fixes.mjs` Ó²±àÂë¾É¹¹½¨Â·¾¶**£¨build202608272104£©£¬
+  »»°æºóÒ»Ö± patch ÒÑËÀ¹¹½¨ ¡ª¡ª Óë `startup-verify.mjs` 2026-09-06 ĞŞ¹ıµÄÍ¬Àà·´Ä£Ê½
+
+### Ö´ĞĞ
+- É¾³ı¾É 0.1.1 ¹¹½¨£º?22,843 ÎÄ¼ş / ?567 MB
+- `_backups/dist-archive`£¨102,256 ÎÄ¼ş / 3,881 MB£©¡ú tar.gz 1,321 MB
+- `±¸·İ/full/profile-desktop`£¨43,665 ÎÄ¼ş / 830 MB£©¡ú tar.gz 195 MB
+- `±¸·İ/full/appdata`£¨1,036 ÎÄ¼ş / 505 MB£©¡ú tar.gz 198 MB
+- `repo-archived` Ñ¹Ëõºó·´¶ø±ä´ó£¨712¡ú874 MB£©¡ú **ÒÑ»¹Ô­ÎªÉ¢ÎÄ¼ş**
+- ĞŞ¸´ `apply-sweep-transform-fixes.mjs` ¸ÄÓÃ `resolveCurrentBuild()`
+
+### ³ÉĞ§
+| Ö¸±ê | Ç° | ºó | ±ä»¯ |
+|---|---|---|---|
+| ×ÜÎÄ¼şÊı | 301,838 | **132,043** | **?56%** |
+| ×ÜÌå»ı | 10,700 MB | **6,631 MB** | **?4,069 MB** |
+| `_backups` ÎÄ¼şÊı | 102,760 | **504** | ?99.5% |
+
+### ĞÂÔöÎÄµµ
+- `outputs/2026-09-29-file-classification/README.md`£¨ÎÄ¼ş¼¶·ÖÀàÓëÖ´ĞĞ¼ÇÂ¼£©
+- `scripts/lib/remove-longpath.ps1`£¨³¤Â·¾¶°²È«É¾³ı¹¤¾ß£©
+
+### ÑéÖ¤
+- `verify-patches` ALL PASS (99) / `patch-manifest --verify` ALL PASS
+- `apply-sweep-transform-fixes.mjs --check` exit 0
