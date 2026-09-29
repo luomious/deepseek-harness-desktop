@@ -62,7 +62,18 @@ const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
 const BK = join(ROOT, '_backups', `shell-0.1.7-gaps-${STAMP}`);
 
 function log(msg) { console.log(`[shell-0.1.7-gaps] ${msg}`); }
-function fail(msg) { console.error(`[shell-0.1.7-gaps] ERR: ${msg}`); process.exit(1); }
+
+/** Collected failures. A single drifted anchor must not stop the remaining patches. */
+const failures = [];
+function fail(msg) {
+  console.error(`[shell-0.1.7-gaps] ERR: ${msg}`);
+  failures.push(msg);
+}
+/** Raise a collected failure as a throw (for control flow inside a block). */
+function failHard(msg) {
+  fail(msg);
+  throw new Error(msg);
+}
 
 const build = resolveCurrentBuild();
 const unpacked = build.unpackedRoot;
@@ -76,12 +87,13 @@ function backup(file, tag) {
   return dest;
 }
 
-/** 在 dir 下找唯一匹配 filter 的文件；0 或 >1 都 fail-loud。 */
+/** 在 dir 下找唯一匹配 filter 的文件；0 或 >1 记为失败并返回 null（不中断后续补丁）。 */
 function findOne(dir, filter, label) {
-  if (!existsSync(dir)) fail(`${label}: dir missing: ${dir}`);
+  if (!existsSync(dir)) { fail(`${label}: dir missing: ${dir}`); return null; }
   const hits = readdirSync(dir).filter(filter);
   if (hits.length !== 1) {
     fail(`${label}: expected exactly 1 match in ${dir}, found [${hits.join(', ') || 'none'}]`);
+    return null;
   }
   return join(dir, hits[0]);
 }
@@ -90,25 +102,26 @@ let applied = 0;
 let skipped = 0;
 
 function patchFile(file, label, marker, mutate) {
+  if (file === null || file === undefined) { skipped++; return; }
   const content = readFileSync(file, 'utf8');
-  if (content.includes(marker) && !FORCE) {
+  if (content.includes(marker)) {
     log(`skip ${label} (already applied)`);
     skipped++;
     return;
   }
-  if (content.includes(marker) && FORCE) {
-    // --force on an already-patched file: re-run mutate only if mutate is
-    // written as "idempotent insert"; simplest is skip (markers prove state).
-    log(`skip ${label} (marker present; --force does not re-drill identical markers)`);
-    skipped++;
+  let next;
+  try {
+    next = mutate(content);
+  } catch (error) {
+    fail(`${label}: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
-  const next = mutate(content);
-  if (next === content) fail(`${label}: mutate made no change (anchor mismatch?)`);
+  if (next === content) { fail(`${label}: mutate made no change (anchor mismatch?)`); return; }
   backup(file, label.replace(/[^\w.-]+/g, '_'));
   atomicWriteFileSync(file, next);
   if (!readFileSync(file, 'utf8').includes(marker)) {
     fail(`${label}: write-back missing marker (atomic write failed?)`);
+    return;
   }
   log(`applied ${label}`);
   applied++;
@@ -147,6 +160,14 @@ function patchFile(file, label, marker, mutate) {
   );
   const MARKER = 'dsh-desktop patch (2026-09-29): was 3e4';
   const ANCHOR = 'const RENDERER_BOOT_TIMEOUT_MS = 3e4;';
+  // Source-rebuild case: the shell source already sets the ceiling, so there is
+  // nothing to patch (satisfied, not drift).
+  const satisfied = file !== null
+    && /const RENDERER_BOOT_TIMEOUT_MS = 2147483647;/.test(readFileSync(file, 'utf8'));
+  if (satisfied) {
+    log('skip electron-runtime boot-timeout (source already sets the ceiling)');
+    skipped++;
+  } else {
   const REPLACED =
     'const RENDERER_BOOT_TIMEOUT_MS = 2147483647; /* dsh-desktop patch (2026-09-29): was 3e4. ' +
     'Two problems made a 30s deadline destructive: (1) the 0.1.7 client graph is far larger, ' +
@@ -159,10 +180,11 @@ function patchFile(file, label, marker, mutate) {
   patchFile(file, 'electron-runtime boot-timeout', MARKER, (content) => {
     const count = content.split(ANCHOR).length - 1;
     if (count !== 1) {
-      fail(`electron-runtime boot-timeout: expected 1 anchor ${ANCHOR}, found ${count}`);
+      throw new Error(`expected 1 anchor ${ANCHOR}, found ${count}`);
     }
     return content.replace(ANCHOR, REPLACED);
   });
+  }
 }
 
 // ── 3. dsh-client-ui-settings: settingsScope injection ─────────────────
@@ -445,18 +467,16 @@ function patchFile(file, label, marker, mutate) {
   const file = join(nm, '@deepseek-ai', 'dsh-settings', 'lib', 'index.js');
   if (!existsSync(file)) fail(`settings.register scope: missing ${file}`);
   const MARKER = 'dsh-desktop patch (2026-09-29): return a real scope with get()/set()';
-  const ANCHOR = [
-    '\t/** 0.1.1 SettingsProvider.register compat: schema moved to Fiber Config; accept and no-op. */',
-    '\tregister(_schema, _owner) {',
-    '\t\treturn () => {};',
-    '\t}',
-  ].join('\n');
+  // Pristine 0.1.7 `dsh-settings` has NO `register()` at all (the old compat shim
+  // shipped only in the pre-rebuild dist). Anchor on `configure(...)` and insert
+  // `register(...)` ahead of it, keeping the class shape unchanged.
+  const ANCHOR = '\tconfigure(presentation, owner = this.ctx.fiber) {';
   const REPLACED = [
-    '\t/** 0.1.1 SettingsProvider.register compat: schema moved to Fiber Config.',
+    '\t/** 0.1.1 SettingsProvider.register compat.',
     '\t* dsh-desktop patch (2026-09-29): return a real scope with get()/set() —',
     '\t* plugins such as dsh-bash-terminal call settingsScope.get().defaultShell;',
-    '\t* a bare disposer made apply() throw and a profile reload (create provider)',
-    '\t* then died mid-reconcile. */',
+    '\t* 0.1.7 dropped the method entirely, so a missing one made apply() throw and a',
+    '\t* profile reload (create provider) then died mid-reconcile. */',
     '\tregister(namespaceOrSchema, schemaOrOwner, maybeOptions) {',
     '\t\tconst options = (maybeOptions && typeof maybeOptions === "object" && maybeOptions.base) ? maybeOptions',
     '\t\t\t: (schemaOrOwner && typeof schemaOrOwner === "object" && schemaOrOwner.base) ? schemaOrOwner : {};',
@@ -477,11 +497,12 @@ function patchFile(file, label, marker, mutate) {
     '\t\t};',
     '\t\treturn scope;',
     '\t}',
+    '\tconfigure(presentation, owner = this.ctx.fiber) {',
   ].join('\n');
   patchFile(file, 'settings.register scope', MARKER, (content) => {
     const count = content.split(ANCHOR).length - 1;
     if (count !== 1) {
-      fail(`settings.register scope: expected 1 anchor, found ${count}`);
+      throw new Error(`settings.register scope: expected 1 anchor, found ${count}`);
     }
     return content.replace(ANCHOR, REPLACED);
   });
@@ -604,83 +625,9 @@ function patchFile(file, label, marker, mutate) {
   });
 }
 
-// ── 14. main.js: exit-path probes (diagnose silent death) ─────────────
-{
-  const file = join(unpacked, 'lib', 'main.js');
-  if (!existsSync(file)) fail(`exit probes: missing ${file}`);
-  // MARKER 必须与下面 REPLACED 实际写入的注释文本**逐字一致**：早前写的是
-  // '…exit-path probes v2'，而落盘文本是 '…exit-path probes — log every app.exit/'，
-  // 于是写回后的 marker 校验必然失败 ⇒ 整条 applier 从本节起 fail-loud（第 16 节
-  // 永远跑不到）。对齐为落盘文本后，本节幂等跳过、后续节正常执行。
-  const MARKER = 'dsh-desktop patch (2026-09-29): exit-path probes — log every app.exit/';
-  const ANCHOR = 'async function run() {\n\tapp.setName(PRODUCT_NAME);';
-  const REPLACED = [
-    'async function run() {',
-    '\t/* dsh-desktop patch (2026-09-29): exit-path probes — log every app.exit/',
-    '\t* app.quit/process.exit with stack so silent deaths can be named.',
-    '\t* ESM: use writeFileSync/mkdirSync already imported (require() is undefined). */',
-    '\ttry {',
-    '\t\tconst probeDir = join(process.env.APPDATA || "/tmp", "DSH Desktop", "logs");',
-    '\t\tconst probeFile = join(probeDir, "exit-probe.log");',
-    '\t\tconst probe = (msg) => {',
-    '\t\t\tconst line = new Date().toISOString() + " " + msg + "\\n";',
-    '\t\t\ttry { process.stderr.write("[exit-probe] " + line); } catch {}',
-    '\t\t\ttry { mkdirSync(probeDir, { recursive: true }); writeFileSync(probeFile, line, { flag: "a" }); } catch {}',
-    '\t\t};',
-    '\t\tconst _ae = app.exit.bind(app);',
-    '\t\tapp.exit = (code) => { probe("app.exit(" + code + ")\\n" + new Error("probe").stack); return _ae(code); };',
-    '\t\tconst _aq = app.quit.bind(app);',
-    '\t\tapp.quit = () => { probe("app.quit()\\n" + new Error("probe").stack); return _aq(); };',
-    '\t\tconst _pe = process.exit.bind(process);',
-    '\t\tprocess.exit = (code) => { probe("process.exit(" + code + ")\\n" + new Error("probe").stack); return _pe(code); };',
-    '\t\tprobe("probes installed pid=" + process.pid);',
-    '\t} catch (e) { try { process.stderr.write("[exit-probe] install failed " + e + "\\n"); } catch {} }',
-    '\tapp.setName(PRODUCT_NAME);',
-  ].join('\n');
-  // v3（apply-exit-probe.mjs 的模块级探针）已取代本节的老探针：两者都包 app.exit/
-  // app.quit/process.exit，叠加会往 exit-probe.log 写双份行，污染退出账本的分类。
-  // 门禁要的是 v3 marker，故 v3 在位时本节跳过（幂等且不与门禁冲突）。
-  if (readFileSync(file, 'utf8').includes('dsh-desktop patch (2026-09-29): exit-path probes v3')) {
-    log('skip exit-path probes (superseded by v3 module-scope probe)');
-    skipped++;
-  } else {
-  patchFile(file, 'exit-path probes', MARKER, (content) => {
-    const count = content.split(ANCHOR).length - 1;
-    if (count !== 1) {
-      fail(`exit probes: expected 1 anchor, found ${count}`);
-    }
-    return content.replace(ANCHOR, REPLACED);
-  });
-  }
-}
-
-// ── 15. electron-runtime: requestRestart probe ────────────────────────
-{
-  const file = findOne(
-    join(unpacked, 'lib'),
-    (n) => n.startsWith('electron-runtime-') && n.endsWith('.js') && !n.endsWith('.map'),
-    'electron-runtime chunk (restart probe)',
-  );
-  // 与第 14 节同类漂移：落盘文本是 v1（'…requestRestart probe'），MARKER 却写成 '…probe v2'
-  // ⇒ marker 找不到、而 anchor 早被替换过（found 0）⇒ 整条 applier fail-loud（第 16 节跑不到）。
-  // 对齐为落盘文本后，本节幂等跳过。
-  const MARKER = 'dsh-desktop patch (2026-09-29): requestRestart probe';
-  const ANCHOR = '\tasync requestRestart() {\n\t\tawait this.restart();\n\t}';
-  const REPLACED = [
-    '\tasync requestRestart() {',
-    '\t\t/* dsh-desktop patch (2026-09-29): requestRestart probe — stderr only (ESM-safe) */',
-    '\t\ttry { process.stderr.write("[exit-probe] requestRestart()\\n" + new Error("probe").stack + "\\n"); } catch {}',
-    '\t\tawait this.restart();',
-    '\t}',
-  ].join('\n');
-  patchFile(file, 'requestRestart probe', MARKER, (content) => {
-    const count = content.split(ANCHOR).length - 1;
-    if (count !== 1) {
-      fail(`requestRestart probe: expected 1 anchor, found ${count}`);
-    }
-    return content.replace(ANCHOR, REPLACED);
-  });
-}
+// ── 14/15. RETIRED 2026-09-29: the exit-path / requestRestart probes live in
+// scripts/apply-exit-probe.mjs (v3). Two overlapping probe mechanisms is not
+// normalized, so these blocks were removed; apply-exit-probe.mjs is canonical.
 
 // ── 16. dsh-app-boot: skip the no-op profile reload ───────────────────
 // dsh-config-editor.edit() 在每次设置写入（切换模型 / 创建提供商）之前，先拿
@@ -787,4 +734,12 @@ if (applied > 0) {
   log(`${applied} patch(es) applied, ${skipped} skipped; backups: ${BK}`);
 } else {
   log(`nothing to do (${skipped} already applied)`);
+}
+
+// A drifted anchor must be visible to the caller (package-vendor / CI) but must
+// not abort the remaining patches — every failure is already collected above.
+if (failures.length > 0) {
+  console.error(`[shell-0.1.7-gaps] ${failures.length} patch(es) FAILED:`);
+  for (const f of failures) console.error(`  - ${f}`);
+  process.exit(1);
 }

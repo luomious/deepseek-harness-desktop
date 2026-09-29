@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "patchSet": "dsh-desktop-dist-patches",
-  "patchDigest": "94d33d410cf30ae00326812ea533e322c28ec3e377eb039ce47e44b9fc2f48b2",
+  "patchDigest": "b402c60f77076efa7f2437661a9002e1fa93d0fcc94979e0ea696370468b7b5c",
   "entryCount": 46,
   "counts": {
     "applier": 32,
@@ -118,7 +118,7 @@
     {
       "kind": "applier",
       "path": "scripts/apply-exit-probe.mjs",
-      "sha256": "8c5599db4b8006b566b4b0e41fd765a26808d059b87dfa7800914dae417683ae"
+      "sha256": "86a9a0822318106c1c9b9e3ca768940838b3b64e281876079eaab384e7e3feb9"
     },
     {
       "kind": "applier",
@@ -183,7 +183,7 @@
     {
       "kind": "applier",
       "path": "scripts/apply-shell-0.1.7-gaps.mjs",
-      "sha256": "dc4d8def49548f9c7220f7cb97e4430c91f3df356395a452c1085b835a842668"
+      "sha256": "bc929fa814a7dd55c02a7a38c244089fea8177d8fe4482fa2c995c7c0db39335"
     },
     {
       "kind": "applier",
@@ -241,5 +241,5 @@
       "sha256": "ac2bf80b9ccc00b5dfbe8934a5d4c6cf7cf1ba3bc0088de0a31d0bb58831cd4c"
     }
   ],
-  "generatedAt": "2026-09-29T14:04:43.519Z"
+  "generatedAt": "2026-09-29T14:30:59.264Z"
 }

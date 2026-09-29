@@ -122,9 +122,13 @@ globalThis.__dshExitProbe = (function () {
 /** 需要打点的调用点（anchor 必须唯一命中，否则 fail-loud）。 */
 const MAIN_SITES = [
   {
+    // 0.1.7 source adaptation adds `quitRequested = true;` as the first statement
+    // of requestQuit (window-all-closed guard). Accept either shape.
     label: 'requestQuit',
-    anchor: '\tconst requestQuit = (code) => {\n\t\tshutdown.request(code);\n\t};',
-    replace: '\tconst requestQuit = (code) => {\n\t\tglobalThis.__dshExitProbe("requestQuit(" + code + ")\\n    " + new Error("probe").stack);\n\t\tshutdown.request(code);\n\t};',
+    anchor: '\tconst requestQuit = (code) => {\n\t\tquitRequested = true;\n\t\tshutdown.request(code);\n\t};',
+    replace: '\tconst requestQuit = (code) => {\n\t\tglobalThis.__dshExitProbe("requestQuit(" + code + ")\\n    " + new Error("probe").stack);\n\t\tquitRequested = true;\n\t\tshutdown.request(code);\n\t};',
+    altAnchor: '\tconst requestQuit = (code) => {\n\t\tshutdown.request(code);\n\t};',
+    altReplace: '\tconst requestQuit = (code) => {\n\t\tglobalThis.__dshExitProbe("requestQuit(" + code + ")\\n    " + new Error("probe").stack);\n\t\tshutdown.request(code);\n\t};',
   },
   {
     label: 'finalExit',
@@ -223,9 +227,17 @@ let changed = 0;
     if (at < 0) fail('main.js: import anchor for the probe banner is missing (build drift?)');
     content = content.slice(0, at + importAnchor.length) + BANNER + content.slice(at + importAnchor.length);
     for (const site of MAIN_SITES) {
-      const count = content.split(site.anchor).length - 1;
+      // A site may declare an alternative anchor/replace pair for a source shape
+      // that has drifted (e.g. the 0.1.7 window-all-closed guard).
+      let anchor = site.anchor;
+      let replace = site.replace;
+      if (site.altAnchor !== undefined && content.split(anchor).length - 1 !== 1) {
+        anchor = site.altAnchor;
+        replace = site.altReplace;
+      }
+      const count = content.split(anchor).length - 1;
       if (count !== 1) fail(`main.js: anchor for ${site.label} matched ${count} times (expected 1)`);
-      content = content.replace(site.anchor, site.replace);
+      content = content.replace(anchor, replace);
       log(`main.js: instrumented ${site.label}`);
     }
     atomicWriteFileSync(mainFile, content);

@@ -36,19 +36,51 @@ $env:DSH_OUT_DIR = "dist/win-unpacked-build$(Get-Date -Format 'yyyyMMddHHmm')"
 corepack yarn workspace dsh-plugin-desktop package:dir 2>&1 | Tee-Object -FilePath $log -Append
 $code = $LASTEXITCODE
 if ($code -eq 0) {
-  # After packaging, re-apply every dist patch to the freshly built output
-  # (idempotent; resolve-dist auto-targets the newest build). This closes the
-  # old "rebuild -> patches land on the old dir -> restart shows no change" bug.
-  "=== re-apply patches (port-user + winhide + verify) ===" | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-safe-delete-shim.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\port-user-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-winhide-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-gpu-opaque-patches.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\patch-host-apiproxy-default-cwd.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-community-market-settings-section.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-community-market-no-lag.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-community-market-media-no-lag.mjs 2>&1 | Tee-Object -FilePath $log -Append
-  node D:\Deepseek-Harness\scripts\apply-shell-0.1.7-gaps.mjs 2>&1 | Tee-Object -FilePath $log -Append
+  # After packaging, re-apply EVERY dist patch to the freshly built output.
+  # 2026-09-29: this used to hardcode 9 scripts, so 26 of 32 appliers never ran on
+  # a rebuild -- verify-patches then reported 32 FAILED and the promoted build was
+  # missing the kernel implicit deps and every 0.1.7 shell adaptation. The chain is
+  # now data-driven: every scripts/apply-*.mjs runs, in dependency order. Individual
+  # appliers are best-effort (a retired/0.1.7-native one may legitimately fail);
+  # verify-patches.ps1 below is the authoritative gate.
+  "=== re-apply patches (all appliers, dependency order) ===" | Tee-Object -FilePath $log -Append
+  # Tier 1: profile/bundle canon + upstream-shaped patches.
+  $applierTier1 = @(
+    'apply-safe-delete-shim.mjs'
+    'port-user-patches.mjs'
+    'apply-winhide-patches.mjs'
+    'apply-gpu-opaque-patches.mjs'
+    'patch-host-apiproxy-default-cwd.mjs'
+    'apply-community-market-settings-section.mjs'
+    'apply-community-market-no-lag.mjs'
+    'apply-community-market-media-no-lag.mjs'
+  )
+  # Tier 2: kernel package restoration must precede the shell adaptations that
+  # patch those same kernel files.
+  $applierTier2 = @(
+    'apply-kernel-implicit-deps.mjs'
+    'apply-shell-0.1.7-gaps.mjs'
+    'apply-window-all-closed-guard.mjs'
+    'apply-exit-probe.mjs'
+  )
+  # Tier 3: everything else, discovered from disk so a NEW applier is never
+  # silently skipped again.
+  $known = $applierTier1 + $applierTier2
+  $applierTier3 = Get-ChildItem 'D:\Deepseek-Harness\scripts' -Filter 'apply-*.mjs' |
+    Where-Object { $known -notcontains $_.Name } |
+    Sort-Object Name |
+    Select-Object -ExpandProperty Name
+
+  $applierFail = @()
+  foreach ($applier in ($applierTier1 + $applierTier2 + $applierTier3)) {
+    $path = Join-Path 'D:\Deepseek-Harness\scripts' $applier
+    if (-not (Test-Path $path)) { continue }
+    node $path 2>&1 | Tee-Object -FilePath $log -Append | Out-Null
+    if ($LASTEXITCODE -ne 0) { $applierFail += $applier }
+  }
+  if ($applierFail.Count -gt 0) {
+    "WARNING: $($applierFail.Count) applier(s) exited non-zero (retired/upstream-changed?): $($applierFail -join ', ')" | Tee-Object -FilePath $log -Append
+  }
   powershell -NoProfile -ExecutionPolicy Bypass -File D:\Deepseek-Harness\scripts\verify-patches.ps1 2>&1 | Tee-Object -FilePath $log -Append
   # Auto-promote: point the stable junction at this fresh build (smoke-test with
   # rollback on failure, then prune old buildN dirs). Promote is only safe with

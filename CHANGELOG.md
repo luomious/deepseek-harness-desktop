@@ -7700,3 +7700,38 @@ ew URL().pathname åœ¨ Windows ESM ä¸‹å¸¦å‰å¯¼ /D:ï¼Œç»ä¸å¯ç”¨äºæ‹¼æœ¬åœ°è·¯
 ### ÑéÖ¤
 - `verify-patches` ALL PASS (99) / `patch-manifest --verify` ALL PASS
 - `apply-sweep-transform-fixes.mjs --check` exit 0
+
+---
+
+## 2026-09-29 ¡¤ ½×¶Î3£ºÔ´ÂëÖØ½¨¿Ç£¨dist ²¹¶¡ ¡ú Ô´ÂëÄÜÁ¦£©
+
+### ±³¾°
+- `vendor/` Ô´ÂëÀïÓĞ **28 ÎÄ¼şÊÊÅä + 4 ĞÂÔö**£¨º¬ `desktop-shell-settings.ts`¡¢window-all-closed ÊØÎÀ£©£¬
+  µ«´ÓÎ´±àÒë½ø dist£»ÔËĞĞÊ±¿¿ 17 ´¦ dist ²¹¶¡Ó²³Å¡£
+
+### ¹¹½¨¹ı³ÌÓë×èÈû
+| ×èÈû | ¸ùÒò | ĞŞ¸´ |
+|---|---|---|
+| typecheck Ê§°Ü | `src/index.ts` ÓÃ `ctx.connection` µ«È±ÀàĞÍµ¼Èë£¨0.1.7 ÔöÇ¿Î´¼ÓÔØ£© | ²¹ `import type {} from '@deepseek-ai/dsh-client-connection'` |
+| main.js Óï·¨±À | Ô´ÂëÒÑÓĞ window-all-closed ÊØÎÀ£¬dist ²¹¶¡ÓÖ¼ÓÒ»±é ¡ú `quitRequested` ÖØ¸´ÉùÃ÷ | ÒÆ³ıÖØ¸´¿é |
+| ÃÅ½û 32 ÏîÊ§°Ü | **`package-vendor.ps1` Ö»µ÷ÓÃ 9/32 ¸ö applier**£¨Â©µô kernel ÒşÊ½ÒÀÀµ + È«²¿ shell ÊÊÅä£© | ¸ÄÎªÊı¾İÇı¶¯±éÀúÈ«²¿ applier |
+| ²¹¶¡ÃªµãÆ¯ÒÆ | ĞÂ¹¹½¨ `dsh-settings` ÊÇ´¿¾»ÄÚºË°æ£¨ÎŞ `register()`£©£»`requestQuit` ¶àÒ»ĞĞ | ÖØĞ´Ãªµã + Ö§³Ö altAnchor |
+| Á½Ì×Ì½Õë²¢´æ | ÎÒµÄ #14/#15 Óë `apply-exit-probe.mjs` v3 ÖØ¸´ | ÒÆ³ıÎÒµÄ£¬±£Áô v3 ÎªÎ¨Ò»»úÖÆ |
+
+### ³ÉĞ§£ºÔ´ÂëÊÊÅäÕæÕı½øÈë¹¹½¨
+| ±ê¼Ç | ¾É¹¹½¨(2329) | ĞÂ¹¹½¨(292211) |
+|---|---|---|
+| `installWindowAllClosedGuard` | ? ÎŞ | ? ÓĞ |
+| `desktop-shell-settings-*.js` | ? ÎŞ | ? ±àÒë²úÎï |
+| `connection.authenticatedUrl` | ²¹¶¡ | ? Ô´Âë |
+| `bundlePatchPaths` | ²¹¶¡ | ? Ô´Âë |
+
+### ÑéÖ¤
+- `verify-patches.ps1` **ALL PASS (99)**
+- `patch-manifest --verify` **ALL PASS**£¨46 entries£©
+- `startup-verify.mjs` **V1¨CV10 È« PASS**£¨V8 patch anchors / V9 43 link ²å¼ş / V10 51 bundles£©
+- »î¶¯Èë¿Ú junction ¡ú `win-unpacked-build202609292211`£¨¾É¹¹½¨ 2329 ±£Áô×÷»Ø¹ö£©
+
+### ¹æ·¶»¯ĞŞ¸´£¨·ÀÖ¹ÏÂ´ÎÖØ½¨ÖØÑİ£©
+- `scripts/package-vendor.ps1`£º²¹¶¡ÖØ·ÅÁ´´Ó**Ó²±àÂë 9 Ìõ**¸ÄÎª**±éÀúÈ«²¿ `apply-*.mjs`**£¬
+  ·ÖÈı²ã£¨canon ¡ú ÄÚºË»Ö¸´+¿ÇÊÊÅä ¡ú ´ÅÅÌ·¢ÏÖµÄÆäÓà£©£¬ĞÂÔö applier ²»ÔÙ±»¾²Ä¬Ìø¹ı¡£

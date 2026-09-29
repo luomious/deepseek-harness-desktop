@@ -103,3 +103,5 @@
 | 2026-09-29 | reorg-stage1 | 阶段1 执行：legacy 归档（20 文件）+ 文档引用更新 + 编码坑入规范 | outputs/2026-09-29-reorg/README.md |
 
 | 2026-09-29 | file-classification | 文件级分类调查 + 整理执行：301,838→132,043 文件（-56%），-4.07GB | outputs/2026-09-29-file-classification/README.md |
+
+| 2026-09-29 | rebuild-0.1.7-shell | 阶段3 源码重建壳：28 文件适配编译进构建 + package-vendor 补丁链规范化 | CHANGELOG.md |
