@@ -75,7 +75,7 @@
         command: npx
         args: ["-y", "firecrawl-mcp"]
         env:
-          FIRECRAWL_API_KEY: "fc-088d0f71d32c4e3cbb7261f34a599d39"
+          FIRECRAWL_API_KEY: "<已脱敏。原值自 2026-09-22 提交 2baca37 起已进入公开仓库历史，请到 Firecrawl 后台吊销并轮换该 Key>"
         cwd: !!js process.cwd()
 
 # 2026-09-11: MarkItDown MCP (merged from mcp-configs/markitdown.cordis.yml)

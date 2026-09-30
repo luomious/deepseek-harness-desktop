@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # DeepSeek Harness Desktop - .gitignore
 # ============================================================
 
@@ -123,4 +123,8 @@ diagrams/
 # Test-render artifacts (regenerated per test run; not fixtures)
 tests/preview/
 plugins/dsh-diagram-renderer/tests/preview/
+
+# Local backups of tracked files (keep on disk for rollback, never publish)
+outputs/*.bak-*
+outputs/*.bak.20*
 

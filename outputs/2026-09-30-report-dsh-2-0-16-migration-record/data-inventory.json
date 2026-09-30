@@ -1,0 +1,122 @@
+{
+  "$comment": "DSH Desktop v2.0.16 升级 — 数据清单。只读采集于 2026-09-30，未改动任何数据。",
+  "collectedAt": "2026-09-30T01:18:55+08:00",
+  "harnessHome": "C:\\Users\\机械革命\\.dsh",
+  "electronUserData": "C:\\Users\\机械革命\\AppData\\Roaming\\DSH Desktop",
+  "versionFacts": {
+    "old": { "shell": "2.0.2", "kernel": "0.1.7-rc.2", "cordis": "4.0.4", "sessionFormatCurrent": 4, "profileStateVersion": 1 },
+    "new": { "shell": "2.0.16", "kernel": "0.2.0-rc.1", "cordis": "4.0.4", "sessionFormatCurrent": 4, "profileStateVersion": 2 },
+    "installer": {
+      "path": "C:\\Users\\机械革命\\Downloads\\DSH-Desktop-2.0.16-x64-Setup.exe",
+      "bytes": 269333800,
+      "sha256": "0d330450cbaa9e1b5ac0420e35ff4db6afd82d73f4bcc3a9c3e421ef4fe6fa2c"
+    }
+  },
+  "mustKeep": {
+    "harnessHome": [
+      { "name": "profiles/", "files": 59204, "mb": 1005.7, "note": "活动配置 + 51 个插件 bundle" },
+      { "name": "sessions/", "files": 292, "mb": 412, "note": "292 条历史对话 / 9 个工作区" },
+      { "name": "storages/", "files": 278, "mb": 121.4, "note": "会话索引、投影缓存、workspace.json" },
+      { "name": "attachments/", "files": 387, "mb": 81.3 },
+      { "name": ".task-scheduler/", "files": 151, "mb": 6.2 },
+      { "name": "super-injector/", "files": 30, "mb": 2.1 },
+      { "name": "tool-audit/", "files": 2, "mb": 1.6 },
+      { "name": "tool-visibility/", "files": 2, "mb": 1.3 },
+      { "name": ".dsh-usage-ledger.json", "files": 1, "mb": 1.2 },
+      { "name": "skills/", "files": 116, "mb": 0.7 },
+      { "name": "memory-guard/", "files": 2, "mb": 0.3 },
+      { "name": ".agent-presets/", "files": 35, "mb": 0.2 },
+      { "name": "_backups/", "files": 34, "mb": 0.2 },
+      { "name": ".dsh-usage-stats.json", "files": 1, "mb": 0.1 },
+      { "name": ".skills-market/", "files": 3, "mb": 0.1 }
+    ],
+    "keyFiles": [
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\.credentials.yaml",
+        "bytes": 1838,
+        "sha256": "2FC795CFCA5AEFDC91B4DE536BA936D748DBF73A3563F12D8F52FFFA5E7A8A4B",
+        "note": "24 个 *_API_KEY 键 + version/refs/records"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\profiles\\desktop\\package.json",
+        "bytes": 7238,
+        "sha256": "052B5A39AD9AE71F8AD79FF755E13C51849CCEABC9649372D87F5BB0256B3C16",
+        "note": "dsh.profile.bundles = 51 项；dependencies = 59 项"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\profiles\\desktop\\cordis.patch.yml",
+        "bytes": 4692,
+        "sha256": "D1E03E5916CCB330BAEB5EC02B05175A6222DD2DB316A882327D13F0CF62EABA",
+        "note": "实时配置；含 FIRECRAWL_API_KEY（外传需脱敏）"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\profiles\\desktop\\pnpm-lock.yaml",
+        "bytes": 222873,
+        "sha256": "6C0B4436DD895AE36F0B4F098CCFD7CBAA666764119E04FAE43A28324692DDE3"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\storages\\workspace.json",
+        "bytes": 18946,
+        "sha256": "278ABD04EE64AE9935D56E47FC1B8FF8EBC63DC7CC34F65D4EDD14E3417A9948",
+        "note": "7 个工作区注册；不含 D:\\DSH-Desktop"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\settings.yaml.imported",
+        "bytes": 14209,
+        "sha256": "5C66BF4B4D19C1ACC4C98B9134F33A1C3C0A74F49A584235B1ADD231FBF1F0D7",
+        "note": "历史遗留（一次性导入后的改名残留），非实时配置"
+      },
+      {
+        "path": "C:\\Users\\机械革命\\.dsh\\AGENTS.md",
+        "bytes": 15769,
+        "sha256": "12DF7D2457B04CB6844E52968D06E7C58F72937E28CF7F064F215494072C2712"
+      }
+    ],
+    "registeredWorkspaces": [
+      { "path": "D:\\Deepseek-Harness", "title": "Deepseek-Harness" },
+      { "path": "C:\\Users\\机械革命\\Desktop\\基于深度学习的缺陷检测边缘设备开发", "title": "基于深度学习的缺陷检测边缘设备开发" },
+      { "path": "D:\\Agent-game", "title": "Agent-game" },
+      { "path": "D:\\Hardware Tools\\Project\\EDA-Keypad", "title": "EDA-Keypad" },
+      { "path": "D:\\RK3588&Orin Nano\\RK3588", "title": "RK3588" },
+      { "path": "E:\\WorkBuddy", "title": "WorkBuddy" },
+      { "path": "C:\\Users\\机械革命\\Desktop\\TL3568F-EVM_V1.5", "title": "TL3568F-EVM_V1.5" }
+    ],
+    "electronUserData": [
+      { "name": "profile-selection/state.json", "bytes": 72, "note": "version:1 → 新版要求 2（自动重置，无损失）" },
+      { "name": "desktop-market/state.json", "bytes": 65, "note": "requested = community-market" },
+      { "name": "health-snapshots/", "files": 11, "kb": 232.3 },
+      { "name": "plugin-install-recovery/", "files": 6, "kb": 400.1 },
+      { "name": "updates/state.json", "bytes": 53, "note": "lastPromptedVersion = 2.0.5（旧版自动更新是活的）" },
+      { "name": "lifecycle-events/", "files": 1, "kb": 5.8 },
+      { "name": "diagnostics/", "files": 3, "kb": 1512.5 }
+    ]
+  },
+  "safeToDelete": [
+    {
+      "path": "D:\\DSH-Desktop",
+      "mb": 3218,
+      "files": 124654,
+      "verdict": "可整体删除",
+      "evidence": [
+        "data/ outputs/ downloads/ 全空（0 文件）",
+        "plugins/ 340 文件经逐文件 SHA256 比对：0 个独有文件，全部是 D:\\Deepseek-Harness\\plugins\\ 的子集",
+        "_backups/ 仅构建期 dist 补丁备份",
+        "工作区无任何文件引用该路径（rg 命中项均为产品名 dsh-desktop，非路径）",
+        "无快捷方式指向它；目录内无 .lnk/.url",
+        "无计划任务引用它（ATP-DSH-Web 指向 D:\\Deepseek-Harness，且已 Disabled）",
+        "storages/workspace.json 未注册该目录 → 不会留下失效工作区条目"
+      ]
+    }
+  ],
+  "backups": [
+    { "path": "D:\\Deepseek-Harness\\备份\\2026-09-29-full", "mb": 927, "note": "完整冷备：sessions/storages 散文件 + profile-desktop.tar.gz + appdata.tar.gz + config + meta + README" },
+    { "path": "D:\\Deepseek-Harness\\备份\\2026-09-29-cleanup", "mb": 728 },
+    { "path": "D:\\Deepseek-Harness\\备份\\2026-09-29-isolated-old-build", "mb": 1638, "files": 40150 },
+    { "path": "D:\\Deepseek-Harness\\备份\\2026-09-29-reorg" }
+  ],
+  "dangerVectors": [
+    "旧快捷方式指向 D:\\Deepseek-Harness\\vendor\\...\\dist\\win-unpacked\\DSH Desktop.exe（junction → win-unpacked-build202609292211）",
+    "旧构建 desktop-updates 插件 enabled=true，首查 60s、每 6h；已记录 lastPromptedVersion=2.0.5",
+    "两版共用 ~/.dsh 与 %APPDATA%\\DSH Desktop，绝不能同时运行"
+  ]
+}

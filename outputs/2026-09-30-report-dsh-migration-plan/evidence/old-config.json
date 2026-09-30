@@ -1,0 +1,842 @@
+{
+  "generatedAt": "2026-09-29T18:14:58.217Z",
+  "sources": {
+    "providers": "~/.dsh/settings.yaml.imported",
+    "patches": "C:/Users/机械革命/.dsh/_backups/desktop-profile-v2.0.2-20260930/cordis.patch.yml",
+    "manifest": "C:/Users/机械革命/.dsh/_backups/desktop-profile-v2.0.2-20260930/package.json"
+  },
+  "providers": {
+    "parseOk": true,
+    "error": null,
+    "topLevelSections": [
+      "ui-settings-general",
+      "ui-theme",
+      "ui-conversation",
+      "agent-presets",
+      "llm-pi-ai",
+      "agent-default-model",
+      "llm-deepseek",
+      "dsh-community-market"
+    ],
+    "count": 18,
+    "list": [
+      {
+        "id": "tokenry",
+        "displayName": "tokenry (tokenrhythm new key)",
+        "apiKeyEnv": "TOKENRY_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://tokenrhythm.studio/v1",
+        "modelCount": 1,
+        "models": [
+          "deepseek-flash"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "opencode-go",
+        "displayName": null,
+        "apiKeyEnv": "OPENCODE_GO_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://opencode.ai/zen/go/v1",
+        "modelCount": 4,
+        "models": [
+          "deepseek-v4-flash",
+          "deepseek-v4-pro",
+          "glm-5.2",
+          "kimi-k3"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "sennsenova",
+        "displayName": "SenseNova",
+        "apiKeyEnv": "SENNSENOVA_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://token.sensenova.cn/v1/",
+        "modelCount": 3,
+        "models": [
+          "deepseek-v4-flash",
+          "deepseek-v4-pro",
+          "kimi-k3"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "duoyuanx",
+        "displayName": "duoyuanx",
+        "apiKeyEnv": "DUOYUANX_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://chat.ai666.net/api/codex",
+        "modelCount": 5,
+        "models": [
+          "gpt-5.4",
+          "gpt-5.5",
+          "gpt-5.6-luna",
+          "gpt-5.6-sol",
+          "gpt-5.6-terra"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "tokenrhythm01",
+        "displayName": "tokenrhythm01",
+        "apiKeyEnv": "TOKENRHYTHM01_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://tokenrhythm.studio/v1",
+        "modelCount": 14,
+        "models": [
+          "qwen3.7-flash",
+          "kimi-k2.6",
+          "qwen3.8-flash",
+          "mimo-v2.5-pro",
+          "kimi-k2.7-code",
+          "glm-5.2",
+          "qwen3.8-max",
+          "deepseek-v4-flash-0731",
+          "seed-2.1-turbo",
+          "seed-2.1-pro",
+          "deepseek-v4-pro-0813",
+          "glm-5.3",
+          "glm-5.3-flash",
+          "deepseek-flash"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "openrouter",
+        "displayName": null,
+        "apiKeyEnv": "OPENROUTER_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://openrouter.ai/api/v1",
+        "modelCount": 6,
+        "models": [
+          "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+          "nvidia/nemotron-3-super-120b-a12b:free",
+          "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "openrouter/free",
+          "poolside/laguna-xs-2.1:free",
+          "nex-agi/nex-n2.5-pro:free"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "yidong",
+        "displayName": "yidong",
+        "apiKeyEnv": "YIDONG_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://zhenze-huhehaote.cmecloud.cn/v1/",
+        "modelCount": 1,
+        "models": [
+          "DeepSeek-V4-Flash"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "hy3-free",
+        "displayName": "娣峰厓 hy3 (鍏嶈垂)",
+        "apiKeyEnv": "HY3_PROXY_KEY",
+        "api": "openai-completions",
+        "baseURL": "http://127.0.0.1:8787/v1",
+        "modelCount": 2,
+        "models": [
+          "hy3",
+          "hy3-preview"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "baidu-qianfan",
+        "displayName": "鐧惧害鍗冨竼 (Baidu Qianfan)",
+        "apiKeyEnv": "BAIDU_QIANFAN_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://qianfan.baidubce.com/v2",
+        "modelCount": 3,
+        "models": [
+          "ernie-4.5-turbo-128k",
+          "ernie-4.5-turbo-32k",
+          "ernie-4.5-turbo-vl"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "zhipu-ai",
+        "displayName": "鏅鸿氨AI (Zhipu)",
+        "apiKeyEnv": "ZHIPU_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://open.bigmodel.cn/api/paas/v4/",
+        "modelCount": 2,
+        "models": [
+          "glm-4.7-flash",
+          "glm-4-flash"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "groq",
+        "displayName": "Groq",
+        "apiKeyEnv": "GROQ_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api.groq.com/openai/v1/",
+        "modelCount": 3,
+        "models": [
+          "openai/gpt-oss-120b",
+          "openai/gpt-oss-20b",
+          "qwen/qwen3.8-27b"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "justdowork",
+        "displayName": "justdowork",
+        "apiKeyEnv": "JUSTDOWORK_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api.justwoker.icu/v1/",
+        "modelCount": 2,
+        "models": [
+          "claude-opus-5",
+          "claude-opus-5-thinking"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "qiniu",
+        "displayName": "qiniu",
+        "apiKeyEnv": "QINIU_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api.qnaigc.com/v1",
+        "modelCount": 8,
+        "models": [
+          "deepseek/deepseek-v4-flash-20260731",
+          "deepseek/deepseek-v4-pro-0813",
+          "deepseek/deepseek-v4-flash-vision-exp",
+          "moonshotai/kimi-k3",
+          "z-ai/glm-5.3",
+          "z-ai/glm-5.3-flash",
+          "qwen/qwen3.8-max",
+          "tencent/hy4-preview"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "amd",
+        "displayName": "amd",
+        "apiKeyEnv": "AMD_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://developer.amd.com.cn/radeon/api/v1",
+        "modelCount": 2,
+        "models": [
+          "DeepSeek-V4-Flash",
+          "Qwen3.8-Flash-Next"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "modelscope",
+        "displayName": "modelscope",
+        "apiKeyEnv": "MODELSCOPE_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api-inference.modelscope.cn/v1",
+        "modelCount": 3,
+        "models": [
+          "deepseek-ai/DeepSeek-V4-Flash-0731",
+          "deepseek-ai/DeepSeek-V4-Pro-0813",
+          "deepseek-ai/DeepSeek-V4.1-Flash"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "tokenrouter",
+        "displayName": "tokenrouter",
+        "apiKeyEnv": "TOKENROUTER_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api.tokenrouter.com/v1",
+        "modelCount": 1,
+        "models": [
+          "z-ai/glm-5.3"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "codecraft",
+        "displayName": "codecraft",
+        "apiKeyEnv": "CODECRAFT_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://codecraftapi.com/v1",
+        "modelCount": 6,
+        "models": [
+          "gpt-5.6-sol",
+          "claude-opus-5",
+          "claude-fable-5",
+          "claude-mythos-preview",
+          "kimi-k3",
+          "qwen3.8-max"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      },
+      {
+        "id": "apinex",
+        "displayName": "apinex",
+        "apiKeyEnv": "APINEX_API_KEY",
+        "api": "openai-completions",
+        "baseURL": "https://api.apinex.bond/v1",
+        "modelCount": 9,
+        "models": [
+          "free/gpt-5.6-luna",
+          "free/glm-5.3-flash",
+          "free/gemini-3.8-flash",
+          "free/deepseek-v4.1-flash",
+          "free/qwen-3.8-max",
+          "free/deepseek-v4-flash-0731",
+          "free/deepseek-v4-pro-0813",
+          "free/mimo-v2.5",
+          "free/muse-spark-1.3"
+        ],
+        "compatKeys": [
+          "supportsDeveloperRole"
+        ]
+      }
+    ]
+  },
+  "patches": {
+    "parseOk": true,
+    "error": null,
+    "count": 15,
+    "list": [
+      {
+        "index": 0,
+        "kind": "insert",
+        "entries": [
+          {
+            "id": "file-explorer",
+            "name": "@dsh-external/dsh-file-explorer",
+            "hasConfig": false
+          },
+          {
+            "id": "force-reasoning-effort",
+            "name": "@dsh-external/dsh-force-reasoning-effort",
+            "hasConfig": false
+          },
+          {
+            "id": "project-brief",
+            "name": "@dsh-external/dsh-project-brief",
+            "hasConfig": false
+          },
+          {
+            "id": "session-watchdog",
+            "name": "@dsh-external/dsh-session-watchdog",
+            "hasConfig": false
+          },
+          {
+            "id": "system-notify",
+            "name": "@dsh-external/dsh-system-notify",
+            "hasConfig": false
+          },
+          {
+            "id": "remote-workspace",
+            "name": "@dsh-external/dsh-remote-workspace",
+            "hasConfig": false
+          },
+          {
+            "id": "task-scheduler",
+            "name": "@dsh-external/dsh-task-scheduler",
+            "hasConfig": false
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "kind": "config",
+        "id": "dsh-super-injector",
+        "name": null,
+        "disabled": null,
+        "configKeys": [
+          "profileNodeModules"
+        ],
+        "configPreview": "{\"profileNodeModules\":\"<js>(process.env.HOME || process.env.USERPROFILE) + '/.dsh/profiles/desktop/node_modules'\"}"
+      },
+      {
+        "index": 2,
+        "kind": "config",
+        "id": "modlens",
+        "name": null,
+        "disabled": null,
+        "configKeys": [
+          "families"
+        ],
+        "configPreview": "{\"families\":[\"deepseek\",\"glm\",\"mimo\",\"qwen\",\"kimi\",\"minimax\",\"seed\",\"grok\",\"sensenova\",\"gpt\"]}"
+      },
+      {
+        "index": 3,
+        "kind": "config",
+        "id": "better-sidebar",
+        "name": null,
+        "disabled": false,
+        "configKeys": [],
+        "configPreview": null
+      },
+      {
+        "index": 4,
+        "kind": "insert",
+        "entries": [
+          {
+            "id": "frontend-reload",
+            "name": "@dsh-external/dsh-frontend-reload",
+            "hasConfig": false
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "kind": "config",
+        "id": "compaction-basic",
+        "name": null,
+        "disabled": false,
+        "configKeys": [
+          "summarizationProvider",
+          "summarizationModel"
+        ],
+        "configPreview": "{\"summarizationProvider\":\"tokenrhythm01\",\"summarizationModel\":\"deepseek-v4-pro-0813\"}"
+      },
+      {
+        "index": 6,
+        "kind": "config",
+        "id": "command-compact",
+        "name": null,
+        "disabled": false,
+        "configKeys": [],
+        "configPreview": null
+      },
+      {
+        "index": 7,
+        "kind": "config",
+        "id": "dsh-context-lifecycle",
+        "name": null,
+        "disabled": false,
+        "configKeys": [],
+        "configPreview": null
+      },
+      {
+        "index": 8,
+        "kind": "config",
+        "id": "web",
+        "name": null,
+        "disabled": null,
+        "configKeys": [
+          "searchProvider",
+          "fetchProvider"
+        ],
+        "configPreview": "{\"searchProvider\":\"bing\",\"fetchProvider\":\"bing-fetch\"}"
+      },
+      {
+        "index": 9,
+        "kind": "config",
+        "id": "session-title-llm",
+        "name": null,
+        "disabled": null,
+        "configKeys": [
+          "targetWords",
+          "targetCjkCharacters",
+          "maxInputBytes",
+          "maxOutputTokens",
+          "timeoutMs"
+        ],
+        "configPreview": "{\"targetWords\":5,\"targetCjkCharacters\":10,\"maxInputBytes\":4096,\"maxOutputTokens\":512,\"timeoutMs\":60000}"
+      },
+      {
+        "index": 10,
+        "kind": "insert",
+        "entries": [
+          {
+            "id": "mcp-firecrawl",
+            "name": "@deepseek-ai/dsh-mcp-client",
+            "hasConfig": true
+          }
+        ]
+      },
+      {
+        "index": 11,
+        "kind": "insert",
+        "entries": [
+          {
+            "id": "mcp-markitdown",
+            "name": "@deepseek-ai/dsh-mcp-client",
+            "hasConfig": true
+          }
+        ]
+      },
+      {
+        "index": 12,
+        "kind": "config",
+        "id": "session-projection-cache",
+        "name": null,
+        "disabled": null,
+        "configKeys": [
+          "writeEveryEvents",
+          "writeIntervalMs"
+        ],
+        "configPreview": "{\"writeEveryEvents\":1000,\"writeIntervalMs\":60000}"
+      },
+      {
+        "index": 13,
+        "kind": "config",
+        "id": "llm-pi-ai",
+        "name": "@deepseek-ai/dsh-llm-pi-ai",
+        "disabled": null,
+        "configKeys": [
+          "providers"
+        ],
+        "configPreview": "{\"providers\":{\"qw\":{\"displayName\":\"qw\",\"apiKeyEnv\":\"QW_API_KEY\",\"api\":\"openai-completions\",\"baseURL\":\"https://tokenrhythm.studio/v1\",\"models\":[{\"id\":\"glm-5.1\",\"name\":\"glm-5.1\",\"contextWindow\":200000}]}}}"
+      },
+      {
+        "index": 14,
+        "kind": "insert",
+        "entries": [
+          {
+            "id": "settings-scope-shim",
+            "name": "@dsh-external/dsh-settings-scope-shim",
+            "hasConfig": false
+          }
+        ]
+      }
+    ]
+  },
+  "oldProfile": {
+    "bundles": [
+      "@deepseek-ai/dsh-base",
+      "@deepseek-ai/dsh-web-app",
+      "@dsh-external/dsh-host-services",
+      "@dsh-external/dsh-web-search-bing",
+      "@dsh-external/dsh-web-fetch-local",
+      "@dsh-external/dsh-session-history",
+      "@dsh-external/dsh-session-hygiene",
+      "@dsh-external/dsh-self-maintenance",
+      "@dsh-external/dsh-stuck-loop-guard",
+      "@dsh-external/dsh-context-lifecycle",
+      "@liustack/modlens",
+      "@liustack/modsearch",
+      "@dsh-external/dsh-model-inspection-guard",
+      "@dsh-external/dsh-model-picker-group",
+      "@dsh-external/dsh-model-tier-router",
+      "@dsh-external/dsh-model-whitelist",
+      "@dsh-external/dsh-modlens-guard",
+      "dsh-mcp-lens",
+      "dsh-tool-search",
+      "dsh-find-plugin",
+      "@dsh-external/dsh-modlens-autoread",
+      "@dsh-external/dsh-vision-engine",
+      "dsh-better-sidebar",
+      "dsh-skills-manager",
+      "dsh-bash-terminal",
+      "@vectorize-io/hindsight-coding-agents",
+      "@dsh-external/dsh-super-injector",
+      "dshmarket",
+      "@dsh-external/dsh-instance-janitor",
+      "@dsh-external/dsh-hy3-gateway",
+      "@dsh-external/dsh-ui-performance",
+      "dsh-context",
+      "@huanlin/dsh-plugin-better-sidebar-plugin-office",
+      "@dsh-external/dsh-command-guard",
+      "@dsh-external/dsh-code-security-guard",
+      "@dsh-external/dsh-tool-audit",
+      "@dsh-external/dsh-temp-tracker",
+      "@dsh-external/dsh-health-dashboard",
+      "@dsh-external/dsh-prompt-enhance",
+      "@dsh-external/dsh-tool-renderers",
+      "@openviking/dsh-memory-plugin",
+      "@dsh-external/dsh-diagram-renderer",
+      "@dsh-external/dsh-crashpad-hygiene",
+      "@dsh-external/dsh-memory-files",
+      "@dsh-external/dsh-diff-guard",
+      "@dsh-external/dsh-memory-guard",
+      "@dsh-external/dsh-developer-role-guard",
+      "@dsh-external/dsh-model-provider-failover",
+      "@dsh-external/dsh-vision-rotator",
+      "@liustack/pptwise",
+      "dsh-office-tools"
+    ],
+    "bundleCount": 51,
+    "depCounts": {
+      "link": 43,
+      "file": 2,
+      "registry": 14
+    },
+    "depsByKind": {
+      "link": [
+        {
+          "name": "@dsh-external/dsh-code-security-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-code-security-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-command-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-command-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-context-lifecycle",
+          "target": "D:\\Deepseek-Harness\\dsh-context-lifecycle"
+        },
+        {
+          "name": "@dsh-external/dsh-crashpad-hygiene",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-crashpad-hygiene"
+        },
+        {
+          "name": "@dsh-external/dsh-developer-role-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-developer-role-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-diagram-renderer",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-diagram-renderer"
+        },
+        {
+          "name": "@dsh-external/dsh-diff-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-diff-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-file-explorer",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-file-explorer"
+        },
+        {
+          "name": "@dsh-external/dsh-force-reasoning-effort",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-force-reasoning-effort"
+        },
+        {
+          "name": "@dsh-external/dsh-frontend-reload",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload"
+        },
+        {
+          "name": "@dsh-external/dsh-health-dashboard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-health-dashboard"
+        },
+        {
+          "name": "@dsh-external/dsh-host-services",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-host-services"
+        },
+        {
+          "name": "@dsh-external/dsh-hy3-gateway",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway"
+        },
+        {
+          "name": "@dsh-external/dsh-instance-janitor",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-instance-janitor"
+        },
+        {
+          "name": "@dsh-external/dsh-memory-files",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-memory-files"
+        },
+        {
+          "name": "@dsh-external/dsh-memory-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-memory-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-model-inspection-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-model-inspection-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-model-picker-group",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-model-picker-group"
+        },
+        {
+          "name": "@dsh-external/dsh-model-provider-failover",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover"
+        },
+        {
+          "name": "@dsh-external/dsh-model-tier-router",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-model-tier-router"
+        },
+        {
+          "name": "@dsh-external/dsh-model-whitelist",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-model-whitelist"
+        },
+        {
+          "name": "@dsh-external/dsh-modlens-autoread",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-modlens-autoread"
+        },
+        {
+          "name": "@dsh-external/dsh-modlens-guard",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-modlens-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-project-brief",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-project-brief"
+        },
+        {
+          "name": "@dsh-external/dsh-prompt-enhance",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-prompt-enhance"
+        },
+        {
+          "name": "@dsh-external/dsh-remote-workspace",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-remote-workspace"
+        },
+        {
+          "name": "@dsh-external/dsh-self-maintenance",
+          "target": "D:\\\\Deepseek-Harness\\\\plugins\\\\dsh-self-maintenance"
+        },
+        {
+          "name": "@dsh-external/dsh-session-history",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-session-history"
+        },
+        {
+          "name": "@dsh-external/dsh-session-hygiene",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-session-hygiene"
+        },
+        {
+          "name": "@dsh-external/dsh-session-watchdog",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-session-watchdog"
+        },
+        {
+          "name": "@dsh-external/dsh-stuck-loop-guard",
+          "target": "D:\\Deepseek-Harness\\dsh-stuck-loop-guard"
+        },
+        {
+          "name": "@dsh-external/dsh-system-notify",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-system-notify"
+        },
+        {
+          "name": "@dsh-external/dsh-task-scheduler",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-task-scheduler"
+        },
+        {
+          "name": "@dsh-external/dsh-temp-tracker",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-temp-tracker"
+        },
+        {
+          "name": "@dsh-external/dsh-tool-audit",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-tool-audit"
+        },
+        {
+          "name": "@dsh-external/dsh-tool-renderers",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers"
+        },
+        {
+          "name": "@dsh-external/dsh-ui-performance",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-ui-performance"
+        },
+        {
+          "name": "@dsh-external/dsh-vision-engine",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-vision-engine"
+        },
+        {
+          "name": "@dsh-external/dsh-vision-rotator",
+          "target": "D:\\Deepseek-Harness\\dsh-vision-rotator"
+        },
+        {
+          "name": "@dsh-external/dsh-web-fetch-local",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-web-fetch-local"
+        },
+        {
+          "name": "@dsh-external/dsh-web-search-bing",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-web-search-bing"
+        },
+        {
+          "name": "dsh-skills-manager",
+          "target": "D:\\Deepseek-Harness\\plugins\\dsh-skills-manager"
+        },
+        {
+          "name": "@dsh-external/dsh-settings-scope-shim",
+          "target": "D:\\\\Deepseek-Harness\\\\plugins\\\\dsh-settings-scope-shim"
+        }
+      ],
+      "file": [
+        {
+          "name": "@dsh-external/dsh-super-injector",
+          "target": "D:/Deepseek-Harness/plugins/dsh-routing-suite/dsh-external-dsh-super-injector-0.3.3.tgz"
+        },
+        {
+          "name": "dsh-mcp-lens",
+          "target": "dsh-mcp-lens-0.1.0-rc.9.tgz"
+        }
+      ],
+      "registry": [
+        {
+          "name": "@huanlin/dsh-plugin-better-sidebar-plugin-office",
+          "range": "^0.1.2"
+        },
+        {
+          "name": "@liustack/modlens",
+          "range": "3.23.1"
+        },
+        {
+          "name": "@liustack/modsearch",
+          "range": "^5.4.3"
+        },
+        {
+          "name": "@liustack/pptwise",
+          "range": "0.35.0"
+        },
+        {
+          "name": "@openviking/dsh-memory-plugin",
+          "range": "0.3.0"
+        },
+        {
+          "name": "@vectorize-io/hindsight-coding-agents",
+          "range": "^0.3.4"
+        },
+        {
+          "name": "dsh-bash-terminal",
+          "range": "^0.3.15"
+        },
+        {
+          "name": "dsh-better-sidebar",
+          "range": "^0.22.1"
+        },
+        {
+          "name": "dsh-context",
+          "range": "0.59.2"
+        },
+        {
+          "name": "dsh-find-plugin",
+          "range": "^0.3.6"
+        },
+        {
+          "name": "dsh-office-tools",
+          "range": "1.0.3"
+        },
+        {
+          "name": "dsh-safe-delete",
+          "range": "^0.2.0"
+        },
+        {
+          "name": "dsh-tool-search",
+          "range": "^0.1.5"
+        },
+        {
+          "name": "dshmarket",
+          "range": "^1.40.0"
+        }
+      ]
+    }
+  }
+}

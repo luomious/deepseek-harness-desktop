@@ -1,0 +1,891 @@
+{
+  "generatedAt": "2026-09-29T18:23:48.259Z",
+  "byDecision": {
+    "keep": 17,
+    "partial": 19,
+    "builtin": 4,
+    "dep": 2,
+    "rework": 2
+  },
+  "byBatch": {
+    "P1": 26,
+    "P2": 5,
+    "P3": 13
+  },
+  "rows": [
+    {
+      "name": "@dsh-external/dsh-code-security-guard",
+      "bare": "dsh-code-security-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-code-security-guard",
+      "purpose": "扫描 write_file/edit 写入内容里的危险代码模式（eval / os.system / pickle.load / verify=False 等），只写 JSONL 审计并在下一步注入安全提醒，不拦截写入。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 221,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；扫描写入内容的危险代码模式",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-command-guard",
+      "bare": "dsh-command-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-command-guard",
+      "purpose": "对 shell/exec 类工具调用做命令风险评分，高风险命令写 JSONL 告警并做状态路由；声明的 approval 服务为后续拦截预留（当前只读检测）。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "approval"
+      ],
+      "loc": 283,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方 permission-presets + sandbox-policy + auto-review 覆盖一部分命令审批；但本插件的风险评分与 JSONL 告警是独有",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-context-lifecycle",
+      "bare": "dsh-context-lifecycle",
+      "version": "0.1.0",
+      "dir": "dsh-context-lifecycle",
+      "purpose": "跟踪每个 live agent 的请求压力，在对话变贵时通过编辑器上方横幅让用户确认两种恢复动作之一：压缩上下文（compact）或开新会话并交接（handover）。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "agents",
+        "webServer",
+        "tokenMeter",
+        "hostServices",
+        "slots",
+        "compaction"
+      ],
+      "loc": 456,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方有 dsh-compaction* + dsh-token-meter（压缩与计量）；但\"横幅让用户选 compact/handover\"的交互是本插件独有",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-crashpad-hygiene",
+      "bare": "dsh-crashpad-hygiene",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-crashpad-hygiene",
+      "purpose": "定时把 Crashpad 目录里堆积的 .dmp 崩溃转储清理进回收站（带完整审计），防止崩溃转储占满磁盘。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "webServer",
+        "logger"
+      ],
+      "loc": 447,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；崩溃转储清理防占满磁盘",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-developer-role-guard",
+      "bare": "dsh-developer-role-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-developer-role-guard",
+      "purpose": "强制非真 OpenAI 上游的请求使用 role:\"system\"，避免第三方 OpenAI 兼容网关（ModelScope 等）因 pi-ai 默认发 role:\"developer\" 而在流式模式被拒。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "llm",
+        "hostServices",
+        "logger"
+      ],
+      "loc": 447,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "新版 dsh-llm-pi-ai 有逐路由 compat（supportsDeveloperRole），若该开关已生效则本插件无必要 —— 必须先实测",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-diff-guard",
+      "bare": "dsh-diff-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-diff-guard",
+      "purpose": "在 tools/pre-execute 对高危 edit/write diff（敏感路径、超过 400 字的大段删除）走 approval 审批，fail-closed——拿不到 approval 服务就拒绝，与 command-guard 的命令拦截互补。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "approval"
+      ],
+      "loc": 335,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方 permission-presets 有审批策略；但\"敏感路径 + 大段删除 fail-closed\"是独有判据",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-force-reasoning-effort",
+      "bare": "dsh-force-reasoning-effort",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-force-reasoning-effort",
+      "purpose": "给缺少 reasoning 元数据的模型补上 off/low/medium/high 思考强度档位，让所有模型都能在模型选择器里调节推理强度。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "llm",
+        "logger"
+      ],
+      "loc": 335,
+      "decision": "builtin",
+      "batch": "P1",
+      "reason": "dsh-llm-deepseek 已内置 off/low/high/max 推理强度，dsh-agent-loop 有 agents[].reasoningEffort，dsh-agent-default-model 存选择",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-health-dashboard",
+      "bare": "dsh-health-dashboard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-health-dashboard",
+      "purpose": "注册 /health/dashboard 端点，聚合磁盘剩余空间与各监控插件（command-guard / code-security-guard / tool-audit / temp-tracker / session-hygiene）的 JSONL 统计，纯只读 best-effort。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 109,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中（桌面壳只有 desktop-diagnostics）；聚合并监控类插件的 JSONL",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-host-services",
+      "bare": "dsh-host-services",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-host-services",
+      "purpose": "提供 ctx.hostServices 单一事实来源：本地 HTTP API 路由样板（trusted / readBody / registerLocalApi / json）+ 配置读写工具（resolveConfig / readJson / writeJson），并聚合 /health 端点。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "webServer",
+        "hostServices",
+        "logger"
+      ],
+      "loc": 597,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "自研基础设施（ctx.hostServices）—— 其他插件的公共依赖，必须最先迁",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-hy3-gateway",
+      "bare": "dsh-hy3-gateway",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-hy3-gateway",
+      "purpose": "DSH 启动时以 detached 子进程拉起本地 hy3（腾讯混元 CloudBase 免费通道）OpenAI 兼容网关，带心跳文件与退出清理钩子防孤儿进程。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "(none — 直接 spawn 子进程 + process exit 钩子)"
+      ],
+      "loc": 128,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；hy3 免费通道需要它才有",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-instance-janitor",
+      "bare": "dsh-instance-janitor",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-instance-janitor",
+      "purpose": "后台周期性清道夫：按\"归属→孤儿→旧代\"判据清理旧代 crashpad 僵尸与旧代 hy3 网关进程，其余旧进程只告警不动手。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 520,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；与 crashpad-hygiene / hy3-gateway 退出钩子职责重叠，可合并考察",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-memory-files",
+      "bare": "dsh-memory-files",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-memory-files",
+      "purpose": "会话构建系统提示词时，把磁盘上的长期记忆文件作为只读上下文注入（有字符预算、缺文件即跳过），实现 G1 文件型长期记忆。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "systemPrompt",
+        "hostServices",
+        "logger"
+      ],
+      "loc": 240,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方 dsh-agent-instructions 只加载 AGENTS.md/CLAUDE.md；长期记忆文件的预算化注入是本插件独有",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-memory-guard",
+      "bare": "dsh-memory-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-memory-guard",
+      "purpose": "周期性检测进程内存/提交内存（commit）风暴（如 YOLO 训练的 dataloader 集群）并按阈值回收，防止内存耗尽导致应用崩溃或系统蓝屏。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "hostServices",
+        "logger"
+      ],
+      "loc": 562,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；内存/commit 风暴回收，与训练类工作负载强相关",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-model-inspection-guard",
+      "bare": "dsh-model-inspection-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-model-inspection-guard",
+      "purpose": "在 agent/request 处把超阈值的大上下文请求从配置的 provider（如 ModelScope）改道一次并重试该步，避免上游 400 data_inspection_failed 让整轮硬失败。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "tools"
+      ],
+      "loc": 206,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "上游 data_inspection_failed 改道重试，官方无等价",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-model-provider-failover",
+      "bare": "dsh-model-provider-failover",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-model-provider-failover",
+      "purpose": "观察 agent/request-error 把稳定失败的 provider（429/5xx/计费类）放进冷却集，随后把 agent/request 路由到已配置的备用 provider，且不抢占内核 dsh-llm-retry 的重试权。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "tools"
+      ],
+      "loc": 457,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "provider 失败冷却+改道，官方只有 dsh-llm-retry（同 provider 重试）",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-model-tier-router",
+      "bare": "dsh-model-tier-router",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-model-tier-router",
+      "purpose": "同源双模型自动分级路由：按当前任务复杂度在 agent/request 瀑布处，把请求切到同 provider 下配置的 high 或 low 模型（简单任务省钱、复杂任务保质量）。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "tools"
+      ],
+      "loc": 477,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "同源双模型复杂度分级路由，官方无等价",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-project-brief",
+      "bare": "dsh-project-brief",
+      "version": "0.0.1",
+      "dir": "plugins/dsh-project-brief",
+      "purpose": "提供工具为任意工作区生成/动态更新跨 agent 平台的项目说明文件（默认 AGENTS.md），让 Claude/Codex/Cursor/DSH 接手时快速理解项目。",
+      "hasClient": false,
+      "peerDeps": {
+        "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "tools"
+      ],
+      "loc": 57,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；新版只有 dsh-agent-instructions 负责\"读取\" AGENTS.md，没有\"生成/更新项目简报\"的工具",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-prompt-enhance",
+      "bare": "dsh-prompt-enhance",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-prompt-enhance",
+      "purpose": "一键把用户输入改写为更精确的提示词（WorkBuddy #1 方案）。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "tools"
+      ],
+      "loc": 108,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；一键改写提示词",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-self-maintenance",
+      "bare": "dsh-self-maintenance",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-self-maintenance",
+      "purpose": "每小时一轮自检（磁盘剩余 / 会话体积 / Web GUI 连通 / renderer 空闲 CPU / 上游雷达），健康时静默、异常才通知，只观测绝不删文件。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 390,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中；每小时自检，只观测不删",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-session-hygiene",
+      "bare": "dsh-session-hygiene",
+      "version": "1.0.0",
+      "dir": "plugins/dsh-session-hygiene",
+      "purpose": "监控会话文件体积并通过 /session-hygiene/report 报告（advisory only，绝不修改会话文件；archivePlan 恒为 dry-run）。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "webServer",
+        "logger"
+      ],
+      "loc": 686,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方零命中（无 hygiene/会话清理）；插件本身只读上报，风险低",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-session-watchdog",
+      "bare": "dsh-session-watchdog",
+      "version": "0.0.1",
+      "dir": "plugins/dsh-session-watchdog",
+      "purpose": "定时扫描所有 live agent 的当前目标，把\"active 但 disarmed\"的目标自动 resume()，让 goal-round-driver 恢复自动续跑。",
+      "hasClient": false,
+      "peerDeps": {
+        "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 160,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "新版 dsh-goal-round-driver 自带\"竞态护栏续行驱动\"；但本插件针对 active-but-disarmed 目标的 resume，是否仍需要必须实测",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-stuck-loop-guard",
+      "bare": "dsh-stuck-loop-guard",
+      "version": "0.1.0",
+      "dir": "dsh-stuck-loop-guard",
+      "purpose": "按归一化错误签名跟踪\"同一工具连续失败\"的链条，注入逐步升级的换路子（pivot）指令，让卡住的会话少烧 token、更快恢复。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "(none — 直接挂 tools post-execute / agent pre-step 事件，仅用 ctx.logger)"
+      ],
+      "loc": 317,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方 dsh-repeat-tool-reminder 会提醒重复工具调用；但本插件是\"按错误签名注入逐步升级的 pivot 指令\"，语义更强 —— 需对比",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-task-scheduler",
+      "bare": "dsh-task-scheduler",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-task-scheduler",
+      "purpose": "跨对话协作调度：并发操作互斥锁 + 优先级避让 + 变更时间线，防多个对话同时改同一项目互相覆盖或改到一半。",
+      "hasClient": false,
+      "peerDeps": {
+        "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "timer",
+        "webServer",
+        "logger"
+      ],
+      "loc": 162,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "多对话协作互斥锁，官方零命中；本项目工作流强依赖",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-temp-tracker",
+      "bare": "dsh-temp-tracker",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-temp-tracker",
+      "purpose": "监听工具写入路径，把匹配 test/temp 模式（test_/tmp_ 前缀、.test.* 后缀、cache 目录）的文件记入 JSONL（1MB 轮转），只追踪不清理。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 180,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方 dsh-spill 管超大输出落盘；但\"按 test/temp 模式记账\"是本插件独有",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-tool-audit",
+      "bare": "dsh-tool-audit",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-tool-audit",
+      "purpose": "配对 tool/call 与 tool/result，把每次工具调用的工具名、参数摘要、耗时、成败、结果大小记入 JSONL 审计（1MB 轮转），纯观察者失败静默。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "logger"
+      ],
+      "loc": 182,
+      "decision": "partial",
+      "batch": "P1",
+      "reason": "官方有 dsh-client-ui-trajectory（轨迹账本）与 session-log-export；但本插件写 JSONL 审计是它独有",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-vision-rotator",
+      "bare": "dsh-vision-rotator",
+      "version": "0.1.0",
+      "dir": "dsh-vision-rotator",
+      "purpose": "健康探测所有备用视觉提供商；当 modlens_read_image 因配额耗尽/限速/超时/5xx 失败时，自动把 openai 槽切到下一个健康的备用提供商（gemini-api 独立槽不受影响）。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "webServer",
+        "logger"
+      ],
+      "loc": 391,
+      "decision": "keep",
+      "batch": "P1",
+      "reason": "官方无视觉提供商轮换；仅次于 modlens 存在时才有效",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-modlens-autoread",
+      "bare": "dsh-modlens-autoread",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-modlens-autoread",
+      "purpose": "选普通纯文本模型时直接粘贴/发送图片会自动判定模型模态并调用 modlens 读图，不必手动切到 \"(modlens vision)\" 双胞胎模型。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "agents",
+        "llm",
+        "attachments"
+      ],
+      "loc": 580,
+      "decision": "dep",
+      "batch": "P2",
+      "reason": "同上，依赖 modlens",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-modlens-guard",
+      "bare": "dsh-modlens-guard",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-modlens-guard",
+      "purpose": "自动移除 cordis.patch.yml 里 modlens 的 visionProvider: false 并热重建该条目，每 60s 巡查一次，防止 (modlens vision) 模型再次从选择器里消失。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "timer",
+        "loader"
+      ],
+      "loc": 212,
+      "decision": "dep",
+      "batch": "P2",
+      "reason": "没有 modlens 就是死代码；modlens 迁移成功后才谈",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-session-history",
+      "bare": "dsh-session-history",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-session-history",
+      "purpose": "在对话区发送栏加历史按钮，弹出过往会话列表并可一键跳转；另提供消息迷你地图竖条导航（每条用户消息一根横线）。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "locale"
+      ],
+      "loc": 14,
+      "decision": "builtin",
+      "batch": "P2",
+      "reason": "官方 dsh-session-query-sqlite 提供跨会话/会话内全文搜索（默认 openAt: never，需改 first-search 打开）+ sidebar 搜索 + workspace Mod+K",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-web-fetch-local",
+      "bare": "dsh-web-fetch-local",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-web-fetch-local",
+      "purpose": "给 DSH 的 web_fetch 提供一个本地原生 HTTP(S) 抓取 provider，带 SSRF 防护与响应体积上限。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "web"
+      ],
+      "loc": 193,
+      "decision": "partial",
+      "batch": "P2",
+      "reason": "官方新增 dsh-web-fetch-http；本插件带 SSRF 防护与体积上限，是否有必要取决于官方实现",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-web-search-bing",
+      "bare": "dsh-web-search-bing",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-web-search-bing",
+      "purpose": "给 DSH 提供一个免 API Key 的 Bing 网页搜索 provider。",
+      "hasClient": false,
+      "peerDeps": "none",
+      "services": [
+        "web"
+      ],
+      "loc": 297,
+      "decision": "partial",
+      "batch": "P2",
+      "reason": "官方新增 dsh-web-search-deepseek + dsh-tool-web（默认关闭）；本插件的存在理由是\"官方 firecrawl 在其网络被 IP 封\"—— 若 deepseek 搜索可用则不必迁",
+      "risk": "低",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-diagram-renderer",
+      "bare": "dsh-diagram-renderer",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-diagram-renderer",
+      "purpose": "提供 render_diagram 工具，在会话流里渲染可交互的 SVG 图表卡片（toolview 渲染器：复制/下载/缩放/平移/分步播放），并附带 diagram 技能。",
+      "hasClient": true,
+      "peerDeps": {
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "tools",
+        "webServer",
+        "slots",
+        "conversationEvents"
+      ],
+      "loc": 1052,
+      "decision": "keep",
+      "batch": "P3",
+      "reason": "官方全 289 包与所有 md/js 中 mermaid 零命中 —— 图表渲染无官方等价，必须迁",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-file-explorer",
+      "bare": "dsh-file-explorer",
+      "version": "0.2.0",
+      "dir": "plugins/dsh-file-explorer",
+      "purpose": "右侧 details 面板的文件浏览器：文件树 + 代码高亮 + docx/xlsx/pptx/pdf/图片提取预览 + 大文本分段预览，另有\"详情\"tab。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "slots",
+        "webServer",
+        "tools",
+        "hostServices"
+      ],
+      "loc": 332,
+      "decision": "builtin",
+      "batch": "P3",
+      "reason": "官方已内置 ui-sidebar-files（懒加载文件树）+ ui-sidebar-documentpreview（Office/表格/MD/代码/图片/PDF）+ ui-sidebar-browser",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-frontend-reload",
+      "bare": "dsh-frontend-reload",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-frontend-reload",
+      "purpose": "在页面内加刷新按钮和 Ctrl+R 快捷键（桌面壳 Windows 无应用菜单/reload 角色，做页面内兜底）。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "slots"
+      ],
+      "loc": 5,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "新版壳的 compatibility-chrome 自带 reload 命令；且新增 dsh-client-hmr —— 需实测是否已覆盖\"页面内刷新按钮\"",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-model-picker-group",
+      "bare": "dsh-model-picker-group",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-model-picker-group",
+      "purpose": "重排会话模型选择器的分组，把每个厂商的 \"(modlens vision)\" 模型组挪到该厂商普通模型组正下方，让同厂商模型相邻显示。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "connection",
+        "locale"
+      ],
+      "loc": 14,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "官方 dsh-client-ui-model-selection 管模型选择，但\"按厂商重排分组\"无官方等价",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-model-whitelist",
+      "bare": "dsh-model-whitelist",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-model-whitelist",
+      "purpose": "设置页\"模型管理\"面板：勾选哪些 provider 的模型出现在会话模型选择器里，并可对指定 provider/model 发一次最小 chat 请求测试连通性与延迟。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "locale",
+        "remote",
+        "webServer",
+        "hostServices"
+      ],
+      "loc": 152,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "官方 settingd-subagent 有\"子代理可选模型白名单\"；但\"会话选择器里勾选展示哪些模型\"是本插件独有",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-remote-workspace",
+      "bare": "dsh-remote-workspace",
+      "version": "0.0.1",
+      "dir": "plugins/dsh-remote-workspace",
+      "purpose": "把 SSH 远程主机 / WSL 子系统 / Docker 容器做成一等公民的独立工作区，提供远程工作区选择与连接配置的 UI 与后端注册。",
+      "hasClient": true,
+      "peerDeps": {
+        "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+        "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "slots",
+        "workspaces",
+        "sessions",
+        "webServer",
+        "subprocess",
+        "workspaceRegistry"
+      ],
+      "loc": 733,
+      "decision": "rework",
+      "batch": "P3",
+      "reason": "必须改造：inject 与 client exports 都引用已删除的 @deepseek-ai/dsh-client-runtime，加载即失败",
+      "risk": "高（引用已删除的包，必改造）",
+      "missingImports": [
+        "@deepseek-ai/dsh-client-runtime（inject + exports + client 类型导入）"
+      ]
+    },
+    {
+      "name": "@dsh-external/dsh-settings-scope-shim",
+      "bare": "dsh-settings-scope-shim",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-settings-scope-shim",
+      "purpose": "纯前端垫片：修正设置面板的作用域（scope）问题；宿主半刻意留空，整包只为承载 client 面而存在。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "(client-only; host inject=[])"
+      ],
+      "loc": 7,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "它当年是垫 0.1.x 的 settings 作用域缺口；新内核 settings 已重写（STATE_VERSION 2、profile patch 层），很可能已无必要 —— 必须实测",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-super-injector",
+      "bare": "dsh-super-injector",
+      "version": "0.3.3",
+      "dir": "plugins/dsh-routing-suite",
+      "purpose": "聚合套件目录：injector（dsh-super-injector 运行时注入器插件，提供 dev_* 工具全套：注入/热重载/卸载/路由自愈/插件管理 UI）＋ preset（dsh-router-standard 思维模式路由 agent 预设，非 cordis 插件）。",
+      "hasClient": true,
+      "peerDeps": {
+        "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2"
+      },
+      "services": [
+        "systemPrompt",
+        "tools",
+        "timer",
+        "llm",
+        "webServer",
+        "slots"
+      ],
+      "loc": 10967,
+      "decision": "rework",
+      "batch": "P3",
+      "reason": "新版内置 dsh-cordis-host-runner / dsh-client-runner / dsh-tool-cordis = 模型自写动态插件的定义/运行/停止；与本插件的 dev_* 工具集部分重叠 —— 需逐功能对比；且它引用了已删除的 dsh-client-runtime",
+      "risk": "高（引用已删除的包，必改造）",
+      "missingImports": [
+        "@deepseek-ai/dsh-client-runtime（inject + client bundle 外部依赖）"
+      ]
+    },
+    {
+      "name": "@dsh-external/dsh-system-notify",
+      "bare": "dsh-system-notify",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-system-notify",
+      "purpose": "任务/会话完成时在电脑右上角弹 Windows toast；客户端向其他插件提供 ctx.notify 服务复用。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "notify"
+      ],
+      "loc": 11,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "桌面壳自带 notifications 插件（cordis.patch.yml 插入）；但 ctx.notify 服务是给其他插件复用的接口，是否有官方等价需实测",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-tool-renderers",
+      "bare": "dsh-tool-renderers",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-tool-renderers",
+      "purpose": "为 DSH 特有工具（goal / jobs / subagent）注册 keyed toolview 渲染器，让它们的会话行显示紧凑摘要卡而不是通用兜底渲染。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "(client-only; host inject=[])"
+      ],
+      "loc": 14,
+      "decision": "builtin",
+      "batch": "P3",
+      "reason": "官方已内置 dsh-client-ui-goal / -jobs / -subagent 原生渲染这三类工具",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-ui-performance",
+      "bare": "dsh-ui-performance",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-ui-performance",
+      "purpose": "注入前端 CSS：禁用设置面板的全视口 backdrop-filter 毛玻璃，并对面板做视口自适应放大与内容适配，缓解设置页渲染卡顿。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "(client-only; host inject=[])"
+      ],
+      "loc": 5,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "官方无专用 UI 性能包；但新版壳已重写设置面板与主题，毛玻璃卡顿可能已修 —— 需实测后再决定",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "@dsh-external/dsh-vision-engine",
+      "bare": "dsh-vision-engine",
+      "version": "0.1.0",
+      "dir": "plugins/dsh-vision-engine",
+      "purpose": "图片识别模型配置中心：多配置（本地 Ollama / API 预设）管理与\"设为当前\"、测试识别、渠道额度监控与用量统计，并托管 Ollama 的启动/停止生命周期。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "webServer",
+        "hostServices",
+        "locale",
+        "slots"
+      ],
+      "loc": 979,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "官方已内置视觉输入（dsh-llm-deepseek inputModalities + imagePixelBudget + settings-models 文本/图片勾选）；但多配置管理 / Ollama 生命周期 / 额度统计是本插件独有",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    },
+    {
+      "name": "dsh-skills-manager",
+      "bare": "dsh-skills-manager",
+      "version": "0.2.1",
+      "dir": "plugins/dsh-skills-manager",
+      "purpose": "设置页 Skills 管理器：系统/用户技能分类展示，用户技能支持开关、编辑、删除、新建，并集成在线技能市场（目录源浏览/搜索/校验安装/更新/卸载）。",
+      "hasClient": true,
+      "peerDeps": "none",
+      "services": [
+        "skills",
+        "fs",
+        "shell",
+        "sandboxPolicy",
+        "webServer",
+        "hostServices"
+      ],
+      "loc": 305,
+      "decision": "partial",
+      "batch": "P3",
+      "reason": "官方 dsh-skill* 全家 + ui-skill + 内置 dshmarket 1.66.5 + community-market；但\"用户技能开关/编辑/删除/新建\"的具体交互需实测对比",
+      "risk": "中（client 半依赖 __ModuleLoader__ 与 slot API，格式可能已变）",
+      "missingImports": []
+    }
+  ]
+}

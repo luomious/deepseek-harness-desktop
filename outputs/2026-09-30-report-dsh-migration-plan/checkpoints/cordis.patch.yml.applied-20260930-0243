@@ -1,0 +1,481 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+#
+# 2026-09-30 迁移批次：P0 已应用（18 provider / 75 模型）。
+# 每条 insert 由 _tmp/patch-edit.mjs 追加（带 id 去重与回读校验）。
+# 回滚：把内容换成 [] 并重启（基线 ~/.dsh/_backups/migration-p0-baseline-20260930/）。
+- id: llm-pi-ai
+  config:
+    providers:
+      tokenry:
+        displayName: tokenry (tokenrhythm new key)
+        apiKeyEnv: TOKENRY_API_KEY
+        api: openai-completions
+        baseURL: https://tokenrhythm.studio/v1
+        models:
+          - id: deepseek-flash
+            input:
+              - text
+              - image
+            contextWindow: 1000000
+        compat:
+          supportsDeveloperRole: false
+      opencode-go:
+        apiKeyEnv: OPENCODE_GO_API_KEY
+        baseURL: https://opencode.ai/zen/go/v1
+        models:
+          - id: deepseek-v4-flash
+            name: DeepSeek V4 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+          - id: deepseek-v4-pro
+            name: DeepSeek V4 Pro
+            contextWindow: 1000000
+            maxTokens: 384000
+          - id: glm-5.2
+            name: GLM-5.2
+            contextWindow: 1000000
+            maxTokens: 131072
+          - id: kimi-k3
+            name: Kimi K3 (2x usage)
+            contextWindow: 1048576
+            maxTokens: 131072
+        api: openai-completions
+        compat:
+          supportsDeveloperRole: false
+      sennsenova:
+        displayName: SenseNova
+        apiKeyEnv: SENNSENOVA_API_KEY
+        api: openai-completions
+        baseURL: https://token.sensenova.cn/v1/
+        retryPolicy:
+          mode: normal
+          maxRetries: 6
+          retryableCodes:
+            - RATE_LIMIT
+            - SERVER
+            - TIMEOUT
+            - TRANSPORT
+          backoff:
+            initialDelayMs: 5000
+            maxDelayMs: 65000
+            jitterRatio: 0.2
+        models:
+          - id: deepseek-v4-flash
+            name: deepseek-v4-flash
+            contextWindow: 1048576
+            compat:
+              supportsDeveloperRole: false
+          - id: deepseek-v4-pro
+            name: deepseek-v4-pro
+            contextWindow: 1048576
+            compat:
+              supportsDeveloperRole: false
+          - id: kimi-k3
+            name: kimi-k3
+            contextWindow: 1048576
+            compat:
+              supportsDeveloperRole: false
+        compat:
+          supportsDeveloperRole: false
+      duoyuanx:
+        displayName: duoyuanx
+        apiKeyEnv: DUOYUANX_API_KEY
+        api: openai-completions
+        baseURL: https://chat.ai666.net/api/codex
+        models:
+          - id: gpt-5.4
+            contextWindow: 1050000
+          - id: gpt-5.5
+            contextWindow: 1050000
+          - id: gpt-5.6-luna
+            contextWindow: 1050000
+          - id: gpt-5.6-sol
+            contextWindow: 1050000
+          - id: gpt-5.6-terra
+            contextWindow: 1050000
+        compat:
+          supportsDeveloperRole: false
+      tokenrhythm01:
+        displayName: tokenrhythm01
+        apiKeyEnv: TOKENRHYTHM01_API_KEY
+        api: openai-completions
+        baseURL: https://tokenrhythm.studio/v1
+        models:
+          - id: qwen3.7-flash
+            input:
+              - text
+              - image
+            contextWindow: 1000000
+            maxTokens: 131072
+          - id: kimi-k2.6
+            input:
+              - text
+              - image
+            contextWindow: 256000
+          - id: qwen3.8-flash
+            input:
+              - text
+              - image
+            contextWindow: 1000000
+            maxTokens: 131072
+          - id: mimo-v2.5-pro
+            contextWindow: 256000
+          - id: kimi-k2.7-code
+            input:
+              - text
+              - image
+            contextWindow: 256000
+          - id: glm-5.2
+            contextWindow: 1000000
+          - id: qwen3.8-max
+            contextWindow: 1000000
+            input:
+              - text
+              - image
+          - id: deepseek-v4-flash-0731
+            contextWindow: 1000000
+          - id: seed-2.1-turbo
+            input:
+              - text
+              - image
+            contextWindow: 262144
+          - id: seed-2.1-pro
+            input:
+              - text
+              - image
+            contextWindow: 262144
+          - id: deepseek-v4-pro-0813
+            contextWindow: 1000000
+          - id: glm-5.3
+            contextWindow: 1048576
+          - id: glm-5.3-flash
+            contextWindow: 1048576
+            input:
+              - text
+              - image
+          - id: deepseek-flash
+            input:
+              - text
+              - image
+            contextWindow: 1000000
+        compat:
+          supportsDeveloperRole: false
+      openrouter:
+        baseURL: https://openrouter.ai/api/v1
+        models:
+          - id: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+            input:
+              - text
+              - image
+            name: 'NVIDIA: Nemotron 3 Nano Omni (free)'
+            contextWindow: 256000
+            maxTokens: 65536
+          - id: nvidia/nemotron-3-super-120b-a12b:free
+            name: 'NVIDIA: Nemotron 3 Super (free)'
+            contextWindow: 262144
+            maxTokens: 262144
+          - id: nvidia/nemotron-3-ultra-550b-a55b:free
+            name: 'NVIDIA: Nemotron 3 Ultra (free)'
+            contextWindow: 1000000
+            maxTokens: 65536
+          - id: openrouter/free
+            input:
+              - text
+              - image
+            name: Free Models Router
+            contextWindow: 200000
+            maxTokens: 4096
+          - id: poolside/laguna-xs-2.1:free
+            name: 'Poolside: Laguna XS 2.1 (free)'
+            contextWindow: 262144
+            maxTokens: 32768
+          - id: nex-agi/nex-n2.5-pro:free
+            input:
+              - text
+              - image
+            name: 'Nex AGI: Nex N2.5 Pro (free)'
+            contextWindow: 262144
+            maxTokens: 32768
+        apiKeyEnv: OPENROUTER_API_KEY
+        api: openai-completions
+        compat:
+          supportsDeveloperRole: false
+      yidong:
+        displayName: yidong
+        apiKeyEnv: YIDONG_API_KEY
+        api: openai-completions
+        baseURL: https://zhenze-huhehaote.cmecloud.cn/v1/
+        models:
+          - id: DeepSeek-V4-Flash
+            name: deepseek-v4-flash
+            contextWindow: 1000000
+        compat:
+          supportsDeveloperRole: false
+      hy3-free:
+        displayName: 娣峰厓 hy3 (鍏嶈垂)
+        apiKeyEnv: HY3_PROXY_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:8787/v1
+        models:
+          - id: hy3
+            name: hy3 (娣峰厓路鍏嶈垂)
+            contextWindow: 131072
+          - id: hy3-preview
+            name: hy3-preview (娣峰厓路鍏嶈垂)
+            contextWindow: 131072
+        compat:
+          supportsDeveloperRole: false
+      baidu-qianfan:
+        displayName: 鐧惧害鍗冨竼 (Baidu Qianfan)
+        apiKeyEnv: BAIDU_QIANFAN_API_KEY
+        api: openai-completions
+        baseURL: https://qianfan.baidubce.com/v2
+        models:
+          - id: ernie-4.5-turbo-128k
+            name: ERNIE-4.5-Turbo-128K
+            contextWindow: 131072
+            maxTokens: 8192
+          - id: ernie-4.5-turbo-32k
+            name: ERNIE-4.5-Turbo-32K
+            contextWindow: 32768
+            maxTokens: 8192
+          - id: ernie-4.5-turbo-vl
+            name: ERNIE-4.5-Turbo-VL
+            contextWindow: 32768
+            maxTokens: 8192
+            input:
+              - text
+              - image
+        compat:
+          supportsDeveloperRole: false
+      zhipu-ai:
+        displayName: 鏅鸿氨AI (Zhipu)
+        apiKeyEnv: ZHIPU_API_KEY
+        api: openai-completions
+        baseURL: https://open.bigmodel.cn/api/paas/v4/
+        models:
+          - id: glm-4.7-flash
+            name: GLM-4.7-Flash
+            contextWindow: 200000
+            maxTokens: 4096
+          - id: glm-4-flash
+            name: GLM-4-Flash
+            contextWindow: 200000
+            maxTokens: 4096
+        compat:
+          supportsDeveloperRole: false
+      groq:
+        displayName: Groq
+        apiKeyEnv: GROQ_API_KEY
+        api: openai-completions
+        baseURL: https://api.groq.com/openai/v1/
+        models:
+          - id: openai/gpt-oss-120b
+            name: GPT-OSS 120B
+            contextWindow: 131072
+            maxTokens: 32768
+          - id: openai/gpt-oss-20b
+            name: GPT-OSS 20B
+            contextWindow: 131072
+            maxTokens: 32768
+          - id: qwen/qwen3.8-27b
+            input:
+              - text
+              - image
+            name: Qwen3.8 27B
+            contextWindow: 32768
+            maxTokens: 32768
+        compat:
+          supportsDeveloperRole: false
+      justdowork:
+        displayName: justdowork
+        apiKeyEnv: JUSTDOWORK_API_KEY
+        api: openai-completions
+        baseURL: https://api.justwoker.icu/v1/
+        models:
+          - id: claude-opus-5
+          - id: claude-opus-5-thinking
+        compat:
+          supportsDeveloperRole: false
+      qiniu:
+        displayName: qiniu
+        apiKeyEnv: QINIU_API_KEY
+        api: openai-completions
+        baseURL: https://api.qnaigc.com/v1
+        models:
+          - id: deepseek/deepseek-v4-flash-20260731
+            contextWindow: 1000000
+          - id: deepseek/deepseek-v4-pro-0813
+            contextWindow: 1000000
+            maxTokens: 384000
+          - id: deepseek/deepseek-v4-flash-vision-exp
+            contextWindow: 1000000
+            maxTokens: 384000
+          - id: moonshotai/kimi-k3
+            contextWindow: 1048576
+            maxTokens: 1048576
+          - id: z-ai/glm-5.3
+            contextWindow: 1000000
+            maxTokens: 128000
+          - id: z-ai/glm-5.3-flash
+            contextWindow: 1000000
+            maxTokens: 128000
+          - id: qwen/qwen3.8-max
+            contextWindow: 1000000
+            maxTokens: 128000
+          - id: tencent/hy4-preview
+            contextWindow: 1000000
+            maxTokens: 128000
+        compat:
+          supportsDeveloperRole: false
+      amd:
+        displayName: amd
+        apiKeyEnv: AMD_API_KEY
+        api: openai-completions
+        baseURL: https://developer.amd.com.cn/radeon/api/v1
+        models:
+          - id: DeepSeek-V4-Flash
+            input:
+              - text
+            name: DeepSeek-V4-Flash
+            contextWindow: 1048576
+          - id: Qwen3.8-Flash-Next
+            input:
+              - text
+              - image
+            name: Qwen3.8-Flash-Next
+            contextWindow: 262144
+        compat:
+          supportsDeveloperRole: false
+      modelscope:
+        displayName: modelscope
+        apiKeyEnv: MODELSCOPE_API_KEY
+        api: openai-completions
+        baseURL: https://api-inference.modelscope.cn/v1
+        models:
+          - id: deepseek-ai/DeepSeek-V4-Flash-0731
+            contextWindow: 1000000
+            compat:
+              supportsDeveloperRole: false
+          - id: deepseek-ai/DeepSeek-V4-Pro-0813
+            contextWindow: 1000000
+            compat:
+              supportsDeveloperRole: false
+          - id: deepseek-ai/DeepSeek-V4.1-Flash
+            contextWindow: 1048576
+        compat:
+          supportsDeveloperRole: false
+      tokenrouter:
+        displayName: tokenrouter
+        apiKeyEnv: TOKENROUTER_API_KEY
+        api: openai-completions
+        baseURL: https://api.tokenrouter.com/v1
+        models:
+          - id: z-ai/glm-5.3
+            contextWindow: 1000000
+            compat:
+              supportsDeveloperRole: false
+        compat:
+          supportsDeveloperRole: false
+      codecraft:
+        displayName: codecraft
+        apiKeyEnv: CODECRAFT_API_KEY
+        api: openai-completions
+        compat:
+          supportsDeveloperRole: false
+        baseURL: https://codecraftapi.com/v1
+        models:
+          - id: gpt-5.6-sol
+            input:
+              - text
+              - image
+            name: GPT-5.6 Sol
+            contextWindow: 1050000
+          - id: claude-opus-5
+            input:
+              - text
+              - image
+            name: Claude Opus 5
+            contextWindow: 1000000
+          - id: claude-fable-5
+            input:
+              - text
+              - image
+            name: Claude Fable 5
+            contextWindow: 1000000
+          - id: claude-mythos-preview
+            input:
+              - text
+              - image
+            name: Claude Mythos Preview
+            contextWindow: 1000000
+          - id: kimi-k3
+            input:
+              - text
+              - image
+            name: Kimi K3
+            contextWindow: 1000000
+          - id: qwen3.8-max
+            input:
+              - text
+              - image
+            name: Qwen3.8 Max
+            contextWindow: 1000000
+      apinex:
+        displayName: apinex
+        apiKeyEnv: APINEX_API_KEY
+        api: openai-completions
+        compat:
+          supportsDeveloperRole: false
+        baseURL: https://api.apinex.bond/v1
+        models:
+          - id: free/gpt-5.6-luna
+            contextWindow: 32768
+            maxTokens: 8192
+          - id: free/glm-5.3-flash
+            contextWindow: 32768
+            maxTokens: 8192
+          - id: free/gemini-3.8-flash
+            contextWindow: 32768
+            maxTokens: 8192
+          - id: free/deepseek-v4.1-flash
+            contextWindow: 49152
+            maxTokens: 8192
+          - id: free/qwen-3.8-max
+            contextWindow: 49152
+            maxTokens: 8192
+          - id: free/deepseek-v4-flash-0731
+            contextWindow: 49152
+            maxTokens: 8192
+          - id: free/deepseek-v4-pro-0813
+            contextWindow: 49152
+            maxTokens: 8192
+          - id: free/mimo-v2.5
+            contextWindow: 131072
+            maxTokens: 32768
+          - id: free/muse-spark-1.3
+            contextWindow: 131072
+            maxTokens: 32768
+- insert:
+    - id: host-services
+      name: '@dsh-external/dsh-host-services'
+    - id: tool-audit
+      name: '@dsh-external/dsh-tool-audit'
+    - id: temp-tracker
+      name: '@dsh-external/dsh-temp-tracker'
+    - id: session-hygiene
+      name: '@dsh-external/dsh-session-hygiene'
+    - id: self-maintenance
+      name: '@dsh-external/dsh-self-maintenance'
+    - id: health-dashboard
+      name: '@dsh-external/dsh-health-dashboard'
+    - id: code-security-guard
+      name: '@dsh-external/dsh-code-security-guard'
+    - id: task-scheduler
+      name: '@dsh-external/dsh-task-scheduler'
+    - id: project-brief
+      name: '@dsh-external/dsh-project-brief'
+    - id: prompt-enhance
+      name: '@dsh-external/dsh-prompt-enhance'

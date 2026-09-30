@@ -1,0 +1,486 @@
+{
+  "generatedAt": "2026-09-30T01:46:05.112Z",
+  "profile": "C:\\Users\\机械革命\\.dsh\\profiles\\desktop",
+  "officialApp": "D:/DSH-Desktop/DSH Desktop",
+  "summary": {
+    "linkedTotal": 43,
+    "loadedTotal": 10,
+    "notLoadedTotal": 33,
+    "insertedButNotLinked": []
+  },
+  "plugins": [
+    {
+      "plugin": "dsh-code-security-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-code-security-guard",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-command-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-command-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-context-lifecycle",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\dsh-context-lifecycle",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-crashpad-hygiene",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-crashpad-hygiene",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-developer-role-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-developer-role-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-diagram-renderer",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-diagram-renderer",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-diff-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-diff-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-file-explorer",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-file-explorer",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "builtin",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-force-reasoning-effort",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-force-reasoning-effort",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "builtin",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-frontend-reload",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-frontend-reload",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-health-dashboard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-health-dashboard",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-host-services",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-host-services",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-hy3-gateway",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-hy3-gateway",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-instance-janitor",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-instance-janitor",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-memory-files",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-memory-files",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-memory-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-memory-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-model-inspection-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-model-inspection-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-model-picker-group",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-model-picker-group",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-model-provider-failover",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-model-provider-failover",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-model-tier-router",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-model-tier-router",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-model-whitelist",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-model-whitelist",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-modlens-autoread",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-modlens-autoread",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "dep",
+        "batch": "P2",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-modlens-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-modlens-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "dep",
+        "batch": "P2",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-project-brief",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-project-brief",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-prompt-enhance",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-prompt-enhance",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-remote-workspace",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-remote-workspace",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "rework",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-self-maintenance",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-self-maintenance",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-session-history",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-session-history",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "builtin",
+        "batch": "P2",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-session-hygiene",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-session-hygiene",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-session-watchdog",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-session-watchdog",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-settings-scope-shim",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-settings-scope-shim",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-stuck-loop-guard",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\dsh-stuck-loop-guard",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-super-injector",
+      "linked": true,
+      "linkTarget": "(real dir)",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "rework",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-system-notify",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-system-notify",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-task-scheduler",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-task-scheduler",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-temp-tracker",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-temp-tracker",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-tool-audit",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-tool-audit",
+      "loadedInOfficial": true,
+      "plan": {
+        "decision": "partial",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-tool-renderers",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-tool-renderers",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "builtin",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-ui-performance",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-ui-performance",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-vision-engine",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-vision-engine",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P3",
+        "hasClient": true
+      }
+    },
+    {
+      "plugin": "dsh-vision-rotator",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\dsh-vision-rotator",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "keep",
+        "batch": "P1",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-web-fetch-local",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-web-fetch-local",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P2",
+        "hasClient": false
+      }
+    },
+    {
+      "plugin": "dsh-web-search-bing",
+      "linked": true,
+      "linkTarget": "D:\\Deepseek-Harness\\plugins\\dsh-web-search-bing",
+      "loadedInOfficial": false,
+      "plan": {
+        "decision": "partial",
+        "batch": "P2",
+        "hasClient": false
+      }
+    }
+  ]
+}

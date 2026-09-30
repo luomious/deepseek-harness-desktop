@@ -1,0 +1,154 @@
+{
+  "generatedAt": "2026-09-29T18:24:47.455Z",
+  "source": "C:/Users/机械革命/.dsh/settings.yaml.imported",
+  "sourceSha256": "5c66bf4b4d19c1acc4c98b9134f33a1c3c0a74f49a584235b1add231fbf1f0d7",
+  "providerCount": 18,
+  "modelCount": 75,
+  "providers": [
+    {
+      "id": "tokenry",
+      "displayName": "tokenry (tokenrhythm new key)",
+      "apiKeyEnv": "TOKENRY_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://tokenrhythm.studio/v1",
+      "modelCount": 1
+    },
+    {
+      "id": "opencode-go",
+      "displayName": null,
+      "apiKeyEnv": "OPENCODE_GO_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://opencode.ai/zen/go/v1",
+      "modelCount": 4
+    },
+    {
+      "id": "sennsenova",
+      "displayName": "SenseNova",
+      "apiKeyEnv": "SENNSENOVA_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://token.sensenova.cn/v1/",
+      "modelCount": 3
+    },
+    {
+      "id": "duoyuanx",
+      "displayName": "duoyuanx",
+      "apiKeyEnv": "DUOYUANX_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://chat.ai666.net/api/codex",
+      "modelCount": 5
+    },
+    {
+      "id": "tokenrhythm01",
+      "displayName": "tokenrhythm01",
+      "apiKeyEnv": "TOKENRHYTHM01_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://tokenrhythm.studio/v1",
+      "modelCount": 14
+    },
+    {
+      "id": "openrouter",
+      "displayName": null,
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "modelCount": 6
+    },
+    {
+      "id": "yidong",
+      "displayName": "yidong",
+      "apiKeyEnv": "YIDONG_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://zhenze-huhehaote.cmecloud.cn/v1/",
+      "modelCount": 1
+    },
+    {
+      "id": "hy3-free",
+      "displayName": "娣峰厓 hy3 (鍏嶈垂)",
+      "apiKeyEnv": "HY3_PROXY_KEY",
+      "api": "openai-completions",
+      "baseURL": "http://127.0.0.1:8787/v1",
+      "modelCount": 2
+    },
+    {
+      "id": "baidu-qianfan",
+      "displayName": "鐧惧害鍗冨竼 (Baidu Qianfan)",
+      "apiKeyEnv": "BAIDU_QIANFAN_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://qianfan.baidubce.com/v2",
+      "modelCount": 3
+    },
+    {
+      "id": "zhipu-ai",
+      "displayName": "鏅鸿氨AI (Zhipu)",
+      "apiKeyEnv": "ZHIPU_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://open.bigmodel.cn/api/paas/v4/",
+      "modelCount": 2
+    },
+    {
+      "id": "groq",
+      "displayName": "Groq",
+      "apiKeyEnv": "GROQ_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api.groq.com/openai/v1/",
+      "modelCount": 3
+    },
+    {
+      "id": "justdowork",
+      "displayName": "justdowork",
+      "apiKeyEnv": "JUSTDOWORK_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api.justwoker.icu/v1/",
+      "modelCount": 2
+    },
+    {
+      "id": "qiniu",
+      "displayName": "qiniu",
+      "apiKeyEnv": "QINIU_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api.qnaigc.com/v1",
+      "modelCount": 8
+    },
+    {
+      "id": "amd",
+      "displayName": "amd",
+      "apiKeyEnv": "AMD_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://developer.amd.com.cn/radeon/api/v1",
+      "modelCount": 2
+    },
+    {
+      "id": "modelscope",
+      "displayName": "modelscope",
+      "apiKeyEnv": "MODELSCOPE_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api-inference.modelscope.cn/v1",
+      "modelCount": 3
+    },
+    {
+      "id": "tokenrouter",
+      "displayName": "tokenrouter",
+      "apiKeyEnv": "TOKENROUTER_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api.tokenrouter.com/v1",
+      "modelCount": 1
+    },
+    {
+      "id": "codecraft",
+      "displayName": "codecraft",
+      "apiKeyEnv": "CODECRAFT_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://codecraftapi.com/v1",
+      "modelCount": 6
+    },
+    {
+      "id": "apinex",
+      "displayName": "apinex",
+      "apiKeyEnv": "APINEX_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "https://api.apinex.bond/v1",
+      "modelCount": 9
+    }
+  ],
+  "note": "不含 API Key 值；key 通过 apiKeyEnv 指向 ~/.dsh/.credentials.yaml"
+}

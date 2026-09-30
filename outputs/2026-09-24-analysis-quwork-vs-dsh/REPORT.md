@@ -93,7 +93,7 @@ Electron 主进程 (dist-electron/main/)
     - id: qurwork:builtin
       name: file:///C:/Users/.../dsh-plugins/installed/qurwork-builtin/1.0.1/dist/index.mjs
       config:
-        bridgeToken: 97SBktVUxAF7p-f2kIzBeXohTl55taOR0zaeKRTc_lQ
+        bridgeToken: <第三方凭据已脱敏>
         generation: 5
         defaultWorkspacePath: C:\Users\...\QuWork
 ```

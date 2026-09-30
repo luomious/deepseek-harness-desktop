@@ -1,0 +1,43 @@
+{
+  "$comment": "用 v2.0.16 自带 evaluatePluginCompatibility 实测结果。运行时 dsh 0.2.0-rc.1，exemptions = {}（无豁免）。",
+  "method": {
+    "function": "@deepseek-ai/dsh-app-boot/lib/index.js:286 evaluatePluginCompatibility(manifest, exemptions, runtimeVersion)",
+    "runtimeVersion": "0.2.0-rc.1",
+    "rule": "只检查 peerDependencies 中 name === '@deepseek-ai/dsh' 或 name.startsWith('@deepseek-ai/dsh-') 的项；范围用 semver.satisfies(runtime, range, { includePrerelease: true })；workspace:^ / workspace:~ / workspace:* 视为当前运行时（恒通过）",
+    "scanned": ["C:/Users/机械革命/.dsh/profiles/desktop/node_modules", "D:/Deepseek-Harness/plugins"]
+  },
+  "summary": {
+    "thirdPartyPackagesScanned": 573,
+    "withMatchingDshPeers": 9,
+    "incompatible": 8,
+    "activeProfileBundles": 51,
+    "incompatibleAmongBundles": 8,
+    "consequence": "被跳过的 bundle 记录在 profile.skippedBundles，启动时向 stderr 打印一行；应用照常启动（dsh-app-boot/lib/index.js:912-913 与 :515）"
+  },
+  "incompatible": [
+    { "package": "@huanlin/dsh-plugin-better-sidebar-plugin-office", "version": "0.1.2", "peers": { "@deepseek-ai/dsh-client-runtime": "^0.0.1-rc.1" }, "inBundles": true },
+    { "package": "dsh-bash-terminal", "version": "0.3.15", "peers": { "@deepseek-ai/dsh-tools": "^0.1.5-rc.1", "@deepseek-ai/dsh-settings": "^0.1.5-rc.1", "@deepseek-ai/dsh-llm": "^0.1.5-rc.1", "@deepseek-ai/dsh-shell": "^0.1.5-rc.1", "@deepseek-ai/dsh-sandbox": "^0.1.5-rc.1", "@deepseek-ai/dsh-timeout": "^0.1.5-rc.1", "@deepseek-ai/dsh-client-store": "^0.1.5-rc.1", "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.1", "@deepseek-ai/dsh-client-ui-settings": "^0.1.5-rc.1", "@deepseek-ai/dsh-client-ui-slots": "^0.1.5-rc.1", "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.1" }, "inBundles": true },
+    { "package": "dsh-better-sidebar", "version": "0.22.1", "peers": { "@deepseek-ai/dsh-agent": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-locale": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-ui-conversation": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-ui-primitives": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-ui-settings": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-ui-sidebar-right": "^0.1.7-rc.1", "@deepseek-ai/dsh-client-ui-slots": "^0.1.7-rc.1", "@deepseek-ai/dsh-host-webserver": "^0.1.7-rc.1", "@deepseek-ai/dsh-invariants": "^0.1.7-rc.1", "@deepseek-ai/dsh-llm": "^0.1.7-rc.1", "@deepseek-ai/dsh-session": "^0.1.7-rc.1", "@deepseek-ai/dsh-settings": "^0.1.7-rc.1", "@deepseek-ai/dsh-subagent": "^0.1.7-rc.1", "@deepseek-ai/dsh-tools": "^0.1.7-rc.1" }, "inBundles": true },
+    { "package": "dsh-find-plugin", "version": "0.3.7", "peers": { "@deepseek-ai/dsh-tools": "^0.1.0-rc.6" }, "inBundles": true },
+    { "package": "dsh-mcp-lens", "version": "0.1.0-rc.9", "peers": { "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.6", "@deepseek-ai/dsh-tools": "^0.1.0-rc.6" }, "inBundles": true },
+    { "package": "dsh-office-tools", "version": "1.0.3", "peers": { "@deepseek-ai/dsh-agent": "^0.1.0-rc.6 || ^0.1.1-rc.0 || ^0.1.2-alpha.0 || ^0.1.5-alpha.0", "@deepseek-ai/dsh-fs": "same", "@deepseek-ai/dsh-llm": "same", "@deepseek-ai/dsh-session": "same", "@deepseek-ai/dsh-tools": "same" }, "inBundles": true },
+    { "package": "dsh-tool-search", "version": "0.1.5", "peers": { "@deepseek-ai/dsh-agent": "^0.1.7-rc.2", "@deepseek-ai/dsh-llm": "^0.1.7-rc.2", "@deepseek-ai/dsh-session": "^0.1.7-rc.2", "@deepseek-ai/dsh-skill": "^0.1.7-rc.2", "@deepseek-ai/dsh-system-prompt": "^0.1.7-rc.2", "@deepseek-ai/dsh-tools": "^0.1.7-rc.2" }, "inBundles": true },
+    { "package": "dshmarket", "version": "1.40.0", "peers": { "@deepseek-ai/dsh-settings": "^0.1.0-rc.7 || ^0.1.1-rc.2 || ^0.1.2-alpha.2" }, "inBundles": true }
+  ],
+  "compatibleWithPeers": [
+    { "package": "@dsh-external/dsh-diagram-renderer", "version": "0.1.0", "peers": { "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2" } },
+    { "package": "@dsh-external/dsh-project-brief", "version": "0.0.1", "peers": { "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2", "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2" } },
+    { "package": "@dsh-external/dsh-remote-workspace", "version": "0.0.1", "peers": { "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2", "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2", "@deepseek-ai/dsh-client-ui-slots": ">=0.0.1-rc <2" } },
+    { "package": "@dsh-external/dsh-session-watchdog", "version": "0.0.1", "peers": { "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2", "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2" } },
+    { "package": "@dsh-external/dsh-super-injector", "version": "0.3.3", "peers": { "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2" } },
+    { "package": "@dsh-external/dsh-task-scheduler", "version": "0.1.0", "peers": { "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2", "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2" } },
+    { "package": "@openviking/dsh-memory-plugin", "version": "0.3.0", "peers": { "@deepseek-ai/dsh-llm": ">=0.1.0-rc.6 <0.2.0", "@deepseek-ai/dsh-mcp-client": ">=0.1.0-rc.6 <0.2.0", "@deepseek-ai/dsh-skill-filesystem": ">=0.1.0-rc.6 <0.2.0" } },
+    { "package": "dsh-context", "version": "0.59.2", "peers": { "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.5-rc.1", "@deepseek-ai/dsh-session": ">=0.1.5-rc.1", "@deepseek-ai/dsh-settings": ">=0.1.5-rc.1" } },
+    { "package": "dsh-safe-delete", "version": "0.2.1", "peers": { "@deepseek-ai/dsh-agent": ">=0.1.0-rc.6 <0.2.0", "@deepseek-ai/dsh-home-paths": ">=0.1.0-rc.3 <0.2.0", "@deepseek-ai/dsh-sandbox-policy": ">=0.1.0-rc.6 <0.2.0", "@deepseek-ai/dsh-settings": ">=0.1.0-rc.2 <0.2.0", "@deepseek-ai/dsh-tools": ">=0.1.0-rc.2 <0.2.0", "@deepseek-ai/dsh-user-approval": ">=0.1.0-rc.2 <0.2.0" } }
+  ],
+  "remedies": {
+    "perPluginExemption": "dsh plugin allow-version（或插件管理器），需显式 --accept-risk / acceptRisk:true；写入 profile 内 compatibility.json（PROFILE_COMPATIBILITY_FILENAME），逐「包名@版本」× 逐运行时版本授权",
+    "note": "dsh-safe-delete / @openviking 的 <0.2.0 上界因 includePrerelease 语义（0.2.0-rc.1 < 0.2.0）仍判为兼容"
+  },
+  "replay": "见同目录 eval-compat.mjs；需先把安装包内层 app-64.7z 解包到某目录，再把该目录路径作为参数传入"
+}
