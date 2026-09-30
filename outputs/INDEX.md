@@ -5,6 +5,7 @@
 
 | 日期 | 类型 | 主题 | 路径 | 入口 | 状态 |
 |---|---|---|---|---|---|
+| 2026-09-30 | report | 插件市场替代品分析：4392 个社区插件 vs 自研 44 + 已装 16（18个有更好替代/5个无替代建议保留/2个建议弃用）+ 顺带解决 403 与代理失效 | outputs/2026-09-30-report-plugin-market-alternatives/README.md |
 | 2026-09-30 | report | 插件迁移决策书：必要性×风险逐插件判定（A直接用10/B适配后迁9/C先放着11/D重写2/E不迁4/F第三方16）+ 独立性最终形态 | outputs/2026-09-30-report-plugin-migration-decision/README.md |
 | 2026-09-30 | report | 旧仓库归档与清空方案：43 处硬引用盘点 + 插件迁移判定 + 删除清单 + 7 步执行 | outputs/2026-09-30-report-repo-archive-and-purge/README.md |
 | 2026-09-30 | report | 官方版 DSH Desktop 迁移盘点：数据/配置/插件分层判定 + 44 插件矩阵 + 下一步 | outputs/2026-09-30-report-official-desktop-migration/README.md |
